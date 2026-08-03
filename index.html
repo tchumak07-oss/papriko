@@ -326,7 +326,12 @@
               <option value="">Спершу оберіть місто</option>
             </select>
           </div>
+          <div style="grid-column:span 3;">
+            <label>Картка зарахування післяплати (для вашої довідки)</label>
+            <input type="text" id="payout-card-input" value="" placeholder="напр. 5375 4141 хххх 1234" oninput="npSender.payoutCard=this.value" onchange="scheduleSave()">
+          </div>
         </div>
+        <p class="hint" style="margin-top:6px;">Це поле — лише для вашого запису. Нова Пошта не приймає номер картки через API для окремої посилки: куди перераховувати післяплату, налаштовується один раз у кабінеті NovaPay (novapay.ua) чи мобільному застосунку.</p>
       </div>
       <div class="catalog-group">
         <div class="catalog-group-title">Укрпошта</div>
@@ -410,6 +415,8 @@ function applyRemoteData(data){
   if(npInput) npInput.value = npApiKey;
   const senderCityInput = document.getElementById('sender-city-input');
   if(senderCityInput) senderCityInput.value = npSender.citySenderName || '';
+  const payoutCardInput = document.getElementById('payout-card-input');
+  if(payoutCardInput) payoutCardInput.value = npSender.payoutCard || '';
 }
 
 function scheduleSave(){
@@ -948,7 +955,8 @@ function saveNpApiKey(){
 let npSender = {
   citySenderRef: '', citySenderName: '',
   senderAddressRef: '', senderAddressDesc: '',
-  senderRef: '', contactSenderRef: '', sendersPhone: ''
+  senderRef: '', contactSenderRef: '', sendersPhone: '',
+  payoutCard: ''
 };
 let senderCitySuggestions = [];
 
@@ -1070,6 +1078,7 @@ function addOrder(){
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
     ukrIndex:'', address:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
+    codAmount:'',
     ttnNumber:'', ttnRef:''
   });
   renderOrders();
@@ -1303,7 +1312,7 @@ async function createNpWaybill(orderId){
     const contactRecipientRef = contacts && contacts[0] && contacts[0].Ref;
     if(!contactRecipientRef) throw new Error('Не вдалося отримати контактну особу отримувача');
 
-    const docData = await npApiCall('InternetDocument', 'save', {
+    const docParams = {
       PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
       PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
       DateTime: npDateFormat(o.date),
@@ -1323,7 +1332,15 @@ async function createNpWaybill(orderId){
       Recipient: recipientRef,
       ContactRecipient: contactRecipientRef,
       RecipientsPhone: o.phone
-    });
+    };
+    if(o.codAmount && Number(o.codAmount) > 0){
+      docParams.BackwardDeliveryData = [{
+        PayerType: 'Recipient',
+        CargoType: 'Money',
+        RedeliveryString: String(o.codAmount)
+      }];
+    }
+    const docData = await npApiCall('InternetDocument', 'save', docParams);
     const doc = docData && docData[0];
     if(!doc || !doc.IntDocNumber) throw new Error('Накладну не створено — немає номера у відповіді');
 
@@ -1404,10 +1421,12 @@ function deliveryBlockHtml(o){
             <option ${o.paymentMethod==='Безготівка'?'selected':''}>Безготівка</option>
           </select>
         </div>
+        <div><label>Післяплата, грн</label><input type="number" step="1" value="${o.codAmount}" oninput="updateOrderField(${o.id},'codAmount',this.value)" placeholder="0 = без післяплати"></div>
         <div style="display:flex;align-items:flex-end;">
           <button class="btn btn-primary btn-sm" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
         </div>
       </div>
+      <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі й переказується вам через NovaPay. На яку саме картку зараховувати — налаштовується один раз у кабінеті/додатку NovaPay, а не в цій програмі (Нова Пошта не дозволяє передавати довільний номер картки для кожної окремої посилки через це API).</p>
       <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
     `;
   } else if(o.deliveryMethod === 'Укрпошта'){
