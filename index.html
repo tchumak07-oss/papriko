@@ -964,7 +964,7 @@ async function loadSenderCounterparty(){
     if(!parties || parties.length === 0) throw new Error('У кабінеті не знайдено відправника. Перевірте API-ключ.');
     const sender = parties[0];
     npSender.senderRef = sender.Ref;
-    const contacts = await npApiCall('ContactPersonGeneral', 'getCounterpartyContactPersons', {Ref: sender.Ref, Page:'1'});
+    const contacts = await npApiCall('Counterparty', 'getCounterpartyContactPersons', {Ref: sender.Ref, Page:'1'});
     if(!contacts || contacts.length === 0) throw new Error('Не знайдено контактну особу відправника.');
     npSender.contactSenderRef = contacts[0].Ref;
     npSender.sendersPhone = contacts[0].Phones || '';
@@ -1299,7 +1299,7 @@ async function createNpWaybill(orderId){
     const recipientRef = cpData && cpData[0] && cpData[0].Ref;
     if(!recipientRef) throw new Error('Не вдалося створити отримувача');
 
-    const contacts = await npApiCall('ContactPersonGeneral', 'getCounterpartyContactPersons', {Ref: recipientRef, Page:'1'});
+    const contacts = await npApiCall('Counterparty', 'getCounterpartyContactPersons', {Ref: recipientRef, Page:'1'});
     const contactRecipientRef = contacts && contacts[0] && contacts[0].Ref;
     if(!contactRecipientRef) throw new Error('Не вдалося отримати контактну особу отримувача');
 
