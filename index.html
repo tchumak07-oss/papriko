@@ -306,6 +306,28 @@
         </div>
         <div class="hint" id="npKeyStatus" style="margin-top:6px;"></div>
       </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Дані відправника (для створення ТТН)</div>
+        <button class="btn btn-sm" onclick="loadSenderCounterparty()">Завантажити відправника з кабінету</button>
+        <div class="hint" id="senderCounterpartyStatus" style="margin-top:6px;"></div>
+        <div class="delivery-grid" style="margin-top:10px;">
+          <div class="np-city-wrap">
+            <label>Місто відправлення</label>
+            <input type="text" id="sender-city-input" placeholder="Почніть вводити назву міста"
+              oninput="npSender.citySenderName=this.value"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();searchSenderCity();}">
+            <div class="np-suggestions" id="sender-city-suggestions" style="display:none;"></div>
+          </div>
+          <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchSenderCity()" type="button">Знайти місто</button></div>
+          <div>
+            <label>Відділення відправлення</label>
+            <select id="sender-warehouse-select" onchange="selectSenderWarehouse(this.value, this.options[this.selectedIndex].text)">
+              <option value="">Спершу оберіть місто</option>
+            </select>
+          </div>
+        </div>
+      </div>
       <div class="catalog-group">
         <div class="catalog-group-title">Укрпошта</div>
         <p class="hint" style="margin:0;">Публічне API Укрпошти вимагає токен контрагента і підписані запити з сервера — з одного HTML-файлу в браузері безпечно це не підключити. Тому для Укрпошти адреса й індекс вводяться вручну, без автопошуку.</p>
@@ -365,7 +387,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 };
 
 function buildStatePayload(){
-  return { catalog, kits, orders, npApiKey, nextCatalogId, nextKitId, nextOrderId, updatedAt: new Date().toISOString() };
+  return { catalog, kits, orders, npApiKey, npSender, nextCatalogId, nextKitId, nextOrderId, updatedAt: new Date().toISOString() };
 }
 
 function applyRemoteData(data){
@@ -374,6 +396,7 @@ function applyRemoteData(data){
   kits = data.kits || [];
   orders = data.orders || [];
   npApiKey = data.npApiKey || '';
+  if(data.npSender) npSender = Object.assign(npSender, data.npSender);
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
   nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
   nextOrderId = data.nextOrderId || (Math.max(0, ...orders.map(o=>o.id), 0) + 1);
@@ -385,6 +408,8 @@ function applyRemoteData(data){
   renderChart();
   const npInput = document.getElementById('npApiKeyInput');
   if(npInput) npInput.value = npApiKey;
+  const senderCityInput = document.getElementById('sender-city-input');
+  if(senderCityInput) senderCityInput.value = npSender.citySenderName || '';
 }
 
 function scheduleSave(){
@@ -918,6 +943,93 @@ function saveNpApiKey(){
   scheduleSave();
 }
 
+/* ---------- sender (for TTN creation) ---------- */
+
+let npSender = {
+  citySenderRef: '', citySenderName: '',
+  senderAddressRef: '', senderAddressDesc: '',
+  senderRef: '', contactSenderRef: '', sendersPhone: ''
+};
+let senderCitySuggestions = [];
+
+async function loadSenderCounterparty(){
+  if(!npApiKey){
+    alert('Спочатку вкажіть і збережіть API-ключ Нової Пошти вище.');
+    return;
+  }
+  const statusEl = document.getElementById('senderCounterpartyStatus');
+  statusEl.textContent = 'Завантажую...';
+  try{
+    const parties = await npApiCall('CounterpartyGeneral', 'getCounterparties', {CounterpartyProperty:'Sender', Page:'1'});
+    if(!parties || parties.length === 0) throw new Error('У кабінеті не знайдено відправника. Перевірте API-ключ.');
+    const sender = parties[0];
+    npSender.senderRef = sender.Ref;
+    const contacts = await npApiCall('ContactPersonGeneral', 'getCounterpartyContactPersons', {Ref: sender.Ref, Page:'1'});
+    if(!contacts || contacts.length === 0) throw new Error('Не знайдено контактну особу відправника.');
+    npSender.contactSenderRef = contacts[0].Ref;
+    npSender.sendersPhone = contacts[0].Phones || '';
+    statusEl.textContent = `Готово: ${sender.Description || sender.CounterpartyType || 'відправник'} завантажено.`;
+    scheduleSave();
+  }catch(err){
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+async function searchSenderCity(){
+  if(!npApiKey){
+    alert('Спочатку вкажіть API-ключ Нової Пошти вище.');
+    return;
+  }
+  const input = document.getElementById('sender-city-input');
+  const query = input.value.trim();
+  if(query.length < 2) return;
+  const box = document.getElementById('sender-city-suggestions');
+  box.innerHTML = '<div class="np-suggestion">Шукаю...</div>';
+  box.style.display = 'block';
+  try{
+    const data = await npApiCall('Address', 'searchSettlements', {CityName: query, Limit: 8, Page: 1});
+    const addresses = (data && data[0] && data[0].Addresses) || [];
+    senderCitySuggestions = addresses.map(a => ({ ref: a.DeliveryCity || a.Ref, name: a.MainDescription || a.Present }));
+    box.innerHTML = senderCitySuggestions.length === 0
+      ? '<div class="np-suggestion">Нічого не знайдено</div>'
+      : senderCitySuggestions.map((c,i) => `<div class="np-suggestion" onclick="selectSenderCity(${i})">${escapeAttr(c.name)}</div>`).join('');
+  }catch(err){
+    box.innerHTML = `<div class="np-suggestion">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+function selectSenderCity(index){
+  const c = senderCitySuggestions[index];
+  if(!c) return;
+  npSender.citySenderRef = c.ref;
+  npSender.citySenderName = c.name;
+  npSender.senderAddressRef = '';
+  npSender.senderAddressDesc = '';
+  document.getElementById('sender-city-input').value = c.name;
+  document.getElementById('sender-city-suggestions').style.display = 'none';
+  scheduleSave();
+  loadSenderWarehouses(c.ref);
+}
+
+async function loadSenderWarehouses(cityRef){
+  const select = document.getElementById('sender-warehouse-select');
+  select.innerHTML = '<option>Завантаження...</option>';
+  try{
+    const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
+    const list = data || [];
+    select.innerHTML = '<option value="">Оберіть відділення…</option>' +
+      list.map(w => `<option value="${escapeAttr(w.Ref)}">${escapeAttr(w.Description)}</option>`).join('');
+  }catch(err){
+    select.innerHTML = `<option>Помилка: ${escapeAttr(err.message)}</option>`;
+  }
+}
+
+function selectSenderWarehouse(ref, desc){
+  npSender.senderAddressRef = ref;
+  npSender.senderAddressDesc = desc;
+  scheduleSave();
+}
+
 const ORDER_STATUSES = ['Нове', 'В обробці', 'Відправлено', 'Оплачено', 'Скасовано'];
 function statusColor(status){
   switch(status){
@@ -956,7 +1068,9 @@ function addOrder(){
     id, customer:'', phone:'', date: todayStr(), status:'Нове', items:[], notes:'', collapsed:false,
     deliveryMethod: 'Нова Пошта',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
-    ukrIndex:'', address:''
+    ukrIndex:'', address:'',
+    weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
+    ttnNumber:'', ttnRef:''
   });
   renderOrders();
   renderOrdersSummary();
@@ -1120,6 +1234,124 @@ function selectNpWarehouse(orderId, ref, desc){
   scheduleSave();
 }
 
+/* ---------- TTN (waybill) creation ---------- */
+
+function ttnResultHtml(o){
+  if(o.ttnNumber){
+    return `<div class="hint" style="color:var(--cardamom);">✓ ТТН створено: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</strong>
+      — <a href="https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(o.ttnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
+      · <a href="#" onclick="cancelNpWaybill(${o.id});return false;" style="color:var(--danger);">видалити ТТН</a></div>`;
+  }
+  return '';
+}
+
+function npDateFormat(dateStr){
+  if(!dateStr) return todayDMY();
+  const [y,m,d] = dateStr.split('-');
+  return `${d}.${m}.${y}`;
+}
+function todayDMY(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()}`;
+}
+
+function splitFullName(fullName){
+  const parts = (fullName||'').trim().split(/\s+/).filter(Boolean);
+  return {
+    LastName: parts[0] || 'Клієнт',
+    FirstName: parts[1] || 'Клієнт',
+    MiddleName: parts[2] || ''
+  };
+}
+
+async function createNpWaybill(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const resultEl = document.getElementById(`ttn-result-${orderId}`);
+
+  if(!npApiKey){ alert('Спочатку вкажіть і збережіть API-ключ Нової Пошти в «Налаштування доставки».'); return; }
+  if(!npSender.senderRef || !npSender.contactSenderRef || !npSender.sendersPhone){
+    alert('Спочатку натисніть «Завантажити відправника з кабінету» в «Налаштування доставки».'); return;
+  }
+  if(!npSender.citySenderRef || !npSender.senderAddressRef){
+    alert('Спочатку оберіть місто й відділення відправлення в «Налаштування доставки».'); return;
+  }
+  if(!o.cityRef || !o.warehouseRef){ alert('Спочатку оберіть місто й відділення отримувача в цьому замовленні.'); return; }
+  if(!o.customer){ alert('Вкажіть ПІБ отримувача.'); return; }
+  if(!o.phone){ alert('Вкажіть телефон отримувача.'); return; }
+  if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг).'); return; }
+
+  resultEl.innerHTML = '<div class="hint">Створюю ТТН...</div>';
+
+  try{
+    const name = splitFullName(o.customer);
+    const cpData = await npApiCall('Counterparty', 'save', {
+      CityRef: o.cityRef,
+      FirstName: name.FirstName,
+      LastName: name.LastName,
+      MiddleName: name.MiddleName,
+      Phone: o.phone,
+      Email: '',
+      CounterpartyType: 'PrivatePerson',
+      CounterpartyProperty: 'Recipient'
+    });
+    const recipientRef = cpData && cpData[0] && cpData[0].Ref;
+    if(!recipientRef) throw new Error('Не вдалося створити отримувача');
+
+    const contacts = await npApiCall('ContactPersonGeneral', 'getCounterpartyContactPersons', {Ref: recipientRef, Page:'1'});
+    const contactRecipientRef = contacts && contacts[0] && contacts[0].Ref;
+    if(!contactRecipientRef) throw new Error('Не вдалося отримати контактну особу отримувача');
+
+    const docData = await npApiCall('InternetDocument', 'save', {
+      PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
+      PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
+      DateTime: npDateFormat(o.date),
+      CargoType: 'Cargo',
+      Weight: String(o.weight),
+      ServiceType: 'WarehouseWarehouse',
+      SeatsAmount: String(o.seatsAmount || 1),
+      Description: o.description || 'Товар',
+      Cost: String(o.cost || calcOrder(o).total || 100),
+      CitySender: npSender.citySenderRef,
+      Sender: npSender.senderRef,
+      SenderAddress: npSender.senderAddressRef,
+      ContactSender: npSender.contactSenderRef,
+      SendersPhone: npSender.sendersPhone,
+      CityRecipient: o.cityRef,
+      RecipientAddress: o.warehouseRef,
+      Recipient: recipientRef,
+      ContactRecipient: contactRecipientRef,
+      RecipientsPhone: o.phone
+    });
+    const doc = docData && docData[0];
+    if(!doc || !doc.IntDocNumber) throw new Error('Накладну не створено — немає номера у відповіді');
+
+    o.ttnNumber = doc.IntDocNumber;
+    o.ttnRef = doc.Ref;
+    resultEl.innerHTML = ttnResultHtml(o);
+    scheduleSave();
+  }catch(err){
+    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+async function cancelNpWaybill(orderId){
+  const o = orderById(orderId);
+  if(!o || !o.ttnRef) return;
+  if(!confirm(`Видалити ТТН ${o.ttnNumber} у системі Нової Пошти?`)) return;
+  const resultEl = document.getElementById(`ttn-result-${orderId}`);
+  try{
+    await npApiCall('InternetDocument', 'delete', {DocumentRefs: [o.ttnRef]});
+    o.ttnNumber = '';
+    o.ttnRef = '';
+    resultEl.innerHTML = '<div class="hint">ТТН видалено.</div>';
+    scheduleSave();
+  }catch(err){
+    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка видалення: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
 function deliverySummaryText(o){
   if(o.deliveryMethod === 'Нова Пошта'){
     if(!o.city) return 'Нова Пошта — місто не вказане';
@@ -1152,6 +1384,31 @@ function deliveryBlockHtml(o){
           </select>
         </div>
       </div>
+
+      <div class="delivery-grid" style="margin-top:10px;">
+        <div><label>Вага, кг</label><input type="number" step="0.1" value="${o.weight}" oninput="updateOrderField(${o.id},'weight',this.value)" placeholder="0.5"></div>
+        <div><label>Кількість місць</label><input type="number" step="1" value="${o.seatsAmount||1}" oninput="updateOrderField(${o.id},'seatsAmount',this.value)"></div>
+        <div><label>Оголошена вартість, грн</label><input type="number" step="1" value="${o.cost}" oninput="updateOrderField(${o.id},'cost',this.value)" placeholder="${fmt(calcOrder(o).total)}"></div>
+        <div style="grid-column:span 3;"><label>Опис вантажу</label><input type="text" value="${escapeAttr(o.description||'')}" oninput="updateOrderField(${o.id},'description',this.value)"></div>
+        <div>
+          <label>Хто платить за доставку</label>
+          <select oninput="updateOrderField(${o.id},'payerType',this.value)">
+            <option ${o.payerType==='Отримувач'?'selected':''}>Отримувач</option>
+            <option ${o.payerType==='Відправник'?'selected':''}>Відправник</option>
+          </select>
+        </div>
+        <div>
+          <label>Спосіб оплати</label>
+          <select oninput="updateOrderField(${o.id},'paymentMethod',this.value)">
+            <option ${o.paymentMethod==='Готівка'?'selected':''}>Готівка</option>
+            <option ${o.paymentMethod==='Безготівка'?'selected':''}>Безготівка</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-primary btn-sm" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
+        </div>
+      </div>
+      <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
     `;
   } else if(o.deliveryMethod === 'Укрпошта'){
     fieldsHtml = `
