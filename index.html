@@ -140,6 +140,34 @@
   .edit-list-info{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;}
   .edit-list-info strong{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
+  /* --- orders --- */
+  .order-card{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:1.1rem 1.2rem;margin-bottom:14px;}
+  .order-card-collapsed{padding:0.8rem 1.1rem;}
+  .order-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+  .order-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;overflow:hidden;}
+  .order-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .order-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:0;flex-wrap:wrap;}
+  .order-head-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .order-head-left input[type="date"], .order-head-left select{width:auto;min-width:140px;}
+  .status-badge{font-family:'JetBrains Mono',monospace;font-size:11px;padding:2px 8px;border-radius:100px;display:inline-block;white-space:nowrap;}
+  .order-item-row{display:grid;grid-template-columns:1fr 70px 90px 90px 26px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:13px;}
+  .order-item-row:last-child{border-bottom:none;}
+  .order-item-row input[type="number"]{padding:5px 6px;}
+  .add-order-item-row{display:grid;grid-template-columns:1fr 70px auto;gap:8px;align-items:center;margin:10px 0 14px;}
+  .order-notes{width:100%;font-family:'Inter',sans-serif;font-size:13px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;resize:vertical;}
+  .order-total-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft);font-family:'JetBrains Mono',monospace;font-size:14px;}
+  .order-total-row .stat-label{color:var(--text-faint);font-size:11px;text-transform:uppercase;}
+
+  .delivery-block{margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft);}
+  .delivery-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px;}
+  .delivery-grid label{display:block;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+  .np-city-wrap{position:relative;}
+  .np-suggestions{position:absolute;top:100%;left:0;right:0;z-index:5;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;margin-top:2px;max-height:180px;overflow-y:auto;}
+  .np-suggestion{padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border-soft);}
+  .np-suggestion:last-child{border-bottom:none;}
+  .np-suggestion:hover{background:var(--surface);color:var(--saffron);}
+  .delivery-summary{font-size:12px;color:var(--text-faint);margin-top:6px;}
+
   .hint{font-size:12px;color:var(--text-faint);}
 
   .chart-toggle{display:flex;gap:6px;margin-bottom:1.1rem;}
@@ -253,6 +281,40 @@
   </div>
   <div id="chart"></div>
 
+  <!-- ===== ORDERS ===== -->
+  <div class="section-title">
+    Замовлення <span class="n" id="orderCount"></span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
+      <button class="btn btn-primary btn-sm" onclick="addOrder()">+ Нове замовлення</button>
+    </span>
+  </div>
+  <div class="summary" id="ordersSummary" style="margin-top:0;margin-bottom:1rem;"></div>
+
+  <div class="catalog-panel" id="deliverySettingsPanel" style="margin-bottom:14px;">
+    <button class="catalog-toggle" onclick="toggleDeliverySettings()">
+      <span id="deliveryToggleLabel">Налаштування доставки (Нова Пошта / Укрпошта)</span>
+      <span id="deliveryToggleIcon">▸</span>
+    </button>
+    <div class="catalog-body" id="deliverySettingsBody">
+      <div class="catalog-group">
+        <div class="catalog-group-title">Нова Пошта</div>
+        <p class="hint" style="margin:0 0 8px;">API-ключ береться в кабінеті НП: my.novaposhta.ua → Налаштування → Робота з API → створити ключ. Дає змогу шукати міста й відділення прямо в замовленні.</p>
+        <div class="fb-row">
+          <input type="text" id="npApiKeyInput" placeholder="API-ключ Нової Пошти">
+          <button class="btn btn-sm" onclick="saveNpApiKey()">Зберегти ключ</button>
+        </div>
+        <div class="hint" id="npKeyStatus" style="margin-top:6px;"></div>
+      </div>
+      <div class="catalog-group">
+        <div class="catalog-group-title">Укрпошта</div>
+        <p class="hint" style="margin:0;">Публічне API Укрпошти вимагає токен контрагента і підписані запити з сервера — з одного HTML-файлу в браузері безпечно це не підключити. Тому для Укрпошти адреса й індекс вводяться вручну, без автопошуку.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="orderList"></div>
+
   <footer>
     <p>Собівартість набору = сума (кількість компонента × собівартість компонента з довідника, або собівартість готового набору за SKU) + логістика/од + маркетинг/од.</p>
     <p>Кольори типу: набір — жовтий, баночка — зелений, пакет — теракотовий. Без підключення Firebase дані зберігаються лише в цій сесії браузера.</p>
@@ -303,19 +365,26 @@ const HARDCODED_FIREBASE_CONFIG = {
 };
 
 function buildStatePayload(){
-  return { catalog, kits, nextCatalogId, nextKitId, updatedAt: new Date().toISOString() };
+  return { catalog, kits, orders, npApiKey, nextCatalogId, nextKitId, nextOrderId, updatedAt: new Date().toISOString() };
 }
 
 function applyRemoteData(data){
   if(!data) return;
   catalog = data.catalog || [];
   kits = data.kits || [];
+  orders = data.orders || [];
+  npApiKey = data.npApiKey || '';
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
   nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
+  nextOrderId = data.nextOrderId || (Math.max(0, ...orders.map(o=>o.id), 0) + 1);
   renderCatalog();
   renderKits();
+  renderOrders();
   renderSummary();
+  renderOrdersSummary();
   renderChart();
+  const npInput = document.getElementById('npApiKeyInput');
+  if(npInput) npInput.value = npApiKey;
 }
 
 function scheduleSave(){
@@ -529,7 +598,10 @@ function jumpToEditKit(id){
 function removeKit(id){
   kits = kits.filter(k => k.id !== id);
   kits.forEach(k => { k.components = k.components.filter(comp => !(comp.refType === 'kit' && comp.catalogId === id)); });
+  orders.forEach(o => { o.items = o.items.filter(it => it.kitId !== id); });
   renderKits();
+  renderOrders();
+  renderOrdersSummary();
   renderSummary();
   renderChart();
   scheduleSave();
@@ -824,6 +896,434 @@ function renderCostsPanel(){
   `;
 }
 
+/* ---------- orders ---------- */
+
+let nextOrderId = 1;
+let orders = [];
+let npApiKey = '';
+let npCitySuggestions = {}; // orderId -> array of {ref, name}
+
+function toggleDeliverySettings(){
+  const body = document.getElementById('deliverySettingsBody');
+  const open = body.classList.toggle('open');
+  document.getElementById('deliveryToggleIcon').textContent = open ? '▾' : '▸';
+  document.getElementById('deliveryToggleLabel').textContent = open
+    ? 'Сховати налаштування доставки'
+    : 'Налаштування доставки (Нова Пошта / Укрпошта)';
+}
+
+function saveNpApiKey(){
+  npApiKey = document.getElementById('npApiKeyInput').value.trim();
+  document.getElementById('npKeyStatus').textContent = npApiKey ? 'Ключ збережено.' : 'Ключ очищено.';
+  scheduleSave();
+}
+
+const ORDER_STATUSES = ['Нове', 'В обробці', 'Відправлено', 'Оплачено', 'Скасовано'];
+function statusColor(status){
+  switch(status){
+    case 'В обробці': return 'var(--saffron)';
+    case 'Відправлено': return 'var(--cardamom)';
+    case 'Оплачено': return 'var(--cardamom)';
+    case 'Скасовано': return 'var(--danger)';
+    default: return 'var(--text-faint)';
+  }
+}
+function statusTextColor(status){
+  switch(status){
+    case 'В обробці': return 'var(--saffron-text)';
+    case 'Відправлено': return 'var(--cardamom-text)';
+    case 'Оплачено': return 'var(--cardamom-text)';
+    case 'Скасовано': return '#fff';
+    default: return 'var(--bg)';
+  }
+}
+
+function orderById(id){ return orders.find(o => o.id === id); }
+
+function calcOrder(o){
+  const total = o.items.reduce((sum, it) => sum + (it.qty||0) * (it.price||0), 0);
+  return {total};
+}
+
+function todayStr(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+
+function addOrder(){
+  const id = nextOrderId++;
+  orders.push({
+    id, customer:'', phone:'', date: todayStr(), status:'Нове', items:[], notes:'', collapsed:false,
+    deliveryMethod: 'Нова Пошта',
+    city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
+    ukrIndex:'', address:''
+  });
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function saveOrder(id){
+  const o = orderById(id);
+  if(!o) return;
+  o.collapsed = true;
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function editOrder(id){
+  const o = orderById(id);
+  if(!o) return;
+  o.collapsed = false;
+  renderOrders();
+}
+function removeOrder(id){
+  orders = orders.filter(o => o.id !== id);
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function updateOrderField(id, field, value){
+  const o = orderById(id);
+  if(!o) return;
+  o[field] = value;
+  renderOrderTotal(id);
+  renderOrdersSummary();
+  scheduleSave();
+}
+function orderKitOptionsHtml(){
+  const sorted = [...kits].sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+  const opt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
+  return `<option value="">Оберіть набір/товар…</option>${sorted.map(opt).join('')}`;
+}
+function addOrderItem(orderId){
+  const select = document.getElementById(`order-item-select-${orderId}`);
+  const qtyInput = document.getElementById(`order-item-qty-${orderId}`);
+  const kitId = parseInt(select.value, 10);
+  const qty = parseFloat(qtyInput.value) || 0;
+  if(!kitId || qty <= 0) return;
+  const k = kitById(kitId);
+  const o = orderById(orderId);
+  const existing = o.items.find(it => it.kitId === kitId);
+  if(existing) existing.qty += qty;
+  else o.items.push({kitId, qty, price: k ? (k.price||0) : 0});
+  qtyInput.value = '';
+  renderOrderItems(orderId);
+  renderOrderTotal(orderId);
+  renderOrdersSummary();
+  scheduleSave();
+}
+function removeOrderItem(orderId, kitId){
+  const o = orderById(orderId);
+  o.items = o.items.filter(it => it.kitId !== kitId);
+  renderOrderItems(orderId);
+  renderOrderTotal(orderId);
+  renderOrdersSummary();
+  scheduleSave();
+}
+function updateOrderItemField(orderId, kitId, field, value){
+  const o = orderById(orderId);
+  const it = o.items.find(it => it.kitId === kitId);
+  if(!it) return;
+  it[field] = parseFloat(value) || 0;
+  renderOrderItemLineTotal(orderId, kitId);
+  renderOrderTotal(orderId);
+  renderOrdersSummary();
+  scheduleSave();
+}
+
+/* ---------- delivery: nova poshta + ukrposhta ---------- */
+
+function setDeliveryMethod(orderId, method){
+  const o = orderById(orderId);
+  if(!o) return;
+  o.deliveryMethod = method;
+  renderOrders();
+  scheduleSave();
+}
+
+async function npApiCall(modelName, calledMethod, methodProperties){
+  const res = await fetch('https://api.novaposhta.ua/v2.0/json/', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ apiKey: npApiKey, modelName, calledMethod, methodProperties })
+  });
+  const data = await res.json();
+  if(!data.success){
+    throw new Error((data.errors && data.errors[0]) || (data.warnings && data.warnings[0]) || 'Помилка Нової Пошти API');
+  }
+  return data.data;
+}
+
+async function searchNpCity(orderId){
+  if(!npApiKey){
+    alert('Спочатку вкажіть API-ключ Нової Пошти в «Налаштування доставки» вище.');
+    return;
+  }
+  const input = document.getElementById(`np-city-input-${orderId}`);
+  const query = input.value.trim();
+  if(query.length < 2) return;
+  const box = document.getElementById(`np-city-suggestions-${orderId}`);
+  box.innerHTML = '<div class="np-suggestion">Шукаю...</div>';
+  box.style.display = 'block';
+  try{
+    const data = await npApiCall('Address', 'searchSettlements', {CityName: query, Limit: 8, Page: 1});
+    const addresses = (data && data[0] && data[0].Addresses) || [];
+    npCitySuggestions[orderId] = addresses.map(a => ({
+      ref: a.DeliveryCity || a.Ref,
+      name: a.MainDescription || a.Present
+    }));
+    if(npCitySuggestions[orderId].length === 0){
+      box.innerHTML = '<div class="np-suggestion">Нічого не знайдено</div>';
+    } else {
+      box.innerHTML = npCitySuggestions[orderId].map((c, i) =>
+        `<div class="np-suggestion" onclick="selectNpCity(${orderId}, ${i})">${escapeAttr(c.name)}</div>`
+      ).join('');
+    }
+  }catch(err){
+    box.innerHTML = `<div class="np-suggestion">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+function selectNpCity(orderId, index){
+  const c = (npCitySuggestions[orderId] || [])[index];
+  if(!c) return;
+  const o = orderById(orderId);
+  o.city = c.name;
+  o.cityRef = c.ref;
+  o.warehouseRef = '';
+  o.warehouseDesc = '';
+  document.getElementById(`np-city-suggestions-${orderId}`).style.display = 'none';
+  renderOrders();
+  scheduleSave();
+  loadNpWarehouses(orderId, c.ref);
+}
+
+async function loadNpWarehouses(orderId, cityRef){
+  const select = document.getElementById(`np-warehouse-select-${orderId}`);
+  if(!select) return;
+  select.innerHTML = '<option>Завантаження...</option>';
+  try{
+    const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
+    const list = data || [];
+    const o = orderById(orderId);
+    select.innerHTML = '<option value="">Оберіть відділення/поштомат…</option>' +
+      list.map(w => `<option value="${escapeAttr(w.Ref)}" ${o.warehouseRef===w.Ref?'selected':''}>${escapeAttr(w.Description)}</option>`).join('');
+  }catch(err){
+    select.innerHTML = `<option>Помилка: ${escapeAttr(err.message)}</option>`;
+  }
+}
+
+function selectNpWarehouse(orderId, ref, desc){
+  const o = orderById(orderId);
+  o.warehouseRef = ref;
+  o.warehouseDesc = desc;
+  scheduleSave();
+}
+
+function deliverySummaryText(o){
+  if(o.deliveryMethod === 'Нова Пошта'){
+    if(!o.city) return 'Нова Пошта — місто не вказане';
+    return `Нова Пошта, ${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}`;
+  }
+  if(o.deliveryMethod === 'Укрпошта'){
+    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${o.address ? ', ' + o.address : ''}`;
+  }
+  return o.deliveryMethod + (o.address ? ', ' + o.address : '');
+}
+
+function deliveryBlockHtml(o){
+  let fieldsHtml = '';
+  if(o.deliveryMethod === 'Нова Пошта'){
+    fieldsHtml = `
+      <div class="delivery-grid">
+        <div class="np-city-wrap">
+          <label>Місто</label>
+          <input type="text" id="np-city-input-${o.id}" value="${escapeAttr(o.city)}"
+            placeholder="Почніть вводити назву міста"
+            oninput="updateOrderField(${o.id},'city',this.value)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();searchNpCity(${o.id});}">
+          <div class="np-suggestions" id="np-city-suggestions-${o.id}" style="display:none;"></div>
+        </div>
+        <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchNpCity(${o.id})" type="button">Знайти місто</button></div>
+        <div>
+          <label>Відділення / поштомат</label>
+          <select id="np-warehouse-select-${o.id}" onchange="selectNpWarehouse(${o.id}, this.value, this.options[this.selectedIndex].text)">
+            <option value="">${o.warehouseDesc ? escapeAttr(o.warehouseDesc) : 'Спершу оберіть місто'}</option>
+          </select>
+        </div>
+      </div>
+    `;
+  } else if(o.deliveryMethod === 'Укрпошта'){
+    fieldsHtml = `
+      <div class="delivery-grid">
+        <div><label>Індекс</label><input type="text" value="${escapeAttr(o.ukrIndex)}" oninput="updateOrderField(${o.id},'ukrIndex',this.value)" placeholder="напр. 79000"></div>
+        <div style="grid-column:span 2;"><label>Адреса</label><input type="text" value="${escapeAttr(o.address)}" oninput="updateOrderField(${o.id},'address',this.value)" placeholder="Вулиця, будинок, квартира, місто"></div>
+      </div>
+    `;
+  } else {
+    fieldsHtml = `
+      <div class="delivery-grid">
+        <div style="grid-column:span 3;"><label>Адреса / коментар</label><input type="text" value="${escapeAttr(o.address)}" oninput="updateOrderField(${o.id},'address',this.value)" placeholder="Адреса самовивозу чи коментар"></div>
+      </div>
+    `;
+  }
+  return `
+    <div class="delivery-block">
+      <div class="delivery-grid">
+        <div><label>ПІБ отримувача</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Прізвище Ім'я По батькові"></div>
+        <div><label>Телефон</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)" placeholder="+380..."></div>
+        <div>
+          <label>Спосіб доставки</label>
+          <select onchange="setDeliveryMethod(${o.id}, this.value)">
+            <option ${o.deliveryMethod==='Нова Пошта'?'selected':''}>Нова Пошта</option>
+            <option ${o.deliveryMethod==='Укрпошта'?'selected':''}>Укрпошта</option>
+            <option ${o.deliveryMethod==='Самовивіз'?'selected':''}>Самовивіз</option>
+          </select>
+        </div>
+      </div>
+      ${fieldsHtml}
+    </div>
+  `;
+}
+
+function renderOrders(){
+  const list = document.getElementById('orderList');
+  if(orders.length === 0){
+    list.innerHTML = '<div class="comp-empty">Ще немає жодного замовлення. Натисніть «+ Нове замовлення».</div>';
+  } else {
+    const sorted = [...orders].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    list.innerHTML = sorted.map(o => o.collapsed ? orderCollapsedHtml(o) : orderExpandedHtml(o)).join('');
+    orders.forEach(o => { if(!o.collapsed) renderOrderItems(o.id); renderOrderTotal(o.id); });
+  }
+  document.getElementById('orderCount').textContent = orders.length;
+}
+
+function orderCollapsedHtml(o){
+  const c = calcOrder(o);
+  return `
+    <div class="order-card order-card-collapsed" data-order="${o.id}">
+      <div class="order-collapsed-row">
+        <div class="order-collapsed-info">
+          <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
+          <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
+          <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}</span>
+        </div>
+        <div class="hint" id="order-total-${o.id}" style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--saffron);"></div>
+        <div class="kit-collapsed-actions">
+          <button class="btn btn-sm" onclick="editOrder(${o.id})">Редагувати</button>
+          <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function orderExpandedHtml(o){
+  return `
+    <div class="order-card" data-order="${o.id}">
+      <div class="order-head">
+        <div class="order-head-left">
+          <input type="date" value="${o.date||''}" oninput="updateOrderField(${o.id},'date',this.value)">
+          <select oninput="updateOrderField(${o.id},'status',this.value)">
+            ${ORDER_STATUSES.map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div class="order-head-left">
+          <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
+          <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
+        </div>
+      </div>
+
+      ${deliveryBlockHtml(o)}
+
+      <div class="comp-list" id="order-items-${o.id}" style="margin-top:14px;"></div>
+
+      <div class="add-order-item-row">
+        <select id="order-item-select-${o.id}">${orderKitOptionsHtml()}</select>
+        <input type="number" step="1" placeholder="к-сть" id="order-item-qty-${o.id}">
+        <button class="btn btn-sm" onclick="addOrderItem(${o.id})">Додати</button>
+      </div>
+
+      <textarea class="order-notes" rows="2" placeholder="Примітки (доставка, побажання тощо)" oninput="updateOrderField(${o.id},'notes',this.value)">${escapeAttr(o.notes||'')}</textarea>
+
+      <div class="order-total-row"><span class="stat-label">Сума замовлення</span><span id="order-total-${o.id}"></span></div>
+    </div>
+  `;
+}
+
+function renderOrderItems(orderId){
+  const o = orderById(orderId);
+  const el = document.getElementById(`order-items-${orderId}`);
+  if(!el) return;
+  if(o.items.length === 0){
+    el.innerHTML = '<div class="comp-empty">Ще немає позицій — додайте набір/товар нижче.</div>';
+    return;
+  }
+  el.innerHTML = o.items.map(it => {
+    const k = kitById(it.kitId);
+    const name = k ? ((k.sku ? `[${escapeAttr(k.sku)}] ` : '') + escapeAttr(k.name)) : '';
+    const missing = !k ? '<div class="miss">товар видалено</div>' : '';
+    return `
+      <div class="order-item-row">
+        <div class="comp-name">${name}${missing}</div>
+        <input type="number" step="1" value="${it.qty}" oninput="updateOrderItemField(${orderId}, ${it.kitId}, 'qty', this.value)">
+        <input type="number" step="0.1" value="${it.price}" oninput="updateOrderItemField(${orderId}, ${it.kitId}, 'price', this.value)" title="ціна за одиницю">
+        <div class="comp-cost" id="order-item-total-${orderId}-${it.kitId}">${fmt1(it.qty*it.price)} грн</div>
+        <button class="btn-ghost" onclick="removeOrderItem(${orderId}, ${it.kitId})" aria-label="Видалити позицію">×</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderOrderItemLineTotal(orderId, kitId){
+  const o = orderById(orderId);
+  const it = o.items.find(it => it.kitId === kitId);
+  const el = document.getElementById(`order-item-total-${orderId}-${kitId}`);
+  if(el && it) el.textContent = fmt1(it.qty*it.price) + ' грн';
+}
+
+function renderOrderTotal(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const c = calcOrder(o);
+  document.querySelectorAll(`[id="order-total-${orderId}"]`).forEach(el => {
+    el.textContent = fmt(c.total) + ' грн';
+  });
+}
+
+function renderOrdersSummary(){
+  const total = orders.reduce((s,o) => s + calcOrder(o).total, 0);
+  const paid = orders.filter(o => o.status==='Оплачено').reduce((s,o) => s + calcOrder(o).total, 0);
+  const active = orders.filter(o => o.status!=='Скасовано').length;
+  document.getElementById('ordersSummary').innerHTML = `
+    <div class="card"><div class="label">Всього замовлень</div><div class="value">${orders.length}</div></div>
+    <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
+    <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
+    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div></div>
+  `;
+}
+
+function syncQtyFromOrders(){
+  const countedStatuses = ['Відправлено','Оплачено'];
+  const totals = {};
+  orders.forEach(o => {
+    if(!countedStatuses.includes(o.status)) return;
+    o.items.forEach(it => {
+      totals[it.kitId] = (totals[it.kitId]||0) + (it.qty||0);
+    });
+  });
+  let updated = 0;
+  kits.forEach(k => {
+    const newQty = totals[k.id] || 0;
+    if(newQty !== k.qty){ k.qty = newQty; updated++; }
+  });
+  renderKits();
+  renderSummary();
+  renderChart();
+  scheduleSave();
+  alert(`Оновлено «Кількість продано» у ${updated} набор(ах) на основі замовлень зі статусом «Відправлено» або «Оплачено».`);
+}
+
 /* ---------- summary & chart ---------- */
 
 function renderSummary(){
@@ -1036,6 +1536,8 @@ async function handleExcelFile(file){
 /* ---------- init ---------- */
 renderCatalog();
 renderKits();
+renderOrders();
+renderOrdersSummary();
 renderSummary();
 renderChart();
 autoConnectFirebase();
