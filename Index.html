@@ -1,0 +1,1803 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Прибутковість спецій</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-app-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --bg:#1B1512;
+    --surface:#241C17;
+    --surface-2:#2C2219;
+    --border:#3E3128;
+    --border-soft:#332821;
+    --text:#F3E9D7;
+    --text-muted:#B3A08A;
+    --text-faint:#7C6F5F;
+    --saffron:#E3A537;
+    --saffron-text:#3D2A08;
+    --chili:#C1440E;
+    --chili-text:#FBE2D5;
+    --cardamom:#6B8E5A;
+    --cardamom-text:#EAF3E4;
+    --danger:#D9553A;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;padding:2.5rem 1.5rem 4rem;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  header{margin-bottom:2.25rem;}
+  .eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--saffron);margin:0 0 .5rem;}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:clamp(28px,4vw,38px);margin:0 0 .4rem;letter-spacing:-.01em;}
+  .sub{color:var(--text-muted);font-size:15px;margin:0;max-width:60ch;line-height:1.6;}
+
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1px;background:var(--border-soft);border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;margin:2rem 0 2.5rem;}
+  .card{background:var(--surface);padding:1.1rem 1.3rem;}
+  .card .label{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);margin-bottom:.5rem;}
+  .card .value{font-family:'Fraunces',serif;font-size:24px;font-weight:600;}
+  .card.profit .value{color:var(--saffron);}
+  .card.negative .value{color:var(--danger);}
+
+  .section-title{font-family:'Fraunces',serif;font-size:17px;font-weight:600;margin:2.5rem 0 1rem;display:flex;align-items:baseline;justify-content:space-between;gap:.6rem;}
+  .section-title .n{color:var(--text-faint);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:400;}
+  .section-title .btns{display:flex;gap:8px;}
+
+  button{font-family:'Inter',sans-serif;cursor:pointer;}
+  .btn{background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-size:13px;font-weight:500;padding:8px 14px;border-radius:7px;}
+  .btn:hover{border-color:var(--saffron);color:var(--saffron);}
+  .btn-primary{background:var(--saffron);color:var(--saffron-text);border:none;font-weight:600;}
+  .btn-primary:hover{opacity:.9;color:var(--saffron-text);}
+  .btn-ghost{background:none;border:1px solid var(--border);color:var(--text-faint);border-radius:6px;width:26px;height:26px;font-size:14px;line-height:1;padding:0;}
+  .btn-ghost:hover{border-color:var(--danger);color:var(--danger);}
+  .btn-sm{font-size:12px;padding:6px 10px;}
+  button:disabled{opacity:.5;cursor:wait;}
+
+  /* --- catalog --- */
+  .catalog-panel{border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden;}
+  .catalog-toggle{width:100%;text-align:left;background:var(--surface);border:none;color:var(--text);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:500;}
+  .catalog-body{padding:0 16px 16px;display:none;}
+  .catalog-body.open{display:block;}
+  .catalog-group{margin-top:14px;}
+  .catalog-group-title{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:8px;}
+  .cat-row{display:grid;grid-template-columns:1fr 100px 70px 100px 28px;gap:8px;align-items:center;margin-bottom:6px;}
+  .cat-row input[type="text"]{min-width:0;}
+  .scan-status{margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface-2);display:none;}
+  .scan-status.loading{color:var(--saffron);border-color:var(--saffron);display:block;}
+  .scan-status.error{color:var(--danger);border-color:var(--danger);display:block;}
+  .scan-status.ok{color:var(--cardamom);border-color:var(--cardamom);display:block;}
+
+  /* --- firebase sync badge --- */
+  .fb-row{display:flex;gap:12px;flex-wrap:wrap;}
+  .sync-badge{display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);white-space:nowrap;padding-top:4px;}
+  .fb-dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+  .fb-dot.on{background:var(--cardamom);}
+  .fb-dot.off{background:var(--text-faint);}
+  .fb-dot.err{background:var(--danger);}
+
+  input[type="text"], input[type="number"], select{
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;
+    padding:7px 8px;font-family:'Inter',sans-serif;font-size:13px;width:100%;
+  }
+  input[type="number"]{font-family:'JetBrains Mono',monospace;}
+  input:focus, select:focus{outline:none;border-color:var(--saffron);}
+
+  /* --- product / kit cards --- */
+  .kit-card{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:1.1rem 1.2rem;margin-bottom:14px;}
+  .kit-head{display:grid;grid-template-columns:1fr 110px 130px 90px 30px;gap:10px;align-items:center;margin-bottom:12px;}
+  .kit-card-collapsed{padding:0.8rem 1.1rem;}
+  .kit-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+  .kit-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:0;overflow:hidden;}
+  .kit-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .kit-collapsed-actions{display:flex;gap:8px;flex-shrink:0;}
+  .kit-card-collapsed .kit-stats{margin:0;padding:0;border:none;flex-shrink:0;}
+  .type-pill-select{font-family:'JetBrains Mono',monospace;font-size:12px;}
+  .type-Набір{border-color:var(--saffron)!important;}
+  .type-Баночка{border-color:var(--cardamom)!important;}
+  .type-Пакет{border-color:var(--chili)!important;}
+
+  .comp-list{margin:0 0 8px;}
+  .comp-row{display:grid;grid-template-columns:1fr 70px 90px 26px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:13px;}
+  .comp-row:last-child{border-bottom:none;}
+  .comp-name{color:var(--text);}
+  .comp-name .miss{color:var(--danger);font-size:11px;}
+  .comp-amt-unit{color:var(--text-faint);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;}
+  .comp-cost{font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;color:var(--text-muted);}
+  .comp-empty{color:var(--text-faint);font-size:12px;padding:6px 0;}
+
+  .add-comp-row{display:grid;grid-template-columns:1fr 70px auto;gap:8px;align-items:center;margin:10px 0 14px;}
+
+  .kit-costs{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:10px 0;}
+  .kit-costs label{display:block;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+
+  .kit-stats{display:flex;flex-wrap:wrap;gap:18px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft);font-family:'JetBrains Mono',monospace;font-size:13px;}
+  .kit-stats .stat-label{color:var(--text-faint);font-size:11px;text-transform:uppercase;margin-right:6px;}
+  .profit-pos{color:var(--cardamom);}
+  .profit-neg{color:var(--danger);}
+
+  .costs-table{width:100%;border-collapse:collapse;}
+  .costs-table .costs-head, .costs-row{
+    display:grid;grid-template-columns:1fr 110px 100px 100px 110px;gap:10px;align-items:center;
+  }
+  .costs-table .costs-head{
+    font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;
+    color:var(--text-faint);padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:4px;
+  }
+  .costs-row{padding:8px 0;border-bottom:1px solid var(--border-soft);font-size:13px;}
+  .costs-row:last-child{border-bottom:none;}
+  .costs-row .cn{display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .costs-row .cv{font-family:'JetBrains Mono',monospace;font-size:13px;text-align:right;color:var(--text-muted);}
+  .costs-row .cv.strong{color:var(--saffron);font-weight:600;}
+  .costs-total{display:grid;grid-template-columns:1fr 110px 100px 100px 110px;gap:10px;padding-top:10px;margin-top:4px;border-top:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:13px;}
+  .costs-total .cv{text-align:right;color:var(--saffron);font-weight:600;}
+
+  .edit-list-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-soft);}
+  .edit-list-row:last-child{border-bottom:none;}
+  .edit-list-info{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;}
+  .edit-list-info strong{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* --- orders --- */
+  .order-card{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:1.1rem 1.2rem;margin-bottom:14px;}
+  .order-card-collapsed{padding:0.8rem 1.1rem;}
+  .order-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+  .order-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;overflow:hidden;}
+  .order-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .order-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:0;flex-wrap:wrap;}
+  .order-head-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .order-head-left input[type="date"], .order-head-left select{width:auto;min-width:140px;}
+  .status-badge{font-family:'JetBrains Mono',monospace;font-size:11px;padding:2px 8px;border-radius:100px;display:inline-block;white-space:nowrap;}
+  .order-item-row{display:grid;grid-template-columns:1fr 70px 90px 90px 26px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:13px;}
+  .order-item-row:last-child{border-bottom:none;}
+  .order-item-row input[type="number"]{padding:5px 6px;}
+  .add-order-item-row{display:grid;grid-template-columns:1fr 70px auto;gap:8px;align-items:center;margin:10px 0 14px;}
+  .order-notes{width:100%;font-family:'Inter',sans-serif;font-size:13px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;resize:vertical;}
+  .order-total-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft);font-family:'JetBrains Mono',monospace;font-size:14px;}
+  .order-total-row .stat-label{color:var(--text-faint);font-size:11px;text-transform:uppercase;}
+
+  .delivery-block{margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft);}
+  .delivery-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px;}
+  .delivery-grid label{display:block;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+  .np-city-wrap{position:relative;}
+  .np-suggestions{position:absolute;top:100%;left:0;right:0;z-index:5;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;margin-top:2px;max-height:180px;overflow-y:auto;}
+  .np-suggestion{padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border-soft);}
+  .np-suggestion:last-child{border-bottom:none;}
+  .np-suggestion:hover{background:var(--surface);color:var(--saffron);}
+  .delivery-summary{font-size:12px;color:var(--text-faint);margin-top:6px;}
+
+  .hint{font-size:12px;color:var(--text-faint);}
+
+  .chart-toggle{display:flex;gap:6px;margin-bottom:1.1rem;}
+  .chart-toggle button{background:var(--surface-2);border:1px solid var(--border);color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 12px;border-radius:6px;text-transform:uppercase;letter-spacing:.04em;}
+  .chart-toggle button.active{background:var(--saffron);color:var(--saffron-text);border-color:var(--saffron);}
+
+  .bar-row{display:grid;grid-template-columns:170px 1fr 90px;align-items:center;gap:12px;margin-bottom:10px;}
+  .bar-name{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bar-track{background:var(--surface-2);border-radius:5px;height:22px;position:relative;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:5px;transition:width .25s ease;}
+  .bar-val{font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;color:var(--text-muted);}
+  .type-badge{font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 7px;border-radius:100px;margin-right:6px;}
+  .badge-Набір{background:var(--saffron);color:var(--saffron-text);}
+  .badge-Баночка{background:var(--cardamom);color:var(--cardamom-text);}
+  .badge-Пакет{background:var(--chili);color:var(--chili-text);}
+
+  footer{margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border-soft);}
+  footer p{color:var(--text-faint);font-size:12px;line-height:1.7;margin:0 0 6px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="fb-row" style="justify-content:space-between;align-items:flex-start;">
+      <div>
+        <p class="eyebrow">Ваги · облік прибутковості</p>
+        <h1>Прибутковість спецій</h1>
+        <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
+      </div>
+      <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
+    </div>
+  </header>
+
+  <div class="summary" id="summary"></div>
+
+  <!-- ===== CATALOG ===== -->
+  <div class="section-title" style="margin-top:0;">Довідник собівартостей</div>
+  <div class="catalog-panel">
+    <button class="catalog-toggle" onclick="toggleCatalog()">
+      <span id="catalogToggleLabel">Показати довідник (упаковка та інгредієнти)</span>
+      <span id="catalogToggleIcon">▸</span>
+    </button>
+    <div class="catalog-body" id="catalogBody">
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Упаковка</div>
+        <div id="catalogPackaging"></div>
+        <button class="btn btn-sm" onclick="addCatalogItem('Упаковка')">+ Додати упаковку</button>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Спеції та інгредієнти</div>
+        <div id="catalogSpices"></div>
+        <button class="btn btn-sm" onclick="addCatalogItem('Спеція')">+ Додати інгредієнт</button>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Затягнути з Excel</div>
+        <button class="btn btn-sm" id="excelBtn" onclick="document.getElementById('excelInput').click()">
+          Затягнути собівартості (Excel)
+        </button>
+        <input type="file" id="excelInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleExcelFile(this.files[0])">
+        <div class="hint" style="margin-top:6px;">Файл із двома колонками: «Назва» і «Ціна». Якщо назва вже є в довіднику — ціна оновиться, якщо ні — додасться новий інгредієнт.</div>
+        <div id="excelStatus" class="scan-status"></div>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Розпізнати з фото накладної</div>
+        <button class="btn btn-sm" id="scanBtn" onclick="document.getElementById('invoiceInput').click()">
+          Завантажити накладну (фото)
+        </button>
+        <input type="file" id="invoiceInput" accept="image/*" multiple style="display:none" onchange="handleInvoiceFiles(this.files)">
+        <div class="hint" style="margin-top:6px;">Розпізнані позиції додаються в довідник як інгредієнти — ціну й категорію можна поправити вручну.</div>
+        <div id="scanStatus" class="scan-status"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== KITS / PRODUCTS ===== -->
+  <div class="section-title">
+    Набори та товари <span class="n" id="kitCount"></span>
+    <span class="btns">
+      <button class="btn btn-sm" id="editListToggleBtn" onclick="toggleEditListPanel()">Редагувати існуючі</button>
+      <button class="btn btn-sm" id="costsToggleBtn" onclick="toggleCostsPanel()">Показати собівартості</button>
+      <button class="btn btn-primary btn-sm" onclick="addKit()">+ Новий набір / товар</button>
+    </span>
+  </div>
+
+  <div class="catalog-panel" id="editListPanel" style="display:none;margin-bottom:14px;">
+    <div style="padding:14px 16px;">
+      <input type="text" id="editListSearch" placeholder="Пошук за SKU або назвою…" oninput="renderEditList()" style="margin-bottom:10px;">
+      <div id="editListItems"></div>
+    </div>
+  </div>
+
+  <div class="catalog-panel" id="costsPanel" style="display:none;margin-bottom:14px;">
+    <div style="padding:14px 16px;">
+      <div class="costs-table" id="costsTable"></div>
+    </div>
+  </div>
+
+  <div id="kitList"></div>
+
+  <!-- ===== CHART ===== -->
+  <div class="section-title">Порівняння асортименту</div>
+  <div class="chart-toggle">
+    <button id="btnProfit" class="active" onclick="setChartMode('profit')">Прибуток</button>
+    <button id="btnMargin" onclick="setChartMode('margin')">Маржа %</button>
+  </div>
+  <div id="chart"></div>
+
+  <!-- ===== ORDERS ===== -->
+  <div class="section-title">
+    Замовлення <span class="n" id="orderCount"></span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
+      <button class="btn btn-primary btn-sm" onclick="addOrder()">+ Нове замовлення</button>
+    </span>
+  </div>
+  <div class="summary" id="ordersSummary" style="margin-top:0;margin-bottom:1rem;"></div>
+
+  <div class="catalog-panel" id="deliverySettingsPanel" style="margin-bottom:14px;">
+    <button class="catalog-toggle" onclick="toggleDeliverySettings()">
+      <span id="deliveryToggleLabel">Налаштування доставки (Нова Пошта / Укрпошта)</span>
+      <span id="deliveryToggleIcon">▸</span>
+    </button>
+    <div class="catalog-body" id="deliverySettingsBody">
+      <div class="catalog-group">
+        <div class="catalog-group-title">Нова Пошта</div>
+        <p class="hint" style="margin:0 0 8px;">API-ключ береться в кабінеті НП: my.novaposhta.ua → Налаштування → Робота з API → створити ключ. Дає змогу шукати міста й відділення прямо в замовленні.</p>
+        <div class="fb-row">
+          <input type="text" id="npApiKeyInput" placeholder="API-ключ Нової Пошти">
+          <button class="btn btn-sm" onclick="saveNpApiKey()">Зберегти ключ</button>
+        </div>
+        <div class="hint" id="npKeyStatus" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Дані відправника (для створення ТТН)</div>
+        <button class="btn btn-sm" onclick="loadSenderCounterparty()">Завантажити відправника з кабінету</button>
+        <div class="hint" id="senderCounterpartyStatus" style="margin-top:6px;"></div>
+        <div class="delivery-grid" style="margin-top:10px;">
+          <div class="np-city-wrap">
+            <label>Місто відправлення</label>
+            <input type="text" id="sender-city-input" placeholder="Почніть вводити назву міста"
+              oninput="npSender.citySenderName=this.value"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();searchSenderCity();}">
+            <div class="np-suggestions" id="sender-city-suggestions" style="display:none;"></div>
+          </div>
+          <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchSenderCity()" type="button">Знайти місто</button></div>
+          <div>
+            <label>Відділення відправлення</label>
+            <select id="sender-warehouse-select" onchange="selectSenderWarehouse(this.value, this.options[this.selectedIndex].text)">
+              <option value="">Спершу оберіть місто</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="catalog-group">
+        <div class="catalog-group-title">Укрпошта</div>
+        <p class="hint" style="margin:0;">Публічне API Укрпошти вимагає токен контрагента і підписані запити з сервера — з одного HTML-файлу в браузері безпечно це не підключити. Тому для Укрпошти адреса й індекс вводяться вручну, без автопошуку.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="orderList"></div>
+
+  <footer>
+    <p>Собівартість набору = сума (кількість компонента × собівартість компонента з довідника, або собівартість готового набору за SKU) + логістика/од + маркетинг/од.</p>
+    <p>Кольори типу: набір — жовтий, баночка — зелений, пакет — теракотовий. Без підключення Firebase дані зберігаються лише в цій сесії браузера.</p>
+  </footer>
+
+</div>
+
+<script>
+let nextCatalogId = 1;
+let catalog = [
+  {id: nextCatalogId++, name: 'Пакет малий', category: 'Упаковка', unit: 'шт', cost: 1.5},
+  {id: nextCatalogId++, name: 'Пакет великий', category: 'Упаковка', unit: 'шт', cost: 2.5},
+  {id: nextCatalogId++, name: 'Млинок', category: 'Упаковка', unit: 'шт', cost: 9},
+  {id: nextCatalogId++, name: 'Баночка 1', category: 'Упаковка', unit: 'шт', cost: 4},
+  {id: nextCatalogId++, name: 'Баночка 2', category: 'Упаковка', unit: 'шт', cost: 6},
+  {id: nextCatalogId++, name: 'Куркума мелена', category: 'Спеція', unit: 'г', cost: 0.24},
+  {id: nextCatalogId++, name: 'Перець чорний мелений', category: 'Спеція', unit: 'г', cost: 0.32},
+  {id: nextCatalogId++, name: 'Суміш для плову', category: 'Спеція', unit: 'г', cost: 0.29},
+];
+
+let nextKitId = 1;
+let kits = [
+  {id: nextKitId++, sku: 'NAB-PLOV', name: 'Набір "Плов"', type: 'Набір',
+    components: [{catalogId: 8, refType: 'catalog', amount: 120}, {catalogId: 2, refType: 'catalog', amount: 1}],
+    logistics: 3, marketing: 2, price: 95, qty: 60, collapsed: true},
+  {id: nextKitId++, sku: 'BAN-KURK', name: 'Куркума, баночка', type: 'Баночка',
+    components: [{catalogId: 6, refType: 'catalog', amount: 40}, {catalogId: 4, refType: 'catalog', amount: 1}],
+    logistics: 1, marketing: 1, price: 34, qty: 180, collapsed: true},
+];
+
+let chartMode = 'profit';
+
+/* ---------- firebase sync ---------- */
+let fbDb = null;
+let fbDocRef = null;
+let fbConnected = false;
+let fbSaveTimer = null;
+
+// Ваша конфігурація Firebase — програма підключається до неї автоматично при відкритті.
+const HARDCODED_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCa1vo8VkzNBuIGNrJ7h4NXqT4VAKhWPDc",
+  authDomain: "papriko.firebaseapp.com",
+  projectId: "papriko",
+  storageBucket: "papriko.firebasestorage.app",
+  messagingSenderId: "17346760392",
+  appId: "1:17346760392:web:b8260e6b55de4881bcdffd",
+  measurementId: "G-0TVB3MWWS4"
+};
+
+function buildStatePayload(){
+  return { catalog, kits, orders, npApiKey, npSender, nextCatalogId, nextKitId, nextOrderId, updatedAt: new Date().toISOString() };
+}
+
+function applyRemoteData(data){
+  if(!data) return;
+  catalog = data.catalog || [];
+  kits = data.kits || [];
+  orders = data.orders || [];
+  npApiKey = data.npApiKey || '';
+  if(data.npSender) npSender = Object.assign(npSender, data.npSender);
+  nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
+  nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
+  nextOrderId = data.nextOrderId || (Math.max(0, ...orders.map(o=>o.id), 0) + 1);
+  renderCatalog();
+  renderKits();
+  renderOrders();
+  renderSummary();
+  renderOrdersSummary();
+  renderChart();
+  const npInput = document.getElementById('npApiKeyInput');
+  if(npInput) npInput.value = npApiKey;
+  const senderCityInput = document.getElementById('sender-city-input');
+  if(senderCityInput) senderCityInput.value = npSender.citySenderName || '';
+}
+
+function scheduleSave(){
+  if(!fbConnected || !fbDocRef) return;
+  clearTimeout(fbSaveTimer);
+  fbSaveTimer = setTimeout(() => {
+    fbDocRef.set(buildStatePayload()).catch(err => {
+      document.getElementById('fbStatus').textContent = 'Помилка збереження: ' + err.message;
+    });
+  }, 600);
+}
+
+function doConnect(config){
+  return new Promise((resolve, reject) => {
+    try{
+      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(config);
+      fbDb = firebase.firestore();
+      fbDocRef = fbDb.collection('spice-app').doc('data');
+      fbDocRef.get().then(snap => {
+        if(snap.exists){
+          applyRemoteData(snap.data());
+          return null;
+        } else {
+          return fbDocRef.set(buildStatePayload());
+        }
+      }).then(() => {
+        fbConnected = true;
+        setSyncBadge('on', 'Синхронізовано');
+        fbDocRef.onSnapshot(snap => {
+          if(!snap.exists || snap.metadata.hasPendingWrites) return;
+          applyRemoteData(snap.data());
+        }, err => {
+          setSyncBadge('err', 'Помилка синхронізації');
+        });
+        resolve();
+      }).catch(err => {
+        setSyncBadge('err', 'Помилка підключення');
+        reject(err);
+      });
+    }catch(err){
+      setSyncBadge('err', 'Помилка Firebase');
+      reject(err);
+    }
+  });
+}
+
+function setSyncBadge(state, text){
+  const dot = document.getElementById('syncDot');
+  const label = document.getElementById('syncText');
+  if(!dot || !label) return;
+  dot.className = 'fb-dot ' + state;
+  label.textContent = text;
+}
+
+function autoConnectFirebase(){
+  if(!HARDCODED_FIREBASE_CONFIG || !HARDCODED_FIREBASE_CONFIG.apiKey) {
+    setSyncBadge('off', 'Локально (без синхронізації)');
+    return;
+  }
+  setSyncBadge('off', 'Підключення...');
+  doConnect(HARDCODED_FIREBASE_CONFIG).catch(() => {});
+}
+
+function fmt(n){ return Math.round(n).toLocaleString('uk-UA'); }
+function fmt1(n){ return (Math.round(n*10)/10).toFixed(1); }
+
+/* ---------- catalog ---------- */
+
+function toggleCatalog(){
+  const body = document.getElementById('catalogBody');
+  const open = body.classList.toggle('open');
+  document.getElementById('catalogToggleIcon').textContent = open ? '▾' : '▸';
+  document.getElementById('catalogToggleLabel').textContent = open
+    ? 'Сховати довідник'
+    : 'Показати довідник (упаковка та інгредієнти)';
+}
+
+function catalogItem(id){ return catalog.find(c => c.id === id); }
+
+function renderCatalog(){
+  const pack = catalog.filter(c => c.category === 'Упаковка');
+  const spices = catalog.filter(c => c.category === 'Спеція');
+  document.getElementById('catalogPackaging').innerHTML = pack.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
+  document.getElementById('catalogSpices').innerHTML = spices.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
+}
+
+function catRowHtml(c){
+  return `
+    <div class="cat-row cat-row-6">
+      <input type="text" value="${escapeAttr(c.name)}" oninput="updateCatalog(${c.id},'name',this.value)">
+      <select oninput="updateCatalog(${c.id},'category',this.value)" title="категорія">
+        <option value="Упаковка" ${c.category==='Упаковка'?'selected':''}>Упаковка</option>
+        <option value="Спеція" ${c.category==='Спеція'?'selected':''}>Спеція</option>
+      </select>
+      <select oninput="updateCatalog(${c.id},'unit',this.value)">
+        <option value="шт" ${c.unit==='шт'?'selected':''}>шт</option>
+        <option value="г" ${c.unit==='г'?'selected':''}>г</option>
+        <option value="мл" ${c.unit==='мл'?'selected':''}>мл</option>
+      </select>
+      <input type="number" step="0.01" value="${c.cost}" oninput="updateCatalog(${c.id},'cost',this.value)" title="собівартість за одиницю">
+      <button class="btn-ghost" onclick="removeCatalogItem(${c.id})" aria-label="Видалити">×</button>
+    </div>
+  `;
+}
+
+function addCatalogItem(category){
+  catalog.push({id: nextCatalogId++, name: category==='Упаковка' ? 'Нова упаковка' : 'Новий інгредієнт', category, unit: category==='Упаковка'?'шт':'г', cost: 0});
+  renderCatalog();
+  renderKits();
+  scheduleSave();
+}
+
+function removeCatalogItem(id){
+  catalog = catalog.filter(c => c.id !== id);
+  kits.forEach(k => { k.components = k.components.filter(comp => comp.catalogId !== id); });
+  renderCatalog();
+  renderKits();
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+
+function updateCatalog(id, field, value){
+  const c = catalogItem(id);
+  if(!c) return;
+  c[field] = (field === 'cost') ? (parseFloat(value) || 0) : value;
+  if(field !== 'cost'){ renderCatalog(); } // name/unit change -> refresh labels in kits too
+  renderKits();
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+
+/* ---------- kits ---------- */
+
+function kitById(id){ return kits.find(k => k.id === id); }
+
+function kitUnitCost(kitId, visited){
+  if(visited.has(kitId)) return 0; // cycle guard
+  const k = kitById(kitId);
+  if(!k) return 0;
+  const nextVisited = new Set(visited);
+  nextVisited.add(kitId);
+  const compCost = k.components.reduce((sum, comp) => {
+    if(comp.refType === 'kit'){
+      return sum + kitUnitCost(comp.catalogId, nextVisited) * comp.amount;
+    }
+    const c = catalogItem(comp.catalogId);
+    return sum + (c ? c.cost * comp.amount : 0);
+  }, 0);
+  return compCost + (k.logistics||0) + (k.marketing||0);
+}
+
+function dependsOnKit(kitId, targetId, visited){
+  visited = visited || new Set();
+  if(kitId === targetId) return true;
+  if(visited.has(kitId)) return false;
+  visited.add(kitId);
+  const k = kitById(kitId);
+  if(!k) return false;
+  return k.components.some(comp => comp.refType === 'kit' && dependsOnKit(comp.catalogId, targetId, visited));
+}
+
+function calcKit(k){
+  const unitCost = kitUnitCost(k.id, new Set());
+  const totalCost = unitCost * (k.qty||0);
+  const revenue = (k.price||0) * (k.qty||0);
+  const profit = revenue - totalCost;
+  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  return {unitCost, totalCost, revenue, profit, margin};
+}
+
+function nextSku(){
+  const n = kits.length + 1;
+  return 'SKU-' + String(n).padStart(3,'0');
+}
+
+function addKit(){
+  const id = nextKitId++;
+  kits.push({id, sku: nextSku(), name: 'Новий набір', type: 'Набір', components: [], logistics: 0, marketing: 0, price: 0, qty: 0, collapsed: false});
+  renderKits();
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+function saveKit(id){
+  const k = kitById(id);
+  if(!k) return;
+  k.collapsed = true;
+  renderKits();
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+function editKit(id){
+  const k = kitById(id);
+  if(!k) return;
+  k.collapsed = false;
+  renderKits();
+}
+function jumpToEditKit(id){
+  editKit(id);
+  const panel = document.getElementById('editListPanel');
+  panel.style.display = 'none';
+  document.getElementById('editListToggleBtn').textContent = 'Редагувати існуючі';
+  setTimeout(() => {
+    const card = document.querySelector(`[data-kit="${id}"]`);
+    if(card) card.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 50);
+}
+function removeKit(id){
+  kits = kits.filter(k => k.id !== id);
+  kits.forEach(k => { k.components = k.components.filter(comp => !(comp.refType === 'kit' && comp.catalogId === id)); });
+  orders.forEach(o => { o.items = o.items.filter(it => it.kitId !== id); });
+  renderKits();
+  renderOrders();
+  renderOrdersSummary();
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+function updateKitField(id, field, value){
+  const k = kitById(id);
+  if(!k) return;
+  if(['name','type','sku'].includes(field)) k[field] = value;
+  else k[field] = parseFloat(value) || 0;
+  renderKitStats(id);
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+function addComponent(kitId){
+  const select = document.getElementById(`comp-select-${kitId}`);
+  const amtInput = document.getElementById(`comp-amt-${kitId}`);
+  const raw = select.value;
+  const amount = parseFloat(amtInput.value) || 0;
+  if(!raw || amount <= 0) return;
+  const [kind, idStr] = raw.split(':');
+  const id = parseInt(idStr, 10);
+  const refType = kind === 'kit' ? 'kit' : 'catalog';
+  if(refType === 'kit'){
+    if(id === kitId || dependsOnKit(id, kitId)){
+      alert('Не можна додати цей набір як компонент — це створить циклічне посилання (набір частково складається сам із себе).');
+      return;
+    }
+  }
+  const k = kitById(kitId);
+  const existing = k.components.find(c => c.catalogId === id && (c.refType||'catalog') === refType);
+  if(existing) existing.amount += amount;
+  else k.components.push({catalogId: id, refType, amount});
+  amtInput.value = '';
+  renderKitComponents(kitId);
+  renderKitStats(kitId);
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+function removeComponent(kitId, catalogId, refType){
+  const k = kitById(kitId);
+  k.components = k.components.filter(c => !(c.catalogId === catalogId && (c.refType||'catalog') === (refType||'catalog')));
+  renderKitComponents(kitId);
+  renderKitStats(kitId);
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
+
+function catalogOptionsHtml(currentKitId){
+  const pack = catalog.filter(c => c.category === 'Упаковка');
+  const spices = catalog.filter(c => c.category === 'Спеція');
+  const opt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.unit})</option>`;
+  const readyKits = kits.filter(k => k.id !== currentKitId);
+  const kitOpt = k => `<option value="kit:${k.id}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)} (шт)</option>`;
+  return `
+    <option value="">Оберіть компонент…</option>
+    <optgroup label="Упаковка">${pack.map(opt).join('')}</optgroup>
+    <optgroup label="Спеції та інгредієнти">${spices.map(opt).join('')}</optgroup>
+    ${readyKits.length ? `<optgroup label="Готові набори (SKU)">${readyKits.map(kitOpt).join('')}</optgroup>` : ''}
+  `;
+}
+
+function renderKits(){
+  const list = document.getElementById('kitList');
+  if(kits.length === 0){
+    list.innerHTML = '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
+  } else {
+    list.innerHTML = kits.map(k => k.collapsed ? kitCollapsedHtml(k) : kitExpandedHtml(k)).join('');
+    kits.forEach(k => { if(!k.collapsed) renderKitComponents(k.id); renderKitStats(k.id); });
+  }
+  document.getElementById('kitCount').textContent = kits.length;
+}
+
+function kitCollapsedHtml(k){
+  return `
+    <div class="kit-card kit-card-collapsed" data-kit="${k.id}">
+      <div class="kit-collapsed-row">
+        <div class="kit-collapsed-info">
+          <span class="type-badge badge-${k.type}">${k.type}</span>
+          ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
+          <strong>${escapeAttr(k.name)}</strong>
+        </div>
+        <div class="kit-stats" id="kit-stats-${k.id}"></div>
+        <div class="kit-collapsed-actions">
+          <button class="btn btn-sm" onclick="editKit(${k.id})">Редагувати</button>
+          <button class="btn-ghost" onclick="removeKit(${k.id})" aria-label="Видалити набір">×</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function kitExpandedHtml(k){
+  return `
+      <div class="kit-card" data-kit="${k.id}">
+        <div class="kit-head">
+          <input type="text" value="${escapeAttr(k.name)}" oninput="updateKitField(${k.id},'name',this.value)" placeholder="Назва набору">
+          <input type="text" value="${escapeAttr(k.sku||'')}" oninput="updateKitField(${k.id},'sku',this.value)" placeholder="SKU" title="Артикул для використання в інших наборах">
+          <select class="type-pill-select type-${k.type}" oninput="updateKitField(${k.id},'type',this.value)">
+            <option ${k.type==='Набір'?'selected':''}>Набір</option>
+            <option ${k.type==='Баночка'?'selected':''}>Баночка</option>
+            <option ${k.type==='Пакет'?'selected':''}>Пакет</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="saveKit(${k.id})">Зберегти</button>
+          <button class="btn-ghost" onclick="removeKit(${k.id})" aria-label="Видалити набір">×</button>
+        </div>
+
+        <div class="comp-list" id="comp-list-${k.id}"></div>
+
+        <div class="add-comp-row">
+          <select id="comp-select-${k.id}">${catalogOptionsHtml(k.id)}</select>
+          <input type="number" step="0.1" placeholder="к-сть" id="comp-amt-${k.id}">
+          <button class="btn btn-sm" onclick="addComponent(${k.id})">Додати</button>
+        </div>
+
+        <div class="kit-costs">
+          <div><label>Логістика/од</label><input type="number" step="0.1" value="${k.logistics}" oninput="updateKitField(${k.id},'logistics',this.value)"></div>
+          <div><label>Маркетинг/од</label><input type="number" step="0.1" value="${k.marketing}" oninput="updateKitField(${k.id},'marketing',this.value)"></div>
+          <div><label>Ціна продажу/од</label><input type="number" step="0.1" value="${k.price}" oninput="updateKitField(${k.id},'price',this.value)"></div>
+          <div><label>Кількість продано</label><input type="number" step="1" value="${k.qty}" oninput="updateKitField(${k.id},'qty',this.value)"></div>
+        </div>
+
+        <div class="kit-stats" id="kit-stats-${k.id}"></div>
+      </div>
+  `;
+}
+
+function renderKitComponents(kitId){
+  const k = kitById(kitId);
+  const el = document.getElementById(`comp-list-${kitId}`);
+  if(!el) return;
+  if(k.components.length === 0){
+    el.innerHTML = '<div class="comp-empty">Компонентів ще немає — додайте упаковку та спеції нижче.</div>';
+    return;
+  }
+  el.innerHTML = k.components.map(comp => {
+    const refType = comp.refType || 'catalog';
+    let name, unit, cost, missing = '', tag = '';
+    if(refType === 'kit'){
+      const rk = kitById(comp.catalogId);
+      if(rk){
+        name = (rk.sku ? `[${escapeAttr(rk.sku)}] ` : '') + escapeAttr(rk.name);
+        unit = 'шт';
+        cost = kitUnitCost(rk.id, new Set([kitId])) * comp.amount;
+        tag = '<span class="type-badge badge-Набір" style="margin-right:6px;">SKU</span>';
+      } else {
+        name = ''; unit = ''; cost = 0;
+        missing = '<div class="miss">набір видалено</div>';
+      }
+    } else {
+      const c = catalogItem(comp.catalogId);
+      name = c ? escapeAttr(c.name) : '';
+      unit = c ? c.unit : '';
+      cost = c ? c.cost * comp.amount : 0;
+      missing = !c ? '<div class="miss">видалено з довідника</div>' : '';
+    }
+    return `
+      <div class="comp-row">
+        <div class="comp-name">${tag}${name}${missing}</div>
+        <div class="comp-amt-unit">${comp.amount} ${unit}</div>
+        <div class="comp-cost">${fmt1(cost)} грн</div>
+        <button class="btn-ghost" onclick="removeComponent(${kitId}, ${comp.catalogId}, '${refType}')" aria-label="Видалити компонент">×</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderKitStats(kitId){
+  const k = kitById(kitId);
+  const el = document.getElementById(`kit-stats-${kitId}`);
+  if(!el) return;
+  const c = calcKit(k);
+  el.innerHTML = `
+    <span><span class="stat-label">Собівартість/од</span>${fmt1(c.unitCost)} грн</span>
+    <span><span class="stat-label">Прибуток</span><span class="${c.profit>=0?'profit-pos':'profit-neg'}">${c.profit>=0?'':'−'}${fmt(Math.abs(c.profit))} грн</span></span>
+    <span><span class="stat-label">Маржа</span><span class="${c.margin>=0?'profit-pos':'profit-neg'}">${fmt1(c.margin)}%</span></span>
+  `;
+  renderCostsPanel();
+}
+
+/* ---------- quick edit-by-SKU panel ---------- */
+
+function toggleEditListPanel(){
+  const panel = document.getElementById('editListPanel');
+  const btn = document.getElementById('editListToggleBtn');
+  const open = panel.style.display !== 'none';
+  if(open){
+    panel.style.display = 'none';
+    btn.textContent = 'Редагувати існуючі';
+  } else {
+    document.getElementById('costsPanel').style.display = 'none';
+    document.getElementById('costsToggleBtn').textContent = 'Показати собівартості';
+    renderEditList();
+    panel.style.display = 'block';
+    btn.textContent = 'Сховати список';
+    document.getElementById('editListSearch').value = '';
+    document.getElementById('editListSearch').focus();
+  }
+}
+
+function renderEditList(){
+  const panel = document.getElementById('editListPanel');
+  if(!panel || panel.style.display === 'none') return;
+  const q = (document.getElementById('editListSearch').value || '').trim().toLowerCase();
+  const el = document.getElementById('editListItems');
+  const filtered = kits.filter(k => {
+    if(!q) return true;
+    return (k.name||'').toLowerCase().includes(q) || (k.sku||'').toLowerCase().includes(q);
+  }).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+
+  if(filtered.length === 0){
+    el.innerHTML = '<div class="comp-empty">Нічого не знайдено.</div>';
+    return;
+  }
+  el.innerHTML = filtered.map(k => `
+    <div class="edit-list-row">
+      <div class="edit-list-info">
+        <span class="type-badge badge-${k.type}">${k.type}</span>
+        ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
+        <strong>${escapeAttr(k.name)}</strong>
+      </div>
+      <button class="btn btn-sm" onclick="jumpToEditKit(${k.id})">Редагувати</button>
+    </div>
+  `).join('');
+}
+
+/* ---------- costs of all kits panel ---------- */
+
+function toggleCostsPanel(){
+  const panel = document.getElementById('costsPanel');
+  const btn = document.getElementById('costsToggleBtn');
+  const open = panel.style.display !== 'none';
+  if(open){
+    panel.style.display = 'none';
+    btn.textContent = 'Показати собівартості';
+  } else {
+    document.getElementById('editListPanel').style.display = 'none';
+    document.getElementById('editListToggleBtn').textContent = 'Редагувати існуючі';
+    renderCostsPanel();
+    panel.style.display = 'block';
+    btn.textContent = 'Сховати собівартості';
+  }
+}
+
+function renderCostsPanel(){
+  const panel = document.getElementById('costsPanel');
+  if(!panel || panel.style.display === 'none') return;
+  const el = document.getElementById('costsTable');
+  if(kits.length === 0){
+    el.innerHTML = '<div class="comp-empty">Ще немає жодного набору.</div>';
+    return;
+  }
+  const rows = kits.map(k => {
+    const compCost = k.components.reduce((sum, comp) => {
+      if(comp.refType === 'kit'){
+        return sum + kitUnitCost(comp.catalogId, new Set([k.id])) * comp.amount;
+      }
+      const c = catalogItem(comp.catalogId);
+      return sum + (c ? c.cost * comp.amount : 0);
+    }, 0);
+    const extra = (k.logistics||0) + (k.marketing||0);
+    const unitCost = compCost + extra;
+    return {k, compCost, extra, unitCost};
+  }).sort((a,b) => b.unitCost - a.unitCost);
+
+  const totalUnitCostSum = rows.reduce((s,r) => s + r.unitCost, 0);
+  const totalComp = rows.reduce((s,r) => s + r.compCost, 0);
+  const totalExtra = rows.reduce((s,r) => s + r.extra, 0);
+
+  el.innerHTML = `
+    <div class="costs-head">
+      <div>Назва</div><div style="text-align:right;">Компоненти</div><div style="text-align:right;">Логіст.+маркет.</div><div style="text-align:right;">Собівартість/од</div><div style="text-align:right;">На весь тираж</div>
+    </div>
+    ${rows.map(r => `
+      <div class="costs-row">
+        <div class="cn"><span class="type-badge badge-${r.k.type}">${r.k.type}</span>${r.k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(r.k.sku)}]</span> ` : ''}${escapeAttr(r.k.name)}</div>
+        <div class="cv">${fmt1(r.compCost)} грн</div>
+        <div class="cv">${fmt1(r.extra)} грн</div>
+        <div class="cv strong">${fmt1(r.unitCost)} грн</div>
+        <div class="cv">${fmt(r.unitCost * (r.k.qty||0))} грн</div>
+      </div>
+    `).join('')}
+    <div class="costs-total">
+      <div>Разом (${rows.length})</div>
+      <div class="cv">${fmt1(totalComp)} грн</div>
+      <div class="cv">${fmt1(totalExtra)} грн</div>
+      <div class="cv">${fmt1(totalUnitCostSum)} грн</div>
+      <div class="cv">${fmt(rows.reduce((s,r)=>s+r.unitCost*(r.k.qty||0),0))} грн</div>
+    </div>
+  `;
+}
+
+/* ---------- orders ---------- */
+
+let nextOrderId = 1;
+let orders = [];
+let npApiKey = '';
+let npCitySuggestions = {}; // orderId -> array of {ref, name}
+
+function toggleDeliverySettings(){
+  const body = document.getElementById('deliverySettingsBody');
+  const open = body.classList.toggle('open');
+  document.getElementById('deliveryToggleIcon').textContent = open ? '▾' : '▸';
+  document.getElementById('deliveryToggleLabel').textContent = open
+    ? 'Сховати налаштування доставки'
+    : 'Налаштування доставки (Нова Пошта / Укрпошта)';
+}
+
+function saveNpApiKey(){
+  npApiKey = document.getElementById('npApiKeyInput').value.trim();
+  document.getElementById('npKeyStatus').textContent = npApiKey ? 'Ключ збережено.' : 'Ключ очищено.';
+  scheduleSave();
+}
+
+/* ---------- sender (for TTN creation) ---------- */
+
+let npSender = {
+  citySenderRef: '', citySenderName: '',
+  senderAddressRef: '', senderAddressDesc: '',
+  senderRef: '', contactSenderRef: '', sendersPhone: ''
+};
+let senderCitySuggestions = [];
+
+async function loadSenderCounterparty(){
+  if(!npApiKey){
+    alert('Спочатку вкажіть і збережіть API-ключ Нової Пошти вище.');
+    return;
+  }
+  const statusEl = document.getElementById('senderCounterpartyStatus');
+  statusEl.textContent = 'Завантажую...';
+  try{
+    const parties = await npApiCall('CounterpartyGeneral', 'getCounterparties', {CounterpartyProperty:'Sender', Page:'1'});
+    if(!parties || parties.length === 0) throw new Error('У кабінеті не знайдено відправника. Перевірте API-ключ.');
+    const sender = parties[0];
+    npSender.senderRef = sender.Ref;
+    const contacts = await npApiCall('Counterparty', 'getCounterpartyContactPersons', {Ref: sender.Ref, Page:'1'});
+    if(!contacts || contacts.length === 0) throw new Error('Не знайдено контактну особу відправника.');
+    npSender.contactSenderRef = contacts[0].Ref;
+    npSender.sendersPhone = contacts[0].Phones || '';
+    statusEl.textContent = `Готово: ${sender.Description || sender.CounterpartyType || 'відправник'} завантажено.`;
+    scheduleSave();
+  }catch(err){
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+async function searchSenderCity(){
+  if(!npApiKey){
+    alert('Спочатку вкажіть API-ключ Нової Пошти вище.');
+    return;
+  }
+  const input = document.getElementById('sender-city-input');
+  const query = input.value.trim();
+  if(query.length < 2) return;
+  const box = document.getElementById('sender-city-suggestions');
+  box.innerHTML = '<div class="np-suggestion">Шукаю...</div>';
+  box.style.display = 'block';
+  try{
+    const data = await npApiCall('Address', 'searchSettlements', {CityName: query, Limit: 8, Page: 1});
+    const addresses = (data && data[0] && data[0].Addresses) || [];
+    senderCitySuggestions = addresses.map(a => ({ ref: a.DeliveryCity || a.Ref, name: a.MainDescription || a.Present }));
+    box.innerHTML = senderCitySuggestions.length === 0
+      ? '<div class="np-suggestion">Нічого не знайдено</div>'
+      : senderCitySuggestions.map((c,i) => `<div class="np-suggestion" onclick="selectSenderCity(${i})">${escapeAttr(c.name)}</div>`).join('');
+  }catch(err){
+    box.innerHTML = `<div class="np-suggestion">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+function selectSenderCity(index){
+  const c = senderCitySuggestions[index];
+  if(!c) return;
+  npSender.citySenderRef = c.ref;
+  npSender.citySenderName = c.name;
+  npSender.senderAddressRef = '';
+  npSender.senderAddressDesc = '';
+  document.getElementById('sender-city-input').value = c.name;
+  document.getElementById('sender-city-suggestions').style.display = 'none';
+  scheduleSave();
+  loadSenderWarehouses(c.ref);
+}
+
+async function loadSenderWarehouses(cityRef){
+  const select = document.getElementById('sender-warehouse-select');
+  select.innerHTML = '<option>Завантаження...</option>';
+  try{
+    const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
+    const list = data || [];
+    select.innerHTML = '<option value="">Оберіть відділення…</option>' +
+      list.map(w => `<option value="${escapeAttr(w.Ref)}">${escapeAttr(w.Description)}</option>`).join('');
+  }catch(err){
+    select.innerHTML = `<option>Помилка: ${escapeAttr(err.message)}</option>`;
+  }
+}
+
+function selectSenderWarehouse(ref, desc){
+  npSender.senderAddressRef = ref;
+  npSender.senderAddressDesc = desc;
+  scheduleSave();
+}
+
+const ORDER_STATUSES = ['Нове', 'В обробці', 'Відправлено', 'Оплачено', 'Скасовано'];
+function statusColor(status){
+  switch(status){
+    case 'В обробці': return 'var(--saffron)';
+    case 'Відправлено': return 'var(--cardamom)';
+    case 'Оплачено': return 'var(--cardamom)';
+    case 'Скасовано': return 'var(--danger)';
+    default: return 'var(--text-faint)';
+  }
+}
+function statusTextColor(status){
+  switch(status){
+    case 'В обробці': return 'var(--saffron-text)';
+    case 'Відправлено': return 'var(--cardamom-text)';
+    case 'Оплачено': return 'var(--cardamom-text)';
+    case 'Скасовано': return '#fff';
+    default: return 'var(--bg)';
+  }
+}
+
+function orderById(id){ return orders.find(o => o.id === id); }
+
+function calcOrder(o){
+  const total = o.items.reduce((sum, it) => sum + (it.qty||0) * (it.price||0), 0);
+  return {total};
+}
+
+function todayStr(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+
+function addOrder(){
+  const id = nextOrderId++;
+  orders.push({
+    id, customer:'', phone:'', date: todayStr(), status:'Нове', items:[], notes:'', collapsed:false,
+    deliveryMethod: 'Нова Пошта',
+    city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
+    ukrIndex:'', address:'',
+    weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
+    ttnNumber:'', ttnRef:''
+  });
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function saveOrder(id){
+  const o = orderById(id);
+  if(!o) return;
+  o.collapsed = true;
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function editOrder(id){
+  const o = orderById(id);
+  if(!o) return;
+  o.collapsed = false;
+  renderOrders();
+}
+function removeOrder(id){
+  orders = orders.filter(o => o.id !== id);
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function updateOrderField(id, field, value){
+  const o = orderById(id);
+  if(!o) return;
+  o[field] = value;
+  renderOrderTotal(id);
+  renderOrdersSummary();
+  scheduleSave();
+}
+function orderKitOptionsHtml(){
+  const sorted = [...kits].sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+  const opt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
+  return `<option value="">Оберіть набір/товар…</option>${sorted.map(opt).join('')}`;
+}
+function addOrderItem(orderId){
+  const select = document.getElementById(`order-item-select-${orderId}`);
+  const qtyInput = document.getElementById(`order-item-qty-${orderId}`);
+  const kitId = parseInt(select.value, 10);
+  const qty = parseFloat(qtyInput.value) || 0;
+  if(!kitId || qty <= 0) return;
+  const k = kitById(kitId);
+  const o = orderById(orderId);
+  const existing = o.items.find(it => it.kitId === kitId);
+  if(existing) existing.qty += qty;
+  else o.items.push({kitId, qty, price: k ? (k.price||0) : 0});
+  qtyInput.value = '';
+  renderOrderItems(orderId);
+  renderOrderTotal(orderId);
+  renderOrdersSummary();
+  scheduleSave();
+}
+function removeOrderItem(orderId, kitId){
+  const o = orderById(orderId);
+  o.items = o.items.filter(it => it.kitId !== kitId);
+  renderOrderItems(orderId);
+  renderOrderTotal(orderId);
+  renderOrdersSummary();
+  scheduleSave();
+}
+function updateOrderItemField(orderId, kitId, field, value){
+  const o = orderById(orderId);
+  const it = o.items.find(it => it.kitId === kitId);
+  if(!it) return;
+  it[field] = parseFloat(value) || 0;
+  renderOrderItemLineTotal(orderId, kitId);
+  renderOrderTotal(orderId);
+  renderOrdersSummary();
+  scheduleSave();
+}
+
+/* ---------- delivery: nova poshta + ukrposhta ---------- */
+
+function setDeliveryMethod(orderId, method){
+  const o = orderById(orderId);
+  if(!o) return;
+  o.deliveryMethod = method;
+  renderOrders();
+  scheduleSave();
+}
+
+async function npApiCall(modelName, calledMethod, methodProperties){
+  const res = await fetch('https://api.novaposhta.ua/v2.0/json/', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ apiKey: npApiKey, modelName, calledMethod, methodProperties })
+  });
+  const data = await res.json();
+  if(!data.success){
+    throw new Error((data.errors && data.errors[0]) || (data.warnings && data.warnings[0]) || 'Помилка Нової Пошти API');
+  }
+  return data.data;
+}
+
+async function searchNpCity(orderId){
+  if(!npApiKey){
+    alert('Спочатку вкажіть API-ключ Нової Пошти в «Налаштування доставки» вище.');
+    return;
+  }
+  const input = document.getElementById(`np-city-input-${orderId}`);
+  const query = input.value.trim();
+  if(query.length < 2) return;
+  const box = document.getElementById(`np-city-suggestions-${orderId}`);
+  box.innerHTML = '<div class="np-suggestion">Шукаю...</div>';
+  box.style.display = 'block';
+  try{
+    const data = await npApiCall('Address', 'searchSettlements', {CityName: query, Limit: 8, Page: 1});
+    const addresses = (data && data[0] && data[0].Addresses) || [];
+    npCitySuggestions[orderId] = addresses.map(a => ({
+      ref: a.DeliveryCity || a.Ref,
+      name: a.MainDescription || a.Present
+    }));
+    if(npCitySuggestions[orderId].length === 0){
+      box.innerHTML = '<div class="np-suggestion">Нічого не знайдено</div>';
+    } else {
+      box.innerHTML = npCitySuggestions[orderId].map((c, i) =>
+        `<div class="np-suggestion" onclick="selectNpCity(${orderId}, ${i})">${escapeAttr(c.name)}</div>`
+      ).join('');
+    }
+  }catch(err){
+    box.innerHTML = `<div class="np-suggestion">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+function selectNpCity(orderId, index){
+  const c = (npCitySuggestions[orderId] || [])[index];
+  if(!c) return;
+  const o = orderById(orderId);
+  o.city = c.name;
+  o.cityRef = c.ref;
+  o.warehouseRef = '';
+  o.warehouseDesc = '';
+  document.getElementById(`np-city-suggestions-${orderId}`).style.display = 'none';
+  renderOrders();
+  scheduleSave();
+  loadNpWarehouses(orderId, c.ref);
+}
+
+async function loadNpWarehouses(orderId, cityRef){
+  const select = document.getElementById(`np-warehouse-select-${orderId}`);
+  if(!select) return;
+  select.innerHTML = '<option>Завантаження...</option>';
+  try{
+    const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
+    const list = data || [];
+    const o = orderById(orderId);
+    select.innerHTML = '<option value="">Оберіть відділення/поштомат…</option>' +
+      list.map(w => `<option value="${escapeAttr(w.Ref)}" ${o.warehouseRef===w.Ref?'selected':''}>${escapeAttr(w.Description)}</option>`).join('');
+  }catch(err){
+    select.innerHTML = `<option>Помилка: ${escapeAttr(err.message)}</option>`;
+  }
+}
+
+function selectNpWarehouse(orderId, ref, desc){
+  const o = orderById(orderId);
+  o.warehouseRef = ref;
+  o.warehouseDesc = desc;
+  scheduleSave();
+}
+
+/* ---------- TTN (waybill) creation ---------- */
+
+function ttnResultHtml(o){
+  if(o.ttnNumber){
+    return `<div class="hint" style="color:var(--cardamom);">✓ ТТН створено: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</strong>
+      — <a href="https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(o.ttnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
+      · <a href="#" onclick="cancelNpWaybill(${o.id});return false;" style="color:var(--danger);">видалити ТТН</a></div>`;
+  }
+  return '';
+}
+
+function npDateFormat(dateStr){
+  if(!dateStr) return todayDMY();
+  const [y,m,d] = dateStr.split('-');
+  return `${d}.${m}.${y}`;
+}
+function todayDMY(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()}`;
+}
+
+function splitFullName(fullName){
+  const parts = (fullName||'').trim().split(/\s+/).filter(Boolean);
+  return {
+    LastName: parts[0] || 'Клієнт',
+    FirstName: parts[1] || 'Клієнт',
+    MiddleName: parts[2] || ''
+  };
+}
+
+async function createNpWaybill(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const resultEl = document.getElementById(`ttn-result-${orderId}`);
+
+  if(!npApiKey){ alert('Спочатку вкажіть і збережіть API-ключ Нової Пошти в «Налаштування доставки».'); return; }
+  if(!npSender.senderRef || !npSender.contactSenderRef || !npSender.sendersPhone){
+    alert('Спочатку натисніть «Завантажити відправника з кабінету» в «Налаштування доставки».'); return;
+  }
+  if(!npSender.citySenderRef || !npSender.senderAddressRef){
+    alert('Спочатку оберіть місто й відділення відправлення в «Налаштування доставки».'); return;
+  }
+  if(!o.cityRef || !o.warehouseRef){ alert('Спочатку оберіть місто й відділення отримувача в цьому замовленні.'); return; }
+  if(!o.customer){ alert('Вкажіть ПІБ отримувача.'); return; }
+  if(!o.phone){ alert('Вкажіть телефон отримувача.'); return; }
+  if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг).'); return; }
+
+  resultEl.innerHTML = '<div class="hint">Створюю ТТН...</div>';
+
+  try{
+    const name = splitFullName(o.customer);
+    const cpData = await npApiCall('Counterparty', 'save', {
+      CityRef: o.cityRef,
+      FirstName: name.FirstName,
+      LastName: name.LastName,
+      MiddleName: name.MiddleName,
+      Phone: o.phone,
+      Email: '',
+      CounterpartyType: 'PrivatePerson',
+      CounterpartyProperty: 'Recipient'
+    });
+    const recipientRef = cpData && cpData[0] && cpData[0].Ref;
+    if(!recipientRef) throw new Error('Не вдалося створити отримувача');
+
+    const contacts = await npApiCall('Counterparty', 'getCounterpartyContactPersons', {Ref: recipientRef, Page:'1'});
+    const contactRecipientRef = contacts && contacts[0] && contacts[0].Ref;
+    if(!contactRecipientRef) throw new Error('Не вдалося отримати контактну особу отримувача');
+
+    const docData = await npApiCall('InternetDocument', 'save', {
+      PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
+      PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
+      DateTime: npDateFormat(o.date),
+      CargoType: 'Cargo',
+      Weight: String(o.weight),
+      ServiceType: 'WarehouseWarehouse',
+      SeatsAmount: String(o.seatsAmount || 1),
+      Description: o.description || 'Товар',
+      Cost: String(o.cost || calcOrder(o).total || 100),
+      CitySender: npSender.citySenderRef,
+      Sender: npSender.senderRef,
+      SenderAddress: npSender.senderAddressRef,
+      ContactSender: npSender.contactSenderRef,
+      SendersPhone: npSender.sendersPhone,
+      CityRecipient: o.cityRef,
+      RecipientAddress: o.warehouseRef,
+      Recipient: recipientRef,
+      ContactRecipient: contactRecipientRef,
+      RecipientsPhone: o.phone
+    });
+    const doc = docData && docData[0];
+    if(!doc || !doc.IntDocNumber) throw new Error('Накладну не створено — немає номера у відповіді');
+
+    o.ttnNumber = doc.IntDocNumber;
+    o.ttnRef = doc.Ref;
+    resultEl.innerHTML = ttnResultHtml(o);
+    scheduleSave();
+  }catch(err){
+    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+async function cancelNpWaybill(orderId){
+  const o = orderById(orderId);
+  if(!o || !o.ttnRef) return;
+  if(!confirm(`Видалити ТТН ${o.ttnNumber} у системі Нової Пошти?`)) return;
+  const resultEl = document.getElementById(`ttn-result-${orderId}`);
+  try{
+    await npApiCall('InternetDocument', 'delete', {DocumentRefs: [o.ttnRef]});
+    o.ttnNumber = '';
+    o.ttnRef = '';
+    resultEl.innerHTML = '<div class="hint">ТТН видалено.</div>';
+    scheduleSave();
+  }catch(err){
+    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка видалення: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+function deliverySummaryText(o){
+  if(o.deliveryMethod === 'Нова Пошта'){
+    if(!o.city) return 'Нова Пошта — місто не вказане';
+    return `Нова Пошта, ${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}`;
+  }
+  if(o.deliveryMethod === 'Укрпошта'){
+    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${o.address ? ', ' + o.address : ''}`;
+  }
+  return o.deliveryMethod + (o.address ? ', ' + o.address : '');
+}
+
+function deliveryBlockHtml(o){
+  let fieldsHtml = '';
+  if(o.deliveryMethod === 'Нова Пошта'){
+    fieldsHtml = `
+      <div class="delivery-grid">
+        <div class="np-city-wrap">
+          <label>Місто</label>
+          <input type="text" id="np-city-input-${o.id}" value="${escapeAttr(o.city)}"
+            placeholder="Почніть вводити назву міста"
+            oninput="updateOrderField(${o.id},'city',this.value)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();searchNpCity(${o.id});}">
+          <div class="np-suggestions" id="np-city-suggestions-${o.id}" style="display:none;"></div>
+        </div>
+        <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchNpCity(${o.id})" type="button">Знайти місто</button></div>
+        <div>
+          <label>Відділення / поштомат</label>
+          <select id="np-warehouse-select-${o.id}" onchange="selectNpWarehouse(${o.id}, this.value, this.options[this.selectedIndex].text)">
+            <option value="">${o.warehouseDesc ? escapeAttr(o.warehouseDesc) : 'Спершу оберіть місто'}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="delivery-grid" style="margin-top:10px;">
+        <div><label>Вага, кг</label><input type="number" step="0.1" value="${o.weight}" oninput="updateOrderField(${o.id},'weight',this.value)" placeholder="0.5"></div>
+        <div><label>Кількість місць</label><input type="number" step="1" value="${o.seatsAmount||1}" oninput="updateOrderField(${o.id},'seatsAmount',this.value)"></div>
+        <div><label>Оголошена вартість, грн</label><input type="number" step="1" value="${o.cost}" oninput="updateOrderField(${o.id},'cost',this.value)" placeholder="${fmt(calcOrder(o).total)}"></div>
+        <div style="grid-column:span 3;"><label>Опис вантажу</label><input type="text" value="${escapeAttr(o.description||'')}" oninput="updateOrderField(${o.id},'description',this.value)"></div>
+        <div>
+          <label>Хто платить за доставку</label>
+          <select oninput="updateOrderField(${o.id},'payerType',this.value)">
+            <option ${o.payerType==='Отримувач'?'selected':''}>Отримувач</option>
+            <option ${o.payerType==='Відправник'?'selected':''}>Відправник</option>
+          </select>
+        </div>
+        <div>
+          <label>Спосіб оплати</label>
+          <select oninput="updateOrderField(${o.id},'paymentMethod',this.value)">
+            <option ${o.paymentMethod==='Готівка'?'selected':''}>Готівка</option>
+            <option ${o.paymentMethod==='Безготівка'?'selected':''}>Безготівка</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-primary btn-sm" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
+        </div>
+      </div>
+      <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
+    `;
+  } else if(o.deliveryMethod === 'Укрпошта'){
+    fieldsHtml = `
+      <div class="delivery-grid">
+        <div><label>Індекс</label><input type="text" value="${escapeAttr(o.ukrIndex)}" oninput="updateOrderField(${o.id},'ukrIndex',this.value)" placeholder="напр. 79000"></div>
+        <div style="grid-column:span 2;"><label>Адреса</label><input type="text" value="${escapeAttr(o.address)}" oninput="updateOrderField(${o.id},'address',this.value)" placeholder="Вулиця, будинок, квартира, місто"></div>
+      </div>
+    `;
+  } else {
+    fieldsHtml = `
+      <div class="delivery-grid">
+        <div style="grid-column:span 3;"><label>Адреса / коментар</label><input type="text" value="${escapeAttr(o.address)}" oninput="updateOrderField(${o.id},'address',this.value)" placeholder="Адреса самовивозу чи коментар"></div>
+      </div>
+    `;
+  }
+  return `
+    <div class="delivery-block">
+      <div class="delivery-grid">
+        <div><label>ПІБ отримувача</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Прізвище Ім'я По батькові"></div>
+        <div><label>Телефон</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)" placeholder="+380..."></div>
+        <div>
+          <label>Спосіб доставки</label>
+          <select onchange="setDeliveryMethod(${o.id}, this.value)">
+            <option ${o.deliveryMethod==='Нова Пошта'?'selected':''}>Нова Пошта</option>
+            <option ${o.deliveryMethod==='Укрпошта'?'selected':''}>Укрпошта</option>
+            <option ${o.deliveryMethod==='Самовивіз'?'selected':''}>Самовивіз</option>
+          </select>
+        </div>
+      </div>
+      ${fieldsHtml}
+    </div>
+  `;
+}
+
+function renderOrders(){
+  const list = document.getElementById('orderList');
+  if(orders.length === 0){
+    list.innerHTML = '<div class="comp-empty">Ще немає жодного замовлення. Натисніть «+ Нове замовлення».</div>';
+  } else {
+    const sorted = [...orders].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    list.innerHTML = sorted.map(o => o.collapsed ? orderCollapsedHtml(o) : orderExpandedHtml(o)).join('');
+    orders.forEach(o => { if(!o.collapsed) renderOrderItems(o.id); renderOrderTotal(o.id); });
+  }
+  document.getElementById('orderCount').textContent = orders.length;
+}
+
+function orderCollapsedHtml(o){
+  const c = calcOrder(o);
+  return `
+    <div class="order-card order-card-collapsed" data-order="${o.id}">
+      <div class="order-collapsed-row">
+        <div class="order-collapsed-info">
+          <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
+          <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
+          <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}</span>
+        </div>
+        <div class="hint" id="order-total-${o.id}" style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--saffron);"></div>
+        <div class="kit-collapsed-actions">
+          <button class="btn btn-sm" onclick="editOrder(${o.id})">Редагувати</button>
+          <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function orderExpandedHtml(o){
+  return `
+    <div class="order-card" data-order="${o.id}">
+      <div class="order-head">
+        <div class="order-head-left">
+          <input type="date" value="${o.date||''}" oninput="updateOrderField(${o.id},'date',this.value)">
+          <select oninput="updateOrderField(${o.id},'status',this.value)">
+            ${ORDER_STATUSES.map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div class="order-head-left">
+          <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
+          <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
+        </div>
+      </div>
+
+      ${deliveryBlockHtml(o)}
+
+      <div class="comp-list" id="order-items-${o.id}" style="margin-top:14px;"></div>
+
+      <div class="add-order-item-row">
+        <select id="order-item-select-${o.id}">${orderKitOptionsHtml()}</select>
+        <input type="number" step="1" placeholder="к-сть" id="order-item-qty-${o.id}">
+        <button class="btn btn-sm" onclick="addOrderItem(${o.id})">Додати</button>
+      </div>
+
+      <textarea class="order-notes" rows="2" placeholder="Примітки (доставка, побажання тощо)" oninput="updateOrderField(${o.id},'notes',this.value)">${escapeAttr(o.notes||'')}</textarea>
+
+      <div class="order-total-row"><span class="stat-label">Сума замовлення</span><span id="order-total-${o.id}"></span></div>
+    </div>
+  `;
+}
+
+function renderOrderItems(orderId){
+  const o = orderById(orderId);
+  const el = document.getElementById(`order-items-${orderId}`);
+  if(!el) return;
+  if(o.items.length === 0){
+    el.innerHTML = '<div class="comp-empty">Ще немає позицій — додайте набір/товар нижче.</div>';
+    return;
+  }
+  el.innerHTML = o.items.map(it => {
+    const k = kitById(it.kitId);
+    const name = k ? ((k.sku ? `[${escapeAttr(k.sku)}] ` : '') + escapeAttr(k.name)) : '';
+    const missing = !k ? '<div class="miss">товар видалено</div>' : '';
+    return `
+      <div class="order-item-row">
+        <div class="comp-name">${name}${missing}</div>
+        <input type="number" step="1" value="${it.qty}" oninput="updateOrderItemField(${orderId}, ${it.kitId}, 'qty', this.value)">
+        <input type="number" step="0.1" value="${it.price}" oninput="updateOrderItemField(${orderId}, ${it.kitId}, 'price', this.value)" title="ціна за одиницю">
+        <div class="comp-cost" id="order-item-total-${orderId}-${it.kitId}">${fmt1(it.qty*it.price)} грн</div>
+        <button class="btn-ghost" onclick="removeOrderItem(${orderId}, ${it.kitId})" aria-label="Видалити позицію">×</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderOrderItemLineTotal(orderId, kitId){
+  const o = orderById(orderId);
+  const it = o.items.find(it => it.kitId === kitId);
+  const el = document.getElementById(`order-item-total-${orderId}-${kitId}`);
+  if(el && it) el.textContent = fmt1(it.qty*it.price) + ' грн';
+}
+
+function renderOrderTotal(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const c = calcOrder(o);
+  document.querySelectorAll(`[id="order-total-${orderId}"]`).forEach(el => {
+    el.textContent = fmt(c.total) + ' грн';
+  });
+}
+
+function renderOrdersSummary(){
+  const total = orders.reduce((s,o) => s + calcOrder(o).total, 0);
+  const paid = orders.filter(o => o.status==='Оплачено').reduce((s,o) => s + calcOrder(o).total, 0);
+  const active = orders.filter(o => o.status!=='Скасовано').length;
+  document.getElementById('ordersSummary').innerHTML = `
+    <div class="card"><div class="label">Всього замовлень</div><div class="value">${orders.length}</div></div>
+    <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
+    <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
+    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div></div>
+  `;
+}
+
+function syncQtyFromOrders(){
+  const countedStatuses = ['Відправлено','Оплачено'];
+  const totals = {};
+  orders.forEach(o => {
+    if(!countedStatuses.includes(o.status)) return;
+    o.items.forEach(it => {
+      totals[it.kitId] = (totals[it.kitId]||0) + (it.qty||0);
+    });
+  });
+  let updated = 0;
+  kits.forEach(k => {
+    const newQty = totals[k.id] || 0;
+    if(newQty !== k.qty){ k.qty = newQty; updated++; }
+  });
+  renderKits();
+  renderSummary();
+  renderChart();
+  scheduleSave();
+  alert(`Оновлено «Кількість продано» у ${updated} набор(ах) на основі замовлень зі статусом «Відправлено» або «Оплачено».`);
+}
+
+/* ---------- summary & chart ---------- */
+
+function renderSummary(){
+  let revenue=0, cost=0, profit=0;
+  kits.forEach(k => { const c = calcKit(k); revenue+=c.revenue; cost+=c.totalCost; profit+=c.profit; });
+  const margin = revenue > 0 ? (profit/revenue)*100 : 0;
+  document.getElementById('summary').innerHTML = `
+    <div class="card"><div class="label">Виручка</div><div class="value">${fmt(revenue)} грн</div></div>
+    <div class="card"><div class="label">Собівартість разом</div><div class="value">${fmt(cost)} грн</div></div>
+    <div class="card ${profit>=0?'profit':'negative'}"><div class="label">Прибуток</div><div class="value">${fmt(profit)} грн</div></div>
+    <div class="card ${margin>=0?'profit':'negative'}"><div class="label">Середня маржа</div><div class="value">${fmt1(margin)}%</div></div>
+  `;
+}
+
+const typeColor = {'Набір':'var(--saffron)','Баночка':'var(--cardamom)','Пакет':'var(--chili)'};
+
+function setChartMode(mode){
+  chartMode = mode;
+  document.getElementById('btnProfit').classList.toggle('active', mode==='profit');
+  document.getElementById('btnMargin').classList.toggle('active', mode==='margin');
+  renderChart();
+}
+
+function renderChart(){
+  const rows = kits.map(k => ({...k, ...calcKit(k)}));
+  const key = chartMode === 'profit' ? 'profit' : 'margin';
+  const sorted = [...rows].sort((a,b) => b[key]-a[key]);
+  const maxAbs = Math.max(1, ...sorted.map(r => Math.abs(r[key])));
+  const chart = document.getElementById('chart');
+  if(sorted.length === 0){ chart.innerHTML = '<div class="comp-empty">Додайте набори, щоб побачити порівняння.</div>'; return; }
+  chart.innerHTML = sorted.map(r => {
+    const pct = Math.min(100, Math.abs(r[key])/maxAbs*100);
+    const valLabel = chartMode==='profit' ? `${r.profit>=0?'':'−'}${fmt(Math.abs(r.profit))} грн` : `${fmt1(r.margin)}%`;
+    const color = r[key] < 0 ? 'var(--danger)' : typeColor[r.type];
+    return `
+      <div class="bar-row">
+        <div class="bar-name" title="${escapeAttr(r.name)}"><span class="type-badge badge-${r.type}">${r.type}</span>${escapeAttr(r.name)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+        <div class="bar-val">${valLabel}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function escapeAttr(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ---------- invoice OCR -> catalog ---------- */
+
+function setScanStatus(text, kind){
+  const el = document.getElementById('scanStatus');
+  el.className = 'scan-status' + (kind ? ' '+kind : '');
+  el.textContent = text || '';
+  if(!text) el.className = 'scan-status';
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = () => reject(new Error('Не вдалося прочитати файл'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function recognizeInvoice(base64, mediaType){
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text:
+            'Це фото прихідної накладної на спеції чи упаковку (постачальник -> компанія). ' +
+            'Витягни кожен рядок товару: назву як вона написана, закупівельну ціну за одиницю (собівартість) та одиницю виміру (г, мл або шт). ' +
+            'Відповідай ЛИШЕ JSON-масивом без пояснень, без markdown-огорожі, у форматі: ' +
+            '[{"name":"назва","price":число,"unit":"г|мл|шт"}]. ' +
+            'Якщо ціну не видно чітко, постав 0. Якщо одиниця незрозуміла, постав "шт". Не вигадуй позиції, яких немає на фото.'
+          }
+        ]
+      }]
+    })
+  });
+  const data = await response.json();
+  if(!response.ok){ throw new Error(data?.error?.message || 'Помилка розпізнавання'); }
+  const text = (data.content || []).map(b => b.text || '').join('\n');
+  const clean = text.replace(/```json|```/g, '').trim();
+  let items;
+  try{ items = JSON.parse(clean); } catch(e){ throw new Error('Не вдалося розпізнати структуру накладної'); }
+  if(!Array.isArray(items)) throw new Error('Порожній результат розпізнавання');
+  return items;
+}
+
+async function handleInvoiceFiles(fileList){
+  const files = Array.from(fileList || []);
+  if(files.length === 0) return;
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  setScanStatus('Розпізнаю накладну...', 'loading');
+  let addedCount = 0;
+  try{
+    for(const file of files){
+      const base64 = await fileToBase64(file);
+      const mediaType = file.type || 'image/jpeg';
+      const items = await recognizeInvoice(base64, mediaType);
+      items.forEach(it => {
+        if(!it || !it.name) return;
+        const unit = ['г','мл','шт'].includes(it.unit) ? it.unit : 'шт';
+        catalog.push({
+          id: nextCatalogId++,
+          name: String(it.name).trim(),
+          category: 'Спеція',
+          unit,
+          cost: Number(it.price) || 0
+        });
+        addedCount++;
+      });
+    }
+    renderCatalog();
+    renderKits();
+    scheduleSave();
+    setScanStatus(`Додано ${addedCount} позицій у довідник (категорія «Спеція»). Перевірте назви, одиниці й категорію — за потреби перенесіть в «Упаковку».`, 'ok');
+    if(addedCount > 0 && !document.getElementById('catalogBody').classList.contains('open')) toggleCatalog();
+  }catch(err){
+    setScanStatus('Помилка: ' + err.message, 'error');
+  }finally{
+    btn.disabled = false;
+    document.getElementById('invoiceInput').value = '';
+  }
+}
+
+/* ---------- excel import (назва + ціна) ---------- */
+
+function setExcelStatus(text, kind){
+  const el = document.getElementById('excelStatus');
+  el.className = 'scan-status' + (kind ? ' '+kind : '');
+  el.textContent = text || '';
+  if(!text) el.className = 'scan-status';
+}
+
+function normKey(s){
+  return String(s || '').trim().toLowerCase().replace(/[^a-zа-яіїєґ]/gi, '');
+}
+
+const NAME_KEYS = ['назва','название','наименование','name','товар','найменування'];
+const PRICE_KEYS = ['ціна','цена','price','собівартість','собивартость','вартість','cost'];
+
+function findKey(rowKeys, candidates){
+  for(const k of rowKeys){
+    const nk = normKey(k);
+    if(candidates.some(c => nk === normKey(c))) return k;
+  }
+  return null;
+}
+
+async function handleExcelFile(file){
+  if(!file) return;
+  const btn = document.getElementById('excelBtn');
+  btn.disabled = true;
+  setExcelStatus('Читаю файл...', 'loading');
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+    if(rows.length === 0) throw new Error('У файлі немає рядків з даними');
+
+    const rowKeys = Object.keys(rows[0]);
+    const nameKey = findKey(rowKeys, NAME_KEYS);
+    const priceKey = findKey(rowKeys, PRICE_KEYS);
+    if(!nameKey || !priceKey){
+      throw new Error('Не знайшов колонки «Назва» і «Ціна» — перевірте заголовки стовпців у файлі');
+    }
+
+    let added = 0, updated = 0;
+    rows.forEach(row => {
+      const name = String(row[nameKey] || '').trim();
+      const price = parseFloat(String(row[priceKey]).replace(',', '.'));
+      if(!name || isNaN(price)) return;
+      const existing = catalog.find(c => normKey(c.name) === normKey(name));
+      if(existing){
+        existing.cost = price;
+        updated++;
+      } else {
+        catalog.push({id: nextCatalogId++, name, category: 'Спеція', unit: 'шт', cost: price});
+        added++;
+      }
+    });
+
+    renderCatalog();
+    renderKits();
+    renderSummary();
+    renderChart();
+    scheduleSave();
+    setExcelStatus(`Готово: додано ${added}, оновлено ${updated} позицій. Нові — за замовчуванням у категорії «Спеція», перекласифікуйте за потреби.`, 'ok');
+    if((added+updated) > 0 && !document.getElementById('catalogBody').classList.contains('open')) toggleCatalog();
+  }catch(err){
+    setExcelStatus('Помилка: ' + err.message, 'error');
+  }finally{
+    btn.disabled = false;
+    document.getElementById('excelInput').value = '';
+  }
+}
+
+/* ---------- init ---------- */
+renderCatalog();
+renderKits();
+renderOrders();
+renderOrdersSummary();
+renderSummary();
+renderChart();
+autoConnectFirebase();
+</script>
+</body>
+</html>
