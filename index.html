@@ -1200,7 +1200,7 @@ function todayStr(){
 function addOrder(){
   const id = nextOrderId++;
   orders.push({
-    id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', items:[], notes:'', collapsed:false,
+    id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, items:[], notes:'', collapsed:false,
     shipmentCollapsed: true, stockDeducted:false,
     deliveryMethod: 'Нова Пошта',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
@@ -1251,6 +1251,22 @@ function updateOrderField(id, field, value){
   if(!o) return;
   o[field] = value;
   renderOrderTotal(id);
+  renderOrdersSummary();
+  scheduleSave();
+}
+function toggleOrderPaid(id, checked){
+  const o = orderById(id);
+  if(!o) return;
+  o.paid = checked;
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function toggleOrderShipped(id, checked){
+  const o = orderById(id);
+  if(!o) return;
+  o.shipped = checked;
+  renderOrders();
   renderOrdersSummary();
   scheduleSave();
 }
@@ -1643,6 +1659,8 @@ function orderCollapsedHtml(o){
       <div class="order-collapsed-row">
         <div class="order-collapsed-info">
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
+          ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
+          ${o.shipped ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>' : ''}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз.</span>
         </div>
@@ -1671,6 +1689,10 @@ function orderExpandedHtml(o){
           <select oninput="updateOrderField(${o.id},'status',this.value)">
             ${ORDER_STATUSES.map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
           </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
+            <input type="checkbox" ${o.paid?'checked':''} onchange="toggleOrderPaid(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
+            Оплачено
+          </label>
         </div>
         <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
@@ -1715,6 +1737,8 @@ function shipmentCollapsedHtml(o){
       <div class="order-collapsed-row">
         <div class="order-collapsed-info">
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
+          ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
+          ${o.shipped ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>' : ''}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}</span>
         </div>
@@ -1733,12 +1757,20 @@ function shipmentExpandedHtml(o){
     <div class="order-card" data-shipment="${o.id}">
       <div class="order-head">
         <div class="order-head-left">
-          <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
-          <span class="hint">${escapeAttr(o.phone||'')} · ${o.date||''}</span>
-        </div>
-        <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="saveShipment(${o.id})">Зберегти</button>
         </div>
+        <div class="order-head-left">
+          <span class="hint">${o.date||''}${o.paid ? ' · ✓ оплачено' : ' · не оплачено'}</span>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
+            <input type="checkbox" ${o.shipped?'checked':''} onchange="toggleOrderShipped(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
+            Відправлено
+          </label>
+        </div>
+      </div>
+
+      <div class="delivery-grid" style="margin-bottom:10px;">
+        <div><label>ПІБ отримувача</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Прізвище Ім'я По батькові"></div>
+        <div><label>Телефон отримувача</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)" placeholder="+380..."></div>
       </div>
 
       <div class="comp-list" style="margin-bottom:10px;">${orderItemsReadOnlyHtml(o)}</div>
@@ -1800,11 +1832,13 @@ function renderOrderTotal(orderId){
 
 function renderOrdersSummary(){
   const total = orders.reduce((s,o) => s + calcOrder(o).total, 0);
-  const paid = orders.filter(o => o.status==='Оплачено').reduce((s,o) => s + calcOrder(o).total, 0);
+  const paid = orders.filter(o => o.paid).reduce((s,o) => s + calcOrder(o).total, 0);
+  const shippedCount = orders.filter(o => o.shipped).length;
   const active = orders.filter(o => o.status!=='Скасовано').length;
   document.getElementById('ordersSummary').innerHTML = `
     <div class="card"><div class="label">Всього замовлень</div><div class="value">${orders.length}</div></div>
     <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
+    <div class="card"><div class="label">Відправлено</div><div class="value">${shippedCount}</div></div>
     <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
     <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div></div>
   `;
