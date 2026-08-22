@@ -459,7 +459,7 @@
   <div id="wh-view-movements" class="wh-view" style="display:none;">
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">Дозаписати сировину для старих списаних відправок</div>
-      <p class="hint" style="margin:0 0 8px;">Якщо відправку вже було списано до того, як з'явилось списання сировини — натисніть, і програма додасть відсутні рухи по інгредієнтах/упаковці заднім числом. Безпечно натискати кілька разів — дублікатів не буде.</p>
+      <p class="hint" style="margin:0 0 8px;">Якщо відправку вже було списано до того, як з'явилось автоматичне комплектування — натисніть, і програма дозапише «Комплектація» (прихід набору + списання сировини) заднім числом. Безпечно натискати кілька разів — дублікатів не буде.</p>
       <button class="btn btn-sm" onclick="backfillIngredientDeductions()">Дозаписати сировину</button>
       <div class="hint" id="backfillStatus" style="margin-top:6px;"></div>
     </div></div>
@@ -472,6 +472,7 @@
             <option>Надходження</option>
             <option>Списання</option>
             <option>Коригування</option>
+            <option>Комплектація</option>
           </select>
         </div>
         <div style="grid-column:span 2;">
@@ -1521,12 +1522,42 @@ function selectNpWarehouse(orderId, ref, desc){
 
 /* ---------- TTN (waybill) creation ---------- */
 
+function unlinkTtn(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  if(!confirm(`Відв'язати ТТН ${o.ttnNumber} від цього замовлення? Саму накладну в Новій Пошті це не видалить — лише прибере зв'язок у програмі.`)) return;
+  o.ttnNumber = '';
+  o.ttnRef = '';
+  o.npStatusText = '';
+  o.npStatusCode = '';
+  renderOrders();
+  scheduleSave();
+}
+
+function linkExistingTtn(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const input = document.getElementById(`ttn-manual-${orderId}`);
+  const ttn = (input.value || '').trim();
+  if(!ttn){ alert('Впишіть номер ТТН.'); return; }
+  if(!/^\d{8,20}$/.test(ttn)){
+    if(!confirm(`Номер «${ttn}» виглядає незвично для ТТН (зазвичай це 12–14 цифр). Прив'язати все одно?`)) return;
+  }
+  o.ttnNumber = ttn;
+  o.ttnRef = ''; // немає внутрішнього Ref з API — цю ТТН не створювали через програму, тож видалити її звідси не можна, лише відв'язати
+  o.npStatusText = '';
+  o.npStatusCode = '';
+  renderOrders();
+  scheduleSave();
+}
+
 function ttnResultHtml(o){
   if(o.ttnNumber){
-    return `<div class="hint" style="color:var(--cardamom);">✓ ТТН створено: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</strong>
+    const isLinked = !o.ttnRef;
+    return `<div class="hint" style="color:var(--cardamom);">✓ ТТН ${isLinked ? 'прив\'язано' : 'створено'}: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</strong>
       — <a href="https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(o.ttnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncNpStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з НП</a>
-      · <a href="#" onclick="cancelNpWaybill(${o.id});return false;" style="color:var(--danger);">видалити ТТН</a>
+      · <a href="#" onclick="${isLinked ? `unlinkTtn(${o.id})` : `cancelNpWaybill(${o.id})`};return false;" style="color:var(--danger);">${isLinked ? 'відв\'язати ТТН' : 'видалити ТТН'}</a>
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
       </div>`;
   }
@@ -1791,6 +1822,18 @@ function deliveryBlockHtml(o){
       </div>
       <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі й переказується вам через NovaPay. На яку саме картку зараховувати — налаштовується один раз у кабінеті/додатку NovaPay, а не в цій програмі (Нова Пошта не дозволяє передавати довільний номер картки для кожної окремої посилки через це API).</p>
       <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
+      ${!o.ttnNumber ? `
+      <div class="delivery-grid" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft);">
+        <div style="grid-column:span 2;">
+          <label>Або прив'язати вже створену ТТН</label>
+          <input type="text" id="ttn-manual-${o.id}" placeholder="напр. 20450123456789">
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-sm" type="button" onclick="linkExistingTtn(${o.id})">Прив'язати</button>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:4px;">Для випадків, коли ТТН уже оформили на відділенні, а не через цю програму — просто вставте номер, і статус/архівування працюватимуть так само.</p>
+      ` : ''}
     `;
   } else if(o.deliveryMethod === 'Укрпошта'){
     fieldsHtml = `
@@ -2401,12 +2444,25 @@ function backfillIngredientDeductions(){
   let ordersFixed = 0, movementsAdded = 0;
   deductedOrders.forEach(o => {
     const ref = `Замовлення #${o.id}`;
-    const alreadyBackfilled = stockMovements.some(m => m.itemType==='catalog' && m.ref===ref && (m.note||'').startsWith('Складові набору'));
+    const alreadyBackfilled = stockMovements.some(m =>
+      m.ref===ref && ((m.note||'').startsWith('Складові набору') || (m.note||'').startsWith('На комплектування'))
+    );
     if(alreadyBackfilled) return; // вже є сировинні рухи для цього замовлення — пропускаємо
 
     const ingredientTotals = {};
     o.items.forEach(it => {
-      const flat = flattenKitComponents(it.kitId, Math.abs(it.qty));
+      const qty = Math.abs(it.qty);
+      // якщо старе списання зробило лише "Відправка" по набору без пари "Комплектація" — додаємо її заднім числом,
+      // щоб набір не висів у мінусі, ніби взявся нізвідки.
+      const hasAssembly = stockMovements.some(m => m.ref===ref && m.itemType==='kit' && m.itemId===it.kitId && m.type==='Комплектація');
+      if(!hasAssembly){
+        stockMovements.push({
+          id: nextMovementId++, itemType:'kit', itemId: it.kitId, qty: qty, type:'Комплектація',
+          note: `Комплектування дозаписано заднім числом — ${o.customer || '#'+o.id}`, date: o.date || todayStr(), ref
+        });
+        movementsAdded++;
+      }
+      const flat = flattenKitComponents(it.kitId, qty);
       Object.entries(flat).forEach(([cid, amt]) => {
         const id = parseInt(cid, 10);
         ingredientTotals[id] = (ingredientTotals[id]||0) + amt;
@@ -2417,8 +2473,8 @@ function backfillIngredientDeductions(){
     Object.entries(ingredientTotals).forEach(([cid, amt]) => {
       if(amt <= 0) return;
       stockMovements.push({
-        id: nextMovementId++, itemType:'catalog', itemId: parseInt(cid,10), qty: -amt, type:'Відправка',
-        note: `Складові набору — замовлення: ${o.customer || '#'+o.id} (дозаписано заднім числом)`,
+        id: nextMovementId++, itemType:'catalog', itemId: parseInt(cid,10), qty: -amt, type:'Комплектація',
+        note: `На комплектування наборів — замовлення: ${o.customer || '#'+o.id} (дозаписано заднім числом)`,
         date: o.date || todayStr(), ref
       });
       addedForThisOrder++;
@@ -2431,7 +2487,7 @@ function backfillIngredientDeductions(){
   renderMovements();
   scheduleSave();
   statusEl.textContent = ordersFixed > 0
-    ? `Готово: дозаписано сировину для ${ordersFixed} замовлень (${movementsAdded} рух(ів)).`
+    ? `Готово: дозаписано сировину й комплектування для ${ordersFixed} замовлень (${movementsAdded} рух(ів)).`
     : 'Усе вже актуально — для жодного замовлення нічого не бракувало.';
 }
 
@@ -2439,17 +2495,24 @@ function deductStockForOrder(orderId){
   const o = orderById(orderId);
   if(!o) return;
   if(o.items.length === 0){ alert('У замовленні немає товарів.'); return; }
-  if(!confirm('Списати з залишків готові набори і сировину (інгредієнти/упаковку), з яких вони зібрані?')) return;
+  if(!confirm('Скомплектувати набори із сировини та списати їх на цю відправку?')) return;
 
   const ingredientTotals = {};
   o.items.forEach(it => {
-    // списання готового набору/SKU
+    const qty = Math.abs(it.qty);
+    const ref = `Замовлення #${o.id}`;
+    // автоматичне комплектування: набір "з'являється" на складі за рахунок сировини
     stockMovements.push({
-      id: nextMovementId++, itemType:'kit', itemId: it.kitId, qty: -Math.abs(it.qty), type:'Відправка',
-      note: `Замовлення: ${o.customer || '#'+o.id}`, date: todayStr(), ref: `Замовлення #${o.id}`
+      id: nextMovementId++, itemType:'kit', itemId: it.kitId, qty: qty, type:'Комплектація',
+      note: `Автоматичне комплектування перед відправкою — ${o.customer || '#'+o.id}`, date: todayStr(), ref
+    });
+    // і одразу списується на цю відправку
+    stockMovements.push({
+      id: nextMovementId++, itemType:'kit', itemId: it.kitId, qty: -qty, type:'Відправка',
+      note: `Замовлення: ${o.customer || '#'+o.id}`, date: todayStr(), ref
     });
     // накопичуємо сировину, з якої зібрані ці набори (наскрізь, крізь вкладені SKU)
-    const flat = flattenKitComponents(it.kitId, Math.abs(it.qty));
+    const flat = flattenKitComponents(it.kitId, qty);
     Object.entries(flat).forEach(([cid, amt]) => {
       const id = parseInt(cid, 10);
       ingredientTotals[id] = (ingredientTotals[id]||0) + amt;
@@ -2459,8 +2522,8 @@ function deductStockForOrder(orderId){
   Object.entries(ingredientTotals).forEach(([cid, amt]) => {
     if(amt <= 0) return;
     stockMovements.push({
-      id: nextMovementId++, itemType:'catalog', itemId: parseInt(cid,10), qty: -amt, type:'Відправка',
-      note: `Складові набору — замовлення: ${o.customer || '#'+o.id}`, date: todayStr(), ref: `Замовлення #${o.id}`
+      id: nextMovementId++, itemType:'catalog', itemId: parseInt(cid,10), qty: -amt, type:'Комплектація',
+      note: `На комплектування наборів — замовлення: ${o.customer || '#'+o.id}`, date: todayStr(), ref: `Замовлення #${o.id}`
     });
   });
 
