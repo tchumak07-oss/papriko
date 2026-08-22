@@ -458,6 +458,12 @@
 
   <div id="wh-view-movements" class="wh-view" style="display:none;">
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">Дозаписати сировину для старих списаних відправок</div>
+      <p class="hint" style="margin:0 0 8px;">Якщо відправку вже було списано до того, як з'явилось списання сировини — натисніть, і програма додасть відсутні рухи по інгредієнтах/упаковці заднім числом. Безпечно натискати кілька разів — дублікатів не буде.</p>
+      <button class="btn btn-sm" onclick="backfillIngredientDeductions()">Дозаписати сировину</button>
+      <div class="hint" id="backfillStatus" style="margin-top:6px;"></div>
+    </div></div>
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">Додати рух товару</div>
       <div class="delivery-grid">
         <div>
@@ -745,6 +751,30 @@ function kitUnitCost(kitId, visited){
     return sum + (c ? c.cost * comp.amount : 0);
   }, 0);
   return compCost + (k.logistics||0) + (k.marketing||0);
+}
+
+// Розгортає набір до базових інгредієнтів/упаковки з довідника (наскрізно, крізь вкладені SKU).
+// Повертає {catalogId: сумарна кількість} для однієї одиниці multiplier.
+function flattenKitComponents(kitId, multiplier, visited){
+  visited = visited || new Set();
+  if(visited.has(kitId)) return {};
+  const nextVisited = new Set(visited);
+  nextVisited.add(kitId);
+  const k = kitById(kitId);
+  if(!k) return {};
+  const result = {};
+  k.components.forEach(comp => {
+    const amt = (comp.amount||0) * multiplier;
+    if((comp.refType||'catalog') === 'kit'){
+      const nested = flattenKitComponents(comp.catalogId, amt, nextVisited);
+      Object.entries(nested).forEach(([cid, v]) => {
+        result[cid] = (result[cid]||0) + v;
+      });
+    } else {
+      result[comp.catalogId] = (result[comp.catalogId]||0) + amt;
+    }
+  });
+  return result;
 }
 
 function dependsOnKit(kitId, targetId, visited){
@@ -2361,17 +2391,79 @@ function applyInventory(){
   alert(count > 0 ? `Створено ${count} коригувальних рух(ів).` : 'Розбіжностей не знайдено — залишки збігаються.');
 }
 
+function backfillIngredientDeductions(){
+  const statusEl = document.getElementById('backfillStatus');
+  const deductedOrders = orders.filter(o => o.stockDeducted && o.items.length > 0);
+  if(deductedOrders.length === 0){
+    statusEl.textContent = 'Немає списаних відправок для перевірки.';
+    return;
+  }
+  let ordersFixed = 0, movementsAdded = 0;
+  deductedOrders.forEach(o => {
+    const ref = `Замовлення #${o.id}`;
+    const alreadyBackfilled = stockMovements.some(m => m.itemType==='catalog' && m.ref===ref && (m.note||'').startsWith('Складові набору'));
+    if(alreadyBackfilled) return; // вже є сировинні рухи для цього замовлення — пропускаємо
+
+    const ingredientTotals = {};
+    o.items.forEach(it => {
+      const flat = flattenKitComponents(it.kitId, Math.abs(it.qty));
+      Object.entries(flat).forEach(([cid, amt]) => {
+        const id = parseInt(cid, 10);
+        ingredientTotals[id] = (ingredientTotals[id]||0) + amt;
+      });
+    });
+
+    let addedForThisOrder = 0;
+    Object.entries(ingredientTotals).forEach(([cid, amt]) => {
+      if(amt <= 0) return;
+      stockMovements.push({
+        id: nextMovementId++, itemType:'catalog', itemId: parseInt(cid,10), qty: -amt, type:'Відправка',
+        note: `Складові набору — замовлення: ${o.customer || '#'+o.id} (дозаписано заднім числом)`,
+        date: o.date || todayStr(), ref
+      });
+      addedForThisOrder++;
+      movementsAdded++;
+    });
+    if(addedForThisOrder > 0) ordersFixed++;
+  });
+
+  renderBalances();
+  renderMovements();
+  scheduleSave();
+  statusEl.textContent = ordersFixed > 0
+    ? `Готово: дозаписано сировину для ${ordersFixed} замовлень (${movementsAdded} рух(ів)).`
+    : 'Усе вже актуально — для жодного замовлення нічого не бракувало.';
+}
+
 function deductStockForOrder(orderId){
   const o = orderById(orderId);
   if(!o) return;
   if(o.items.length === 0){ alert('У замовленні немає товарів.'); return; }
-  if(!confirm('Списати товари цього замовлення з залишків складу?')) return;
+  if(!confirm('Списати з залишків готові набори і сировину (інгредієнти/упаковку), з яких вони зібрані?')) return;
+
+  const ingredientTotals = {};
   o.items.forEach(it => {
+    // списання готового набору/SKU
     stockMovements.push({
       id: nextMovementId++, itemType:'kit', itemId: it.kitId, qty: -Math.abs(it.qty), type:'Відправка',
       note: `Замовлення: ${o.customer || '#'+o.id}`, date: todayStr(), ref: `Замовлення #${o.id}`
     });
+    // накопичуємо сировину, з якої зібрані ці набори (наскрізь, крізь вкладені SKU)
+    const flat = flattenKitComponents(it.kitId, Math.abs(it.qty));
+    Object.entries(flat).forEach(([cid, amt]) => {
+      const id = parseInt(cid, 10);
+      ingredientTotals[id] = (ingredientTotals[id]||0) + amt;
+    });
   });
+
+  Object.entries(ingredientTotals).forEach(([cid, amt]) => {
+    if(amt <= 0) return;
+    stockMovements.push({
+      id: nextMovementId++, itemType:'catalog', itemId: parseInt(cid,10), qty: -amt, type:'Відправка',
+      note: `Складові набору — замовлення: ${o.customer || '#'+o.id}`, date: todayStr(), ref: `Замовлення #${o.id}`
+    });
+  });
+
   o.stockDeducted = true;
   renderOrders();
   renderBalances();
