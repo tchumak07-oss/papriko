@@ -518,7 +518,7 @@
   <div id="section-cash" class="app-section">
 
   <div class="section-title" style="margin-top:0;">Каса</div>
-  <p class="hint" style="margin:-8px 0 14px;">Кожна відправка, яка потрапляє в «Архів» (оплачено + відправлено), автоматично додає надходження в касу. Витрати вносите вручну нижче.</p>
+  <p class="hint" style="margin:-8px 0 14px;">Кожне замовлення, позначене «Оплачено» (у «Замовленнях» або «Відправках»), автоматично додає надходження в касу — незалежно від того, чи вже доставлено. Витрати вносите вручну нижче.</p>
 
   <div class="summary" id="cashSummary" style="margin-bottom:1.5rem;"></div>
 
@@ -718,6 +718,7 @@ function autoConnectFirebase(){
 
 function fmt(n){ return Math.round(n).toLocaleString('uk-UA'); }
 function fmt1(n){ return (Math.round(n*10)/10).toFixed(1); }
+function fmt2(n){ return (Math.round((n||0)*100)/100).toString(); }
 
 /* ---------- catalog ---------- */
 
@@ -2078,8 +2079,8 @@ let cashTransactions = [];
 
 function syncCashFromArchive(){
   let changed = false;
-  const archivedOrders = orders.filter(isArchived);
-  archivedOrders.forEach(o => {
+  const paidOrders = orders.filter(o => o.paid);
+  paidOrders.forEach(o => {
     const exists = cashTransactions.some(t => t.source==='order' && t.orderId===o.id);
     if(!exists){
       cashTransactions.push({
@@ -2090,9 +2091,9 @@ function syncCashFromArchive(){
       changed = true;
     }
   });
-  const archivedIds = new Set(archivedOrders.map(o=>o.id));
+  const paidIds = new Set(paidOrders.map(o=>o.id));
   const before = cashTransactions.length;
-  cashTransactions = cashTransactions.filter(t => t.source!=='order' || archivedIds.has(t.orderId));
+  cashTransactions = cashTransactions.filter(t => t.source!=='order' || paidIds.has(t.orderId));
   if(cashTransactions.length !== before) changed = true;
   if(changed){
     const el = document.getElementById('cashTable');
@@ -2121,7 +2122,7 @@ function removeCashTransaction(id){
   const t = cashTransactions.find(t => t.id === id);
   if(!t) return;
   if(t.source === 'order'){
-    alert('Це надходження створене автоматично з архівованого замовлення. Щоб прибрати його — поверніть замовлення з архіву (зніміть «Відправлено» або «Оплачено»).');
+    alert('Це надходження створене автоматично із оплаченого замовлення. Щоб прибрати його — зніміть прапорець «Оплачено» в цьому замовленні (у «Замовленнях» або «Відправках»).');
     return;
   }
   cashTransactions = cashTransactions.filter(t => t.id !== id);
@@ -2587,7 +2588,7 @@ function renderBalances(){
   el.innerHTML = items.map(it => {
     const bal = computeBalance(it.itemType, it.itemId);
     const cls = bal > 0 ? 'balance-pos' : (bal < 0 ? 'balance-neg' : 'balance-zero');
-    return `<div class="wh-row"><div>${escapeAttr(it.name)}</div><div class="cv ${cls}" style="text-align:right;font-family:'JetBrains Mono',monospace;">${bal}</div><div style="text-align:right;color:var(--text-faint);">${it.unit}</div></div>`;
+    return `<div class="wh-row"><div>${escapeAttr(it.name)}</div><div class="cv ${cls}" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt2(bal)}</div><div style="text-align:right;color:var(--text-faint);">${it.unit}</div></div>`;
   }).join('');
 }
 
@@ -2603,7 +2604,7 @@ function renderMovements(){
     <div class="wh-row">
       <div class="hint">${m.date||''}</div>
       <div>${itemLabel(m.itemType, m.itemId)}</div>
-      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${m.qty<0?'var(--danger)':'var(--cardamom)'};">${m.qty>0?'+':''}${m.qty}</div>
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${m.qty<0?'var(--danger)':'var(--cardamom)'};">${m.qty>0?'+':''}${fmt2(m.qty)}</div>
       <div class="hint">${escapeAttr(m.type)}${m.ref ? ' · '+escapeAttr(m.ref) : ''}</div>
       <div class="hint">${escapeAttr(m.note||'')}</div>
       <button class="btn-ghost" onclick="removeMovement(${m.id})" aria-label="Видалити рух">×</button>
@@ -2625,8 +2626,8 @@ function renderInventory(){
     return `
       <div class="wh-row">
         <div>${escapeAttr(it.name)}</div>
-        <div style="text-align:right;font-family:'JetBrains Mono',monospace;">${bal}</div>
-        <div><input type="number" step="0.1" id="inv-actual-${key}" value="${bal}" style="text-align:right;"></div>
+        <div style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt2(bal)}</div>
+        <div><input type="number" step="0.01" id="inv-actual-${key}" value="${fmt2(bal)}" style="text-align:right;"></div>
         <div class="hint" id="inv-diff-${key}" style="text-align:right;">0</div>
         <div><input type="text" id="inv-note-${key}" placeholder="напр. пересорт"></div>
       </div>
@@ -2638,7 +2639,7 @@ function renderInventory(){
     if(input){
       input.oninput = () => {
         const diff = (parseFloat(input.value)||0) - computeBalance(it.itemType, it.itemId);
-        document.getElementById(`inv-diff-${key}`).textContent = (diff>0?'+':'')+diff;
+        document.getElementById(`inv-diff-${key}`).textContent = (diff>0?'+':'')+fmt2(diff);
       };
     }
   });
