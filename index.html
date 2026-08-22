@@ -1838,6 +1838,17 @@ async function syncAllNpStatuses(){
   }
 }
 
+function carrierBadgeHtml(o){
+  const map = {
+    'Нова Пошта': {label:'НП', bg:'var(--saffron)', fg:'var(--saffron-text)'},
+    'Укрпошта': {label:'УП', bg:'var(--chili)', fg:'var(--chili-text)'},
+    'Самовивіз': {label:'СВ', bg:'var(--cardamom)', fg:'var(--cardamom-text)'}
+  };
+  const m = map[o.deliveryMethod];
+  if(!m) return '';
+  return `<span class="status-badge" title="${escapeAttr(o.deliveryMethod)}" style="background:${m.bg};color:${m.fg};font-weight:700;">${m.label}</span>`;
+}
+
 function deliverySummaryText(o){
   if(o.deliveryMethod === 'Нова Пошта'){
     if(!o.city) return 'Нова Пошта — місто не вказане';
@@ -1936,7 +1947,10 @@ function deliveryBlockHtml(o){
         <div style="grid-column:span 2;"><label>Адреса</label><input type="text" value="${escapeAttr(o.address)}" oninput="updateOrderField(${o.id},'address',this.value)" placeholder="Вулиця, будинок, квартира, місто"></div>
         <div style="grid-column:span 3;"><label>Номер декларації (ЕН)</label><input type="text" value="${escapeAttr(o.ukrTtnNumber||'')}" oninput="updateOrderField(${o.id},'ukrTtnNumber',this.value)" placeholder="напр. 0504651234567"></div>
       </div>
-      <p class="hint" style="margin-top:4px;">Якщо декларацію вже оформили на відділенні Укрпошти (не через цю програму) — просто впишіть її номер сюди для власного обліку.</p>
+      <p class="hint" style="margin-top:4px;">
+        Якщо декларацію вже оформили на відділенні Укрпошти (не через цю програму) — просто впишіть її номер сюди для власного обліку.
+        ${o.ukrTtnNumber ? `<br><a href="https://track.ukrposhta.ua/tracking_UA.html?barcode=${encodeURIComponent(o.ukrTtnNumber)}" target="_blank" style="color:var(--saffron);">Перевірити статус на сайті Укрпошти →</a>` : ''}
+      </p>
     `;
   } else {
     fieldsHtml = `
@@ -2016,6 +2030,7 @@ function archiveCollapsedHtml(o){
         <div class="order-collapsed-info">
           <span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>
           <span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>
+          ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
         </div>
@@ -2037,6 +2052,7 @@ function archiveExpandedHtml(o){
         <div class="order-head-left">
           <span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>
           <span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>
+          ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
         </div>
         <div class="order-head-left">
@@ -2255,6 +2271,7 @@ function shipmentCollapsedHtml(o){
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>' : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
+          ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
         </div>
@@ -2276,6 +2293,7 @@ function shipmentExpandedHtml(o){
         <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="saveShipment(${o.id})">Зберегти</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити відправку">×</button>
+          ${carrierBadgeHtml(o)}
         </div>
         <div class="order-head-left">
           <span class="hint">${o.date||''}</span>
