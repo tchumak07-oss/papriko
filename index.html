@@ -1362,7 +1362,7 @@ function addOrder(){
     shipmentCollapsed: true, stockDeducted:false,
     deliveryMethod: 'Нова Пошта',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
-    ukrIndex:'', address:'',
+    ukrIndex:'', address:'', ukrTtnNumber:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
     codAmount:'',
     ttnNumber:'', ttnRef:''
@@ -1844,7 +1844,7 @@ function deliverySummaryText(o){
     return `Нова Пошта, ${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}`;
   }
   if(o.deliveryMethod === 'Укрпошта'){
-    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${o.address ? ', ' + o.address : ''}`;
+    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${o.address ? ', ' + o.address : ''}${o.ukrTtnNumber ? ' · ЕН '+o.ukrTtnNumber : ''}`;
   }
   return o.deliveryMethod + (o.address ? ', ' + o.address : '');
 }
@@ -1934,7 +1934,9 @@ function deliveryBlockHtml(o){
       <div class="delivery-grid">
         <div><label>Індекс</label><input type="text" value="${escapeAttr(o.ukrIndex)}" oninput="updateOrderField(${o.id},'ukrIndex',this.value)" placeholder="напр. 79000"></div>
         <div style="grid-column:span 2;"><label>Адреса</label><input type="text" value="${escapeAttr(o.address)}" oninput="updateOrderField(${o.id},'address',this.value)" placeholder="Вулиця, будинок, квартира, місто"></div>
+        <div style="grid-column:span 3;"><label>Номер декларації (ЕН)</label><input type="text" value="${escapeAttr(o.ukrTtnNumber||'')}" oninput="updateOrderField(${o.id},'ukrTtnNumber',this.value)" placeholder="напр. 0504651234567"></div>
       </div>
+      <p class="hint" style="margin-top:4px;">Якщо декларацію вже оформили на відділенні Укрпошти (не через цю програму) — просто впишіть її номер сюди для власного обліку.</p>
     `;
   } else {
     fieldsHtml = `
