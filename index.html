@@ -198,6 +198,7 @@
   .app-nav-btn:nth-child(5){margin-left:24px;}
   .app-nav-btn:nth-child(6){margin-left:30px;}
   .app-nav-btn:nth-child(7){margin-left:36px;}
+  .app-nav-btn:nth-child(8){margin-left:42px;}
   @media (max-width:820px){
     .app-layout{flex-direction:column;gap:1rem;}
     .app-sidebar{
@@ -266,6 +267,7 @@
       <button class="app-nav-btn" id="nav-warehouse" onclick="showSection('warehouse')"><span class="nav-icon">🏬</span>Склад</button>
       <button class="app-nav-btn" id="nav-archive" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
       <button class="app-nav-btn" id="nav-cash" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
+      <button class="app-nav-btn" id="nav-reports" onclick="showSection('reports')"><span class="nav-icon">📊</span>Звіти</button>
     </nav>
 
     <div class="app-main">
@@ -429,6 +431,69 @@
     </div>
   </div>
 
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="catalog-group-title">Фільтр і сортування</div>
+    <div class="delivery-grid">
+      <div>
+        <label>Оплачено</label>
+        <select id="shf-paid" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="yes">Так</option>
+          <option value="no">Ні</option>
+        </select>
+      </div>
+      <div>
+        <label>Відправлено</label>
+        <select id="shf-shipped" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="yes">Так</option>
+          <option value="no">Ні</option>
+        </select>
+      </div>
+      <div>
+        <label>Доставлено</label>
+        <select id="shf-delivered" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="yes">Так</option>
+          <option value="no">Ні</option>
+        </select>
+      </div>
+      <div>
+        <label>Спосіб доставки</label>
+        <select id="shf-method" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="Нова Пошта">Нова Пошта</option>
+          <option value="Укрпошта">Укрпошта</option>
+          <option value="Самовивіз">Самовивіз</option>
+        </select>
+      </div>
+      <div>
+        <label>Списано з залишків</label>
+        <select id="shf-deducted" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="yes">Так</option>
+          <option value="no">Ні</option>
+        </select>
+      </div>
+      <div>
+        <label>Сортувати за</label>
+        <select id="shf-sort" onchange="renderOrders()">
+          <option value="date-desc">Дата (спочатку нові)</option>
+          <option value="date-asc">Дата (спочатку старі)</option>
+          <option value="total-desc">Сума (спочатку більша)</option>
+          <option value="customer-asc">Клієнт (А-Я)</option>
+        </select>
+      </div>
+      <div style="grid-column:span 3;">
+        <label>Пошук за клієнтом</label>
+        <input type="text" id="shf-search" placeholder="Ім'я клієнта…" oninput="renderOrders()">
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button class="btn btn-sm" onclick="resetShipmentFilters()">Скинути фільтри</button>
+      </div>
+    </div>
+  </div></div>
+
   <div id="shipmentList"></div>
 
   </div><!-- /section-shipments -->
@@ -559,6 +624,34 @@
 
   </div><!-- /section-cash -->
 
+  <div id="section-reports" class="app-section">
+
+  <div class="section-title" style="margin-top:0;">Звіти</div>
+
+  <div class="catalog-panel" style="margin-bottom:1.5rem;"><div style="padding:14px 16px;">
+    <div class="delivery-grid">
+      <div><label>Період з</label><input type="date" id="rep-date-from" oninput="renderReports()"></div>
+      <div><label>Період по</label><input type="date" id="rep-date-to" oninput="renderReports()"></div>
+      <div style="display:flex;align-items:flex-end;gap:8px;">
+        <button class="btn btn-sm" onclick="setReportRange('month')">Цей місяць</button>
+        <button class="btn btn-sm" onclick="setReportRange('all')">Весь час</button>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="summary" id="reportsSummary" style="margin-bottom:1.5rem;"></div>
+
+  <div class="section-title">Топ наборів за виручкою</div>
+  <div id="reportTopKits" style="margin-bottom:2rem;"></div>
+
+  <div class="section-title">Витрати за категоріями</div>
+  <div id="reportExpenseCategories" style="margin-bottom:2rem;"></div>
+
+  <div class="section-title">Топ клієнтів</div>
+  <div id="reportTopClients"></div>
+
+  </div><!-- /section-reports -->
+
   <footer>
     <p>Собівартість набору = сума (кількість компонента × собівартість компонента з довідника, або собівартість готового набору за SKU) + логістика/од + маркетинг/од.</p>
     <p>Кольори типу: набір — жовтий, баночка — зелений, пакет — теракотовий. Без підключення Firebase дані зберігаються лише в цій сесії браузера.</p>
@@ -647,6 +740,7 @@ function applyRemoteData(data){
   renderInventory();
   populateMovementItemSelect();
   renderCash();
+  renderReports();
   const npInput = document.getElementById('npApiKeyInput');
   if(npInput) npInput.value = npApiKey;
   const senderCityInput = document.getElementById('sender-city-input');
@@ -1978,6 +2072,58 @@ function deliveryBlockHtml(o){
 
 function isArchived(o){ return !!(o.paid && o.delivered); }
 
+function applyShipmentFilters(list){
+  const paidEl = document.getElementById('shf-paid');
+  const shippedEl = document.getElementById('shf-shipped');
+  const deliveredEl = document.getElementById('shf-delivered');
+  const methodEl = document.getElementById('shf-method');
+  const deductedEl = document.getElementById('shf-deducted');
+  const sortEl = document.getElementById('shf-sort');
+  const searchEl = document.getElementById('shf-search');
+  if(!paidEl) return list; // фільтри ще не відрендерені (наприклад, при першому запуску)
+
+  const paidVal = paidEl.value;
+  const shippedVal = shippedEl.value;
+  const deliveredVal = deliveredEl.value;
+  const methodVal = methodEl.value;
+  const deductedVal = deductedEl.value;
+  const sortVal = sortEl.value;
+  const search = (searchEl.value || '').trim().toLowerCase();
+
+  let result = list.filter(o => {
+    if(paidVal === 'yes' && !o.paid) return false;
+    if(paidVal === 'no' && o.paid) return false;
+    if(shippedVal === 'yes' && !o.shipped) return false;
+    if(shippedVal === 'no' && o.shipped) return false;
+    if(deliveredVal === 'yes' && !o.delivered) return false;
+    if(deliveredVal === 'no' && o.delivered) return false;
+    if(deductedVal === 'yes' && !o.stockDeducted) return false;
+    if(deductedVal === 'no' && o.stockDeducted) return false;
+    if(methodVal !== 'all' && o.deliveryMethod !== methodVal) return false;
+    if(search && !(o.customer||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  result = [...result].sort((a,b) => {
+    if(sortVal === 'date-asc') return (a.date||'').localeCompare(b.date||'');
+    if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total;
+    if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'');
+    return (b.date||'').localeCompare(a.date||''); // date-desc за замовчуванням
+  });
+  return result;
+}
+
+function resetShipmentFilters(){
+  document.getElementById('shf-paid').value = 'all';
+  document.getElementById('shf-shipped').value = 'all';
+  document.getElementById('shf-delivered').value = 'all';
+  document.getElementById('shf-method').value = 'all';
+  document.getElementById('shf-deducted').value = 'all';
+  document.getElementById('shf-sort').value = 'date-desc';
+  document.getElementById('shf-search').value = '';
+  renderOrders();
+}
+
 function renderOrders(){
   const list = document.getElementById('orderList');
   if(orders.length === 0){
@@ -1992,13 +2138,15 @@ function renderOrders(){
   const sList = document.getElementById('shipmentList');
   if(sList){
     const active = orders.filter(o => !isArchived(o));
+    const filtered = applyShipmentFilters(active);
     if(active.length === 0){
       sList.innerHTML = orders.length === 0
         ? '<div class="comp-empty">Немає замовлень — спочатку створіть замовлення у вкладці «Замовлення».</div>'
-        : '<div class="comp-empty">Усі відправки оплачені й відправлені — дивіться їх у «Архіві».</div>';
+        : '<div class="comp-empty">Усі відправки оплачені й доставлені — дивіться їх у «Архіві».</div>';
+    } else if(filtered.length === 0){
+      sList.innerHTML = '<div class="comp-empty">Нічого не знайдено за цими фільтрами.</div>';
     } else {
-      const sorted = [...active].sort((a,b) => (b.date||'').localeCompare(a.date||''));
-      sList.innerHTML = sorted.map(o => o.shipmentCollapsed ? shipmentCollapsedHtml(o) : shipmentExpandedHtml(o)).join('');
+      sList.innerHTML = filtered.map(o => o.shipmentCollapsed ? shipmentCollapsedHtml(o) : shipmentExpandedHtml(o)).join('');
     }
     document.getElementById('shipmentCount').textContent = active.length;
   }
@@ -2176,6 +2324,118 @@ function renderCash(){
       <div class="hint">${escapeAttr(t.type)}</div>
       <div class="hint">${t.source==='order' ? 'автоматично' : 'вручну'}</div>
       <button class="btn-ghost" onclick="removeCashTransaction(${t.id})" aria-label="Видалити операцію">×</button>
+    </div>
+  `).join('');
+}
+
+/* ---------- reports ---------- */
+
+function setReportRange(kind){
+  const fromEl = document.getElementById('rep-date-from');
+  const toEl = document.getElementById('rep-date-to');
+  if(kind === 'all'){
+    fromEl.value = '';
+    toEl.value = '';
+  } else if(kind === 'month'){
+    const d = new Date();
+    const first = new Date(d.getFullYear(), d.getMonth(), 1);
+    fromEl.value = first.toISOString().slice(0,10);
+    toEl.value = todayStr();
+  }
+  renderReports();
+}
+
+function inReportRange(dateStr){
+  const from = document.getElementById('rep-date-from').value;
+  const to = document.getElementById('rep-date-to').value;
+  if(!dateStr) return false;
+  if(from && dateStr < from) return false;
+  if(to && dateStr > to) return false;
+  return true;
+}
+
+function renderReports(){
+  const summaryEl = document.getElementById('reportsSummary');
+  if(!summaryEl) return;
+
+  const paidOrdersInRange = orders.filter(o => o.paid && inReportRange(o.date));
+  const revenue = paidOrdersInRange.reduce((s,o) => s + calcOrder(o).total, 0);
+  const cogs = paidOrdersInRange.reduce((s,o) => {
+    return s + o.items.reduce((s2,it) => s2 + kitUnitCost(it.kitId, new Set()) * (it.qty||0), 0);
+  }, 0);
+  const grossProfit = revenue - cogs;
+
+  const expensesInRange = cashTransactions.filter(t => t.type==='Витрата' && inReportRange(t.date)).reduce((s,t)=>s+t.amount,0);
+  const netProfit = grossProfit - expensesInRange;
+  const ordersCount = paidOrdersInRange.length;
+  const avgCheck = ordersCount > 0 ? revenue / ordersCount : 0;
+
+  summaryEl.innerHTML = `
+    <div class="card"><div class="label">Виручка</div><div class="value">${fmt(revenue)} грн</div></div>
+    <div class="card"><div class="label">Собівартість</div><div class="value">${fmt(cogs)} грн</div></div>
+    <div class="card ${grossProfit>=0?'profit':'negative'}"><div class="label">Валовий прибуток</div><div class="value">${fmt(grossProfit)} грн</div></div>
+    <div class="card ${expensesInRange>0?'negative':''}"><div class="label">Витрати (каса)</div><div class="value">${fmt(expensesInRange)} грн</div></div>
+    <div class="card ${netProfit>=0?'profit':'negative'}"><div class="label">Чистий прибуток</div><div class="value">${fmt(netProfit)} грн</div></div>
+    <div class="card"><div class="label">Замовлень / середній чек</div><div class="value">${ordersCount} · ${fmt(avgCheck)} грн</div></div>
+  `;
+
+  // топ наборів за виручкою
+  const kitTotals = {};
+  paidOrdersInRange.forEach(o => {
+    o.items.forEach(it => {
+      const t = kitTotals[it.kitId] || {qty:0, revenue:0};
+      t.qty += it.qty||0;
+      t.revenue += (it.qty||0) * (it.price||0);
+      kitTotals[it.kitId] = t;
+    });
+  });
+  const kitRows = Object.entries(kitTotals)
+    .map(([kid, t]) => ({k: kitById(parseInt(kid,10)), ...t}))
+    .filter(r => r.k)
+    .sort((a,b) => b.revenue - a.revenue);
+  const kitMax = Math.max(1, ...kitRows.map(r=>r.revenue));
+  const kitEl = document.getElementById('reportTopKits');
+  kitEl.innerHTML = kitRows.length === 0 ? '<div class="comp-empty">Немає продажів за цей період.</div>' : kitRows.map(r => `
+    <div class="bar-row">
+      <div class="bar-name" title="${escapeAttr(r.k.name)}"><span class="type-badge badge-${r.k.type}">${r.k.type}</span>${escapeAttr(r.k.name)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, r.revenue/kitMax*100)}%;background:var(--saffron);"></div></div>
+      <div class="bar-val">${fmt(r.revenue)} грн · ${r.qty} шт</div>
+    </div>
+  `).join('');
+
+  // витрати за категоріями
+  const catTotals = {};
+  cashTransactions.filter(t => t.type==='Витрата' && inReportRange(t.date)).forEach(t => {
+    catTotals[t.category||'Інше'] = (catTotals[t.category||'Інше']||0) + t.amount;
+  });
+  const catRows = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
+  const catMax = Math.max(1, ...catRows.map(r=>r[1]));
+  const catEl = document.getElementById('reportExpenseCategories');
+  catEl.innerHTML = catRows.length === 0 ? '<div class="comp-empty">Витрат за цей період немає.</div>' : catRows.map(([cat, amt]) => `
+    <div class="bar-row">
+      <div class="bar-name">${escapeAttr(cat)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, amt/catMax*100)}%;background:var(--chili);"></div></div>
+      <div class="bar-val">${fmt(amt)} грн</div>
+    </div>
+  `).join('');
+
+  // топ клієнтів
+  const clientTotals = {};
+  paidOrdersInRange.forEach(o => {
+    const key = o.clientId || ('name:'+(o.customer||'Без імені'));
+    const t = clientTotals[key] || {name: o.customer || 'Без імені', total:0, count:0};
+    t.total += calcOrder(o).total;
+    t.count += 1;
+    clientTotals[key] = t;
+  });
+  const clientRows = Object.values(clientTotals).sort((a,b) => b.total - a.total);
+  const clientMax = Math.max(1, ...clientRows.map(r=>r.total));
+  const clientEl = document.getElementById('reportTopClients');
+  clientEl.innerHTML = clientRows.length === 0 ? '<div class="comp-empty">Немає оплачених замовлень за цей період.</div>' : clientRows.map(r => `
+    <div class="bar-row">
+      <div class="bar-name" title="${escapeAttr(r.name)}">${escapeAttr(r.name)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, r.total/clientMax*100)}%;background:var(--cardamom);"></div></div>
+      <div class="bar-val">${fmt(r.total)} грн · ${r.count} зам.</div>
     </div>
   `).join('');
 }
@@ -2413,7 +2673,7 @@ function syncQtyFromOrders(){
 
 /* ---------- navigation ---------- */
 
-const SECTIONS = ['products','orders','shipments','clients','warehouse','archive','cash'];
+const SECTIONS = ['products','orders','shipments','clients','warehouse','archive','cash','reports'];
 function showSection(name){
   SECTIONS.forEach(s => {
     document.getElementById('section-'+s).classList.toggle('active', s===name);
@@ -2423,6 +2683,7 @@ function showSection(name){
   if(name === 'warehouse'){ renderBalances(); renderMovements(); renderInventory(); populateMovementItemSelect(); }
   if(name === 'archive') renderArchive();
   if(name === 'cash') renderCash();
+  if(name === 'reports') renderReports();
 }
 
 /* ---------- clients ---------- */
@@ -3035,6 +3296,7 @@ renderInventory();
 populateMovementItemSelect();
 renderCash();
 document.getElementById('cash-date').value = todayStr();
+renderReports();
 autoConnectFirebase();
 </script>
 </body>
