@@ -373,7 +373,10 @@
 
   <div class="section-title" style="margin-top:0;">
     Відправки <span class="n" id="shipmentCount"></span>
-    <span class="btns"><button class="btn btn-sm" id="syncAllNpBtn" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button></span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
+      <button class="btn btn-sm" id="syncAllNpBtn" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button>
+    </span>
   </div>
   <p class="hint" style="margin:-8px 0 14px;">Кожна картка тут — це те саме замовлення, розгорнуте з полями доставки й ТТН. Створюються замовлення у вкладці «Замовлення».</p>
 
@@ -1354,7 +1357,7 @@ function todayStr(){
 function addOrder(){
   const id = nextOrderId++;
   orders.push({
-    id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, items:[], notes:'', collapsed:false,
+    id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, delivered:false, items:[], notes:'', collapsed:false,
     shipmentCollapsed: true, stockDeducted:false,
     deliveryMethod: 'Нова Пошта',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
@@ -1445,6 +1448,14 @@ function toggleOrderShipped(id, checked){
   const o = orderById(id);
   if(!o) return;
   o.shipped = checked;
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+function toggleOrderDelivered(id, checked){
+  const o = orderById(id);
+  if(!o) return;
+  o.delivered = checked;
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -1751,22 +1762,31 @@ async function cancelNpWaybill(orderId){
 }
 
 // StatusCode "1" = ТТН зареєстровано, вантаж ще не прийнято у відділенні.
-// Будь-який інший код означає, що відправлення вже рухається по мережі НП.
+// Будь-який інший код означає, що відправлення вже рухається по мережі НП (це ще не доставка).
 function applyNpStatus(o, statusItem){
-  if(!statusItem) return {shipped:false, archived:false};
+  if(!statusItem) return {shipped:false, delivered:false, archived:false};
   o.npStatusText = statusItem.Status || '';
   o.npStatusCode = statusItem.StatusCode || '';
   const wasShipped = o.shipped;
+  const wasDelivered = o.delivered;
   const wasArchived = isArchived(o);
   if(statusItem.StatusCode && statusItem.StatusCode !== '1'){
     o.shipped = true;
   }
-  // "Грошовий переказ ... видано" — післяплату виплачено відправнику, отже посилку отримали й розрахунок закрито.
   const statusLower = (o.npStatusText || '').toLowerCase();
+  // "Грошовий переказ ... видано" — післяплату виплачено відправнику, отже посилку отримали й розрахунок закрито.
   if(statusLower.includes('переказ') && statusLower.includes('видано')){
     o.paid = true;
   }
-  return {shipped: o.shipped && !wasShipped, archived: isArchived(o) && !wasArchived};
+  // Фактичне отримання посилки отримувачем — лише тоді вважаємо "доставлено".
+  if(statusLower.includes('отримано') || (statusLower.includes('переказ') && statusLower.includes('видано'))){
+    o.delivered = true;
+  }
+  return {
+    shipped: o.shipped && !wasShipped,
+    delivered: o.delivered && !wasDelivered,
+    archived: isArchived(o) && !wasArchived
+  };
 }
 
 async function syncNpStatus(orderId){
@@ -1782,6 +1802,7 @@ async function syncNpStatus(orderId){
     renderOrders();
     scheduleSave();
     if(res.archived) alert(`Оплата й доставка підтверджені НП — замовлення перенесено в «Архів». Статус: ${o.npStatusText}`);
+    else if(res.delivered) alert(`«Доставлено» увімкнено автоматично — статус НП: ${o.npStatusText}`);
     else if(res.shipped) alert(`«Відправлено» увімкнено автоматично — статус НП: ${o.npStatusText}`);
   }catch(err){
     if(resultEl) resultEl.innerHTML += `<div class="hint" style="color:var(--danger);">Помилка оновлення статусу: ${escapeAttr(err.message)}</div>`;
@@ -1798,16 +1819,17 @@ async function syncAllNpStatuses(){
     const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {
       Documents: withTtn.map(o => ({DocumentNumber: o.ttnNumber, Phone: o.phone || ''}))
     });
-    let justShippedCount = 0, justArchivedCount = 0;
+    let justShippedCount = 0, justDeliveredCount = 0, justArchivedCount = 0;
     withTtn.forEach(o => {
       const statusItem = (data||[]).find(d => d.Number === o.ttnNumber);
       const res = applyNpStatus(o, statusItem);
       if(res.shipped) justShippedCount++;
+      if(res.delivered) justDeliveredCount++;
       if(res.archived) justArchivedCount++;
     });
     renderOrders();
     scheduleSave();
-    alert(`Перевірено ${withTtn.length} відправлень. Позначено «Відправлено»: ${justShippedCount}. Перенесено в архів (оплата+доставка підтверджені): ${justArchivedCount}.`);
+    alert(`Перевірено ${withTtn.length} відправлень. Позначено «Відправлено»: ${justShippedCount}. «Доставлено»: ${justDeliveredCount}. Перенесено в архів (оплата+доставка підтверджені): ${justArchivedCount}.`);
   }catch(err){
     alert('Помилка синхронізації з НП: ' + err.message);
   }finally{
@@ -1937,7 +1959,7 @@ function deliveryBlockHtml(o){
   `;
 }
 
-function isArchived(o){ return !!(o.paid && o.shipped); }
+function isArchived(o){ return !!(o.paid && o.delivered); }
 
 function renderOrders(){
   const list = document.getElementById('orderList');
@@ -1976,6 +1998,67 @@ function unarchiveOrder(id){
   scheduleSave();
 }
 
+let archiveExpandedIds = new Set();
+function toggleArchiveEdit(id){
+  if(archiveExpandedIds.has(id)) archiveExpandedIds.delete(id);
+  else archiveExpandedIds.add(id);
+  renderArchive();
+}
+
+function archiveCollapsedHtml(o){
+  const c = calcOrder(o);
+  return `
+    <div class="order-card order-card-collapsed shipped-card" data-archive="${o.id}">
+      <div class="order-collapsed-row">
+        <div class="order-collapsed-info">
+          <span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>
+          <span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>
+          <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
+          <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
+        </div>
+        <div class="hint" style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--saffron);">${fmt(c.total)} грн</div>
+        <div class="kit-collapsed-actions">
+          <button class="btn btn-sm" onclick="toggleArchiveEdit(${o.id})">Редагувати</button>
+          <button class="btn btn-sm" onclick="unarchiveOrder(${o.id})">Повернути з архіву</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function archiveExpandedHtml(o){
+  const c = calcOrder(o);
+  return `
+    <div class="order-card shipped-card" data-archive="${o.id}">
+      <div class="order-head">
+        <div class="order-head-left">
+          <span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>
+          <span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>
+          <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
+        </div>
+        <div class="order-head-left">
+          <button class="btn btn-primary btn-sm" onclick="toggleArchiveEdit(${o.id})">Згорнути</button>
+          <button class="btn btn-sm" onclick="unarchiveOrder(${o.id})">Повернути з архіву</button>
+        </div>
+      </div>
+
+      <div class="delivery-grid" style="margin-bottom:10px;">
+        <div><label>ПІБ отримувача</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)"></div>
+        <div><label>Телефон отримувача</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)"></div>
+      </div>
+
+      <div class="comp-list" style="margin-bottom:10px;">${orderItemsReadOnlyHtml(o)}</div>
+      <div class="hint" style="margin-bottom:10px;">Сума замовлення: <strong style="color:var(--saffron);">${fmt(c.total)} грн</strong></div>
+
+      <textarea class="order-notes" rows="2" placeholder="Примітки" oninput="updateOrderField(${o.id},'notes',this.value)" style="margin-bottom:10px;">${escapeAttr(o.notes||'')}</textarea>
+
+      ${deliveryBlockHtml(o)}
+
+      <p class="hint" style="margin-top:10px;">Списання з залишків: ${o.stockDeducted ? '<span style="color:var(--cardamom);">✓ списано</span>' : 'не списано'}</p>
+    </div>
+  `;
+}
+
 function renderArchive(){
   const el = document.getElementById('archiveList');
   if(!el) return;
@@ -1983,25 +2066,7 @@ function renderArchive(){
   if(archived.length === 0){
     el.innerHTML = '<div class="comp-empty">Архів порожній. Сюди автоматично потрапляють відправки, позначені і «Оплачено», і «Відправлено».</div>';
   } else {
-    el.innerHTML = archived.map(o => {
-      const c = calcOrder(o);
-      return `
-        <div class="order-card order-card-collapsed shipped-card" data-archive="${o.id}">
-          <div class="order-collapsed-row">
-            <div class="order-collapsed-info">
-              <span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>
-              <span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>
-              <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
-              <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}</span>
-            </div>
-            <div class="hint" style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--saffron);">${fmt(c.total)} грн</div>
-            <div class="kit-collapsed-actions">
-              <button class="btn btn-sm" onclick="unarchiveOrder(${o.id})">Повернути з архіву</button>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    el.innerHTML = archived.map(o => archiveExpandedIds.has(o.id) ? archiveExpandedHtml(o) : archiveCollapsedHtml(o)).join('');
   }
   document.getElementById('archiveCount').textContent = archived.length;
 }
@@ -2105,6 +2170,7 @@ function orderCollapsedHtml(o){
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>' : ''}
+          ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз.${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
         </div>
@@ -2185,6 +2251,7 @@ function shipmentCollapsedHtml(o){
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>' : ''}
+          ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
         </div>
@@ -2216,6 +2283,10 @@ function shipmentExpandedHtml(o){
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.shipped?'checked':''} onchange="toggleOrderShipped(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
             Відправлено
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
+            <input type="checkbox" ${o.delivered?'checked':''} onchange="toggleOrderDelivered(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
+            Доставлено
           </label>
         </div>
       </div>
@@ -2658,12 +2729,7 @@ function backfillIngredientDeductions(){
     : 'Усе вже актуально — для жодного замовлення нічого не бракувало.';
 }
 
-function deductStockForOrder(orderId){
-  const o = orderById(orderId);
-  if(!o) return;
-  if(o.items.length === 0){ alert('У замовленні немає товарів.'); return; }
-  if(!confirm('Скомплектувати набори із сировини та списати їх на цю відправку?')) return;
-
+function deductStockForOrderCore(o){
   const ingredientTotals = {};
   o.items.forEach(it => {
     const qty = Math.abs(it.qty);
@@ -2695,10 +2761,33 @@ function deductStockForOrder(orderId){
   });
 
   o.stockDeducted = true;
+}
+
+function deductStockForOrder(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  if(o.items.length === 0){ alert('У замовленні немає товарів.'); return; }
+  if(!confirm('Скомплектувати набори із сировини та списати їх на цю відправку?')) return;
+  deductStockForOrderCore(o);
   renderOrders();
   renderBalances();
   renderMovements();
   scheduleSave();
+}
+
+function deductStockForAllShipped(){
+  const eligible = orders.filter(o => o.shipped && !o.stockDeducted && o.items.length > 0);
+  if(eligible.length === 0){
+    alert('Немає відправлених замовлень, які ще не списані з залишків.');
+    return;
+  }
+  if(!confirm(`Списати сировину й скомплектувати набори для ${eligible.length} відправлен(их/ня), позначен(их) «Відправлено», але ще не списаних?`)) return;
+  eligible.forEach(o => deductStockForOrderCore(o));
+  renderOrders();
+  renderBalances();
+  renderMovements();
+  scheduleSave();
+  alert(`Готово: списано ${eligible.length} відправлен(ь).`);
 }
 
 /* ---------- summary & chart ---------- */
