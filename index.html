@@ -1367,6 +1367,28 @@ function addOrder(){
   renderOrdersSummary();
   scheduleSave();
 }
+function duplicateOrder(sourceId){
+  const src = orderById(sourceId);
+  if(!src) return;
+  const id = nextOrderId++;
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.id = id;
+  copy.date = todayStr();
+  copy.status = 'Нове';
+  copy.paid = false;
+  copy.shipped = false;
+  copy.collapsed = false;
+  copy.shipmentCollapsed = true;
+  copy.stockDeducted = false;
+  copy.ttnNumber = '';
+  copy.ttnRef = '';
+  copy.npStatusText = '';
+  copy.npStatusCode = '';
+  orders.push(copy);
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
 function saveOrder(id){
   const o = orderById(id);
   if(!o) return;
@@ -2089,6 +2111,7 @@ function orderCollapsedHtml(o){
         <div class="hint" id="order-total-${o.id}" style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--saffron);"></div>
         <div class="kit-collapsed-actions">
           <button class="btn btn-sm" onclick="editOrder(${o.id})">Редагувати</button>
+          <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
@@ -2118,6 +2141,7 @@ function orderExpandedHtml(o){
         </div>
         <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
+          <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
