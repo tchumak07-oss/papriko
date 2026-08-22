@@ -851,6 +851,29 @@ function addComponent(kitId){
   renderChart();
   scheduleSave();
 }
+function updateComponentAmount(kitId, catalogId, refType, value){
+  const k = kitById(kitId);
+  if(!k) return;
+  const comp = k.components.find(c => c.catalogId === catalogId && (c.refType||'catalog') === (refType||'catalog'));
+  if(!comp) return;
+  const amount = parseFloat(value);
+  comp.amount = isNaN(amount) ? 0 : amount;
+
+  let cost = 0;
+  if((comp.refType||'catalog') === 'kit'){
+    cost = kitUnitCost(comp.catalogId, new Set([kitId])) * comp.amount;
+  } else {
+    const c = catalogItem(comp.catalogId);
+    cost = c ? c.cost * comp.amount : 0;
+  }
+  const costEl = document.getElementById(`comp-cost-${kitId}-${refType}-${catalogId}`);
+  if(costEl) costEl.textContent = fmt1(cost) + ' грн';
+
+  renderKitStats(kitId);
+  renderSummary();
+  renderChart();
+  scheduleSave();
+}
 function removeComponent(kitId, catalogId, refType){
   const k = kitById(kitId);
   k.components = k.components.filter(c => !(c.catalogId === catalogId && (c.refType||'catalog') === (refType||'catalog')));
@@ -973,8 +996,8 @@ function renderKitComponents(kitId){
     return `
       <div class="comp-row">
         <div class="comp-name">${tag}${name}${missing}</div>
-        <div class="comp-amt-unit">${comp.amount} ${unit}</div>
-        <div class="comp-cost">${fmt1(cost)} грн</div>
+        <div class="comp-amt-unit"><input type="number" step="0.1" value="${comp.amount}" oninput="updateComponentAmount(${kitId}, ${comp.catalogId}, '${refType}', this.value)" style="width:64px;text-align:right;padding:4px 6px;"> ${unit}</div>
+        <div class="comp-cost" id="comp-cost-${kitId}-${refType}-${comp.catalogId}">${fmt1(cost)} грн</div>
         <button class="btn-ghost" onclick="removeComponent(${kitId}, ${comp.catalogId}, '${refType}')" aria-label="Видалити компонент">×</button>
       </div>
     `;
