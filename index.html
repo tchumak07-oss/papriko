@@ -1594,14 +1594,20 @@ async function cancelNpWaybill(orderId){
 // StatusCode "1" = ТТН зареєстровано, вантаж ще не прийнято у відділенні.
 // Будь-який інший код означає, що відправлення вже рухається по мережі НП.
 function applyNpStatus(o, statusItem){
-  if(!statusItem) return false;
+  if(!statusItem) return {shipped:false, archived:false};
   o.npStatusText = statusItem.Status || '';
   o.npStatusCode = statusItem.StatusCode || '';
   const wasShipped = o.shipped;
+  const wasArchived = isArchived(o);
   if(statusItem.StatusCode && statusItem.StatusCode !== '1'){
     o.shipped = true;
   }
-  return o.shipped && !wasShipped;
+  // "Грошовий переказ ... видано" — післяплату виплачено відправнику, отже посилку отримали й розрахунок закрито.
+  const statusLower = (o.npStatusText || '').toLowerCase();
+  if(statusLower.includes('переказ') && statusLower.includes('видано')){
+    o.paid = true;
+  }
+  return {shipped: o.shipped && !wasShipped, archived: isArchived(o) && !wasArchived};
 }
 
 async function syncNpStatus(orderId){
@@ -1613,10 +1619,11 @@ async function syncNpStatus(orderId){
     const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {
       Documents: [{DocumentNumber: o.ttnNumber, Phone: o.phone || ''}]
     });
-    const justShipped = applyNpStatus(o, data && data[0]);
+    const res = applyNpStatus(o, data && data[0]);
     renderOrders();
     scheduleSave();
-    if(justShipped) alert(`«Відправлено» увімкнено автоматично — статус НП: ${o.npStatusText}`);
+    if(res.archived) alert(`Оплата й доставка підтверджені НП — замовлення перенесено в «Архів». Статус: ${o.npStatusText}`);
+    else if(res.shipped) alert(`«Відправлено» увімкнено автоматично — статус НП: ${o.npStatusText}`);
   }catch(err){
     if(resultEl) resultEl.innerHTML += `<div class="hint" style="color:var(--danger);">Помилка оновлення статусу: ${escapeAttr(err.message)}</div>`;
   }
@@ -1624,22 +1631,24 @@ async function syncNpStatus(orderId){
 
 async function syncAllNpStatuses(){
   if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти.'); return; }
-  const withTtn = orders.filter(o => o.ttnNumber && !o.shipped);
-  if(withTtn.length === 0){ alert('Немає активних ТТН для перевірки (усі вже позначені як відправлені, або жодна ТТН ще не створена).'); return; }
+  const withTtn = orders.filter(o => o.ttnNumber && !isArchived(o));
+  if(withTtn.length === 0){ alert('Немає активних ТТН для перевірки (усі вже в архіві, або жодна ТТН ще не створена).'); return; }
   const btn = document.getElementById('syncAllNpBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Перевіряю...'; }
   try{
     const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {
       Documents: withTtn.map(o => ({DocumentNumber: o.ttnNumber, Phone: o.phone || ''}))
     });
-    let justShippedCount = 0;
+    let justShippedCount = 0, justArchivedCount = 0;
     withTtn.forEach(o => {
       const statusItem = (data||[]).find(d => d.Number === o.ttnNumber);
-      if(applyNpStatus(o, statusItem)) justShippedCount++;
+      const res = applyNpStatus(o, statusItem);
+      if(res.shipped) justShippedCount++;
+      if(res.archived) justArchivedCount++;
     });
     renderOrders();
     scheduleSave();
-    alert(`Перевірено ${withTtn.length} відправлень. Автоматично позначено «Відправлено»: ${justShippedCount}.`);
+    alert(`Перевірено ${withTtn.length} відправлень. Позначено «Відправлено»: ${justShippedCount}. Перенесено в архів (оплата+доставка підтверджені): ${justArchivedCount}.`);
   }catch(err){
     alert('Помилка синхронізації з НП: ' + err.message);
   }finally{
