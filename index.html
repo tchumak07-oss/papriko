@@ -361,11 +361,17 @@
     Замовлення <span class="n" id="orderCount"></span>
     <span class="btns">
       <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
+      <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
       <button class="btn btn-primary btn-sm" onclick="addOrder()">+ Нове замовлення</button>
     </span>
   </div>
+  <input type="file" id="ordersExcelInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleOrdersExcelFile(this.files[0])">
   <div class="summary" id="ordersSummary" style="margin-top:0;margin-bottom:1rem;"></div>
   <p class="hint" style="margin:-8px 0 14px;">Тут — склад замовлення: клієнт, товари, статус. Адресу, ТТН і списання з залишків оформлюйте у вкладці «Відправки».</p>
+  <div id="ordersExcelStatus" class="scan-status" style="margin-bottom:14px;"></div>
+  <p class="hint" style="margin:-8px 0 14px;" id="ordersExcelFormatHint">
+    Формат файлу: один рядок = одна позиція товару. Колонки (назви можуть відрізнятись): <strong>№ замовлення</strong> (щоб згрупувати кілька товарів в одне замовлення), <strong>Дата</strong>, <strong>Клієнт</strong>, <strong>Телефон</strong>, <strong>SKU</strong> (артикул набору з довідника «Товари»), <strong>Кількість</strong>, необов'язково — <strong>Ціна</strong>, <strong>Спосіб доставки</strong>, <strong>Місто</strong>, <strong>Відділення</strong>, <strong>Індекс</strong>, <strong>Адреса</strong>, <strong>ТТН</strong> (номер, якщо вже створена), <strong>Оплачено</strong>/<strong>Відправлено</strong>/<strong>Доставлено</strong> (так/ні), <strong>Примітка</strong>.
+  </p>
 
   <div id="orderList"></div>
 
@@ -380,7 +386,7 @@
       <button class="btn btn-sm" id="syncAllNpBtn" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button>
     </span>
   </div>
-  <p class="hint" style="margin:-8px 0 14px;">Кожна картка тут — це те саме замовлення, розгорнуте з полями доставки й ТТН. Створюються замовлення у вкладці «Замовлення».</p>
+  <p class="hint" style="margin:-8px 0 14px;">Кожна картка тут — це те саме замовлення, розгорнуте з полями доставки й ТТН. Створюються замовлення у вкладці «Замовлення» — там же є й імпорт з Excel, який заповнює і поля доставки.</p>
 
   <div class="catalog-panel" id="deliverySettingsPanel" style="margin-bottom:14px;">
     <button class="catalog-toggle" onclick="toggleDeliverySettings()">
@@ -648,7 +654,41 @@
   <div id="reportExpenseCategories" style="margin-bottom:2rem;"></div>
 
   <div class="section-title">Топ клієнтів</div>
-  <div id="reportTopClients"></div>
+  <div id="reportTopClients" style="margin-bottom:2rem;"></div>
+
+  <div class="section-title">Звіт по продажах за період</div>
+  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 100px;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Позицій</div><div style="text-align:right;">Сума</div></div>
+    <div id="reportSalesTable"></div>
+  </div></div>
+
+  <div class="section-title">Звіт по відвантаженнях за період</div>
+  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 1fr 130px 120px;"><div>Дата</div><div>Клієнт</div><div>Служба</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div></div>
+    <div id="reportShipmentsTable"></div>
+  </div></div>
+
+  <div class="section-title">Звіт по витраті інгредієнтів</div>
+  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:1fr 100px 90px;"><div>Товар</div><div style="text-align:right;">Списано</div><div style="text-align:right;">Одиниця</div></div>
+    <div id="reportIngredientUsage"></div>
+  </div></div>
+
+  <div class="section-title">Звіт по витратах</div>
+  <div class="catalog-panel"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:90px 1fr 1fr 100px;"><div>Дата</div><div>Категорія</div><div>Примітка</div><div style="text-align:right;">Сума</div></div>
+    <div id="reportExpensesTable"></div>
+  </div></div>
+
+  <div class="section-title">
+    Неотримані посилки (Нова Пошта)
+    <span class="btns"><button class="btn btn-sm" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button></span>
+  </div>
+  <p class="hint" style="margin:-8px 0 14px;">Список не залежить від фільтра періоду вище — тут завжди всі поточні відправлення НП, які ще не позначені як «Доставлено». Відсортовано від найдовше в дорозі.</p>
+  <div class="catalog-panel"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:90px 80px 1fr 1fr 130px 1fr 90px;"><div>Відправлено</div><div style="text-align:right;">Днів</div><div>Клієнт</div><div>Місто / відділення</div><div>ТТН</div><div>Статус НП</div><div></div></div>
+    <div id="reportUndelivered"></div>
+  </div></div>
 
   </div><!-- /section-reports -->
 
@@ -2438,6 +2478,121 @@ function renderReports(){
       <div class="bar-val">${fmt(r.total)} грн · ${r.count} зам.</div>
     </div>
   `).join('');
+
+  // ---- звіт по продажах за період (журнал оплачених замовлень) ----
+  const salesEl = document.getElementById('reportSalesTable');
+  const salesSorted = [...paidOrdersInRange].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  if(salesSorted.length === 0){
+    salesEl.innerHTML = '<div class="comp-empty">Немає оплачених замовлень за цей період.</div>';
+  } else {
+    salesEl.innerHTML = salesSorted.map(o => `
+      <div class="wh-row" style="grid-template-columns:90px 1fr 90px 100px;">
+        <div class="hint">${o.date||''}</div>
+        <div>${escapeAttr(o.customer||'Без імені')}</div>
+        <div style="text-align:right;">${o.items.length}</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--cardamom);">${fmt(calcOrder(o).total)} грн</div>
+      </div>
+    `).join('') + `
+      <div class="wh-row" style="grid-template-columns:90px 1fr 90px 100px;border-top:1px solid var(--border);font-weight:600;">
+        <div></div><div>Разом (${salesSorted.length})</div><div></div>
+        <div style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--saffron);">${fmt(revenue)} грн</div>
+      </div>
+    `;
+  }
+
+  // ---- звіт по відвантаженнях за період (усе, що відправлене/доставлене в діапазоні дат) ----
+  const shipmentsEl = document.getElementById('reportShipmentsTable');
+  const shippedInRange = orders.filter(o => (o.shipped || o.delivered) && inReportRange(o.date))
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  if(shippedInRange.length === 0){
+    shipmentsEl.innerHTML = '<div class="comp-empty">Немає відвантажень за цей період.</div>';
+  } else {
+    shipmentsEl.innerHTML = shippedInRange.map(o => {
+      const statusText = o.delivered ? 'Доставлено' : (o.shipped ? 'Відправлено' : '');
+      const ttn = o.ttnNumber || o.ukrTtnNumber || '—';
+      return `
+        <div class="wh-row" style="grid-template-columns:90px 1fr 90px 1fr 130px 120px;">
+          <div class="hint">${o.date||''}</div>
+          <div>${escapeAttr(o.customer||'Без імені')}</div>
+          <div>${carrierBadgeHtml(o)}</div>
+          <div class="hint">${escapeAttr(o.deliveryMethod==='Нова Пошта' ? (o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : '') : (o.address||''))}</div>
+          <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(ttn)}</div>
+          <div class="hint" style="color:var(--saffron);">${statusText}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ---- звіт по витраті інгредієнтів (списання сировини/упаковки за період) ----
+  const usageEl = document.getElementById('reportIngredientUsage');
+  const usageTotals = {};
+  stockMovements.forEach(m => {
+    if(m.itemType !== 'catalog') return;
+    if(m.qty >= 0) return; // цікавить лише списання
+    if(!inReportRange(m.date)) return;
+    usageTotals[m.itemId] = (usageTotals[m.itemId]||0) + Math.abs(m.qty);
+  });
+  const usageRows = Object.entries(usageTotals)
+    .map(([cid, amt]) => ({c: catalogItem(parseInt(cid,10)), amt}))
+    .filter(r => r.c)
+    .sort((a,b) => b.amt - a.amt);
+  usageEl.innerHTML = usageRows.length === 0 ? '<div class="comp-empty">Списань сировини за цей період немає.</div>' : usageRows.map(r => `
+    <div class="wh-row" style="grid-template-columns:1fr 100px 90px;">
+      <div>${escapeAttr(r.c.name)}</div>
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--danger);">${fmt2(r.amt)}</div>
+      <div style="text-align:right;color:var(--text-faint);">${r.c.unit}</div>
+    </div>
+  `).join('');
+
+  // ---- звіт по витратах (детальний журнал операцій з каси) ----
+  const expEl = document.getElementById('reportExpensesTable');
+  const expRows = cashTransactions.filter(t => t.type==='Витрата' && inReportRange(t.date))
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  if(expRows.length === 0){
+    expEl.innerHTML = '<div class="comp-empty">Витрат за цей період немає.</div>';
+  } else {
+    expEl.innerHTML = expRows.map(t => `
+      <div class="wh-row" style="grid-template-columns:90px 1fr 1fr 100px;">
+        <div class="hint">${t.date||''}</div>
+        <div>${escapeAttr(t.category||'')}</div>
+        <div class="hint">${escapeAttr(t.note||'')}</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--danger);">−${fmt(t.amount)} грн</div>
+      </div>
+    `).join('') + `
+      <div class="wh-row" style="grid-template-columns:90px 1fr 1fr 100px;border-top:1px solid var(--border);font-weight:600;">
+        <div></div><div>Разом (${expRows.length})</div><div></div>
+        <div style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--danger);">−${fmt(expensesInRange)} грн</div>
+      </div>
+    `;
+  }
+
+  // ---- неотримані посилки НП (не залежить від фільтра періоду) ----
+  const undeliveredEl = document.getElementById('reportUndelivered');
+  if(undeliveredEl){
+    const undelivered = orders.filter(o => o.deliveryMethod==='Нова Пошта' && o.ttnNumber && o.shipped && !o.delivered);
+    const today = new Date();
+    const withDays = undelivered.map(o => {
+      const sentDate = o.date ? new Date(o.date) : today;
+      const days = Math.max(0, Math.round((today - sentDate) / 86400000));
+      return {o, days};
+    }).sort((a,b) => b.days - a.days);
+
+    if(withDays.length === 0){
+      undeliveredEl.innerHTML = '<div class="comp-empty">Немає неотриманих посилок — усе, що відправлено через Нову Пошту, або ще їде без ТТН, або вже доставлено.</div>';
+    } else {
+      undeliveredEl.innerHTML = withDays.map(({o, days}) => `
+        <div class="wh-row" style="grid-template-columns:90px 80px 1fr 1fr 130px 1fr 90px;">
+          <div class="hint">${o.date||''}</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${days>=5?'var(--danger)':(days>=2?'var(--saffron)':'var(--text-muted)')};">${days}</div>
+          <div>${escapeAttr(o.customer||'Без імені')}</div>
+          <div class="hint">${escapeAttr((o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : ''))}</div>
+          <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</div>
+          <div class="hint">${escapeAttr(o.npStatusText || 'статус не оновлювався')}</div>
+          <button class="btn btn-sm" onclick="syncNpStatus(${o.id})">Оновити</button>
+        </div>
+      `).join('');
+    }
+  }
 }
 
 function orderCollapsedHtml(o){
@@ -3229,6 +3384,12 @@ function findKey(rowKeys, candidates){
     const nk = normKey(k);
     if(candidates.some(c => nk === normKey(c))) return k;
   }
+  // м'який пошук: якщо точного збігу немає, шукаємо частковий (напр. «Статус відправки» містить «відправки»)
+  for(const k of rowKeys){
+    const nk = normKey(k);
+    if(!nk) continue;
+    if(candidates.some(c => { const cn = normKey(c); return cn && (nk.includes(cn) || cn.includes(nk)); })) return k;
+  }
   return null;
 }
 
@@ -3279,6 +3440,232 @@ async function handleExcelFile(file){
     btn.disabled = false;
     document.getElementById('excelInput').value = '';
   }
+}
+
+/* ---------- excel import: orders ---------- */
+
+function setOrdersExcelStatus(text, kind){
+  const el = document.getElementById('ordersExcelStatus');
+  el.className = 'scan-status' + (kind ? ' '+kind : '');
+  el.textContent = text || '';
+  if(!text) el.className = 'scan-status';
+}
+
+const ORDER_ID_KEYS = ['номерзамовлення','номерзаказа','замовлення','заказ','orderid','order','№замовлення','№'];
+const DATE_KEYS = ['дата','date'];
+const CUSTOMER_KEYS = ['клієнт','клиент','піб','пиб','customer','name','ім\'я'];
+const PHONE_KEYS = ['телефон','phone','тел'];
+const SKU_KEYS = ['sku','артикул'];
+const ITEMNAME_KEYS = ['товар','набір','набор','назватовару','product'];
+const QTY_KEYS = ['кількість','количество','кть','qty','quantity'];
+const ORDPRICE_KEYS = ['ціна','цена','price'];
+const METHOD_KEYS = ['доставка','способдоставки','перевізник','delivery','як'];
+const CITY_KEYS = ['місто','город','city','куди','адресадоставки','напрямок'];
+const WAREHOUSE_KEYS = ['відділення','отделение','warehouse','поштомат'];
+const INDEX_KEYS = ['індекс','индекс','index'];
+const ADDR_KEYS = ['адреса','адрес','address'];
+const NOTE_KEYS = ['примітка','примечание','коментар','комментарий','note'];
+const TTN_KEYS = ['ттн','декларація','декларация','накладна','накладная','ttn'];
+const PAID_KEYS = ['оплачено','оплата','paid'];
+const SHIPPED_KEYS = ['відправлено','отправлено','shipped','статусвідправки','статусотправки','відправка'];
+const DELIVERED_KEYS = ['доставлено','delivered','отримано','получено'];
+
+// будь-яке непорожнє значення, окрім явно негативних слів, вважаємо «так» —
+// зручно для колонок із галочками (✓, v, +) замість строгого «так/ні»
+function parseBoolCell(v){
+  const raw = String(v||'').trim();
+  if(!raw) return false;
+  const nk = normKey(raw);
+  const negatives = ['ні','нет','no','false','х','na'];
+  if(negatives.includes(nk)) return false;
+  return true;
+}
+
+// спеціально для колонки «Оплата», де замість так/ні часто пишуть текст статусу
+function parsePaidCell(v){
+  const raw = String(v||'').trim();
+  if(!raw) return false;
+  const nk = normKey(raw);
+  if(nk.includes('приотриман') || nk.includes('накладен') || nk.includes('післяплат') || nk.includes('наложен')) return false; // оплата при отриманні — ще НЕ оплачено
+  if(nk.includes('оплач')) return true;
+  return parseBoolCell(v);
+}
+
+// прибирає все, крім цифр і провідного «+», з номера телефону (напр. "_0664350939" → "0664350939")
+function cleanPhone(v){
+  return String(v||'').replace(/[^\d+]/g, '');
+}
+
+// намагається розділити «куди» на місто/область і відділення за паттерном НП + номер
+function splitDestination(raw){
+  const s = String(raw||'').trim();
+  if(!s) return {city:'', warehouse:''};
+  let m = s.match(/^(.*?)[,\s]+(?:НП|Н\.?П\.?|відділ(?:ення)?|отделение)\s*№?\s*(\d+)\s*$/i);
+  if(m){
+    return {city: m[1].trim().replace(/,\s*$/, ''), warehouse: `Відділення №${m[2]}`};
+  }
+  return {city: s, warehouse: ''};
+}
+
+// на відміну від normKey, тут ЗБЕРІГАЄМО цифри — важливо, бо назви/артикули наборів часто містять числа (напр. "740")
+function normKeepDigits(s){
+  return String(s||'').trim().toLowerCase().replace(/[^a-z0-9а-яіїєґ]/gi, '');
+}
+
+function findKitBySkuOrName(skuVal, nameVal){
+  const candidates = [skuVal, nameVal].map(v => String(v||'').trim()).filter(Boolean);
+  for(const raw of candidates){
+    const rk = normKeepDigits(raw);
+    if(!rk) continue;
+    // 1. точний збіг з SKU або назвою
+    let m = kits.find(k => normKeepDigits(k.sku) === rk || normKeepDigits(k.name) === rk);
+    if(m) return m;
+    // 2. значення з файлу входить в SKU/назву набору, або навпаки (напр. "740" всередині "Набір за 740 грн")
+    m = kits.find(k => {
+      const sku = normKeepDigits(k.sku);
+      const name = normKeepDigits(k.name);
+      return (sku && (sku.includes(rk) || rk.includes(sku))) || (name && (name.includes(rk) || rk.includes(name)));
+    });
+    if(m) return m;
+  }
+  return null;
+}
+
+async function handleOrdersExcelFile(file){
+  if(!file) return;
+  setOrdersExcelStatus('Читаю файл...', 'loading');
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+    if(rows.length === 0) throw new Error('У файлі немає рядків з даними');
+
+    const rowKeys = Object.keys(rows[0]);
+    const orderIdKey = findKey(rowKeys, ORDER_ID_KEYS);
+    const dateKey = findKey(rowKeys, DATE_KEYS);
+    const customerKey = findKey(rowKeys, CUSTOMER_KEYS);
+    const phoneKey = findKey(rowKeys, PHONE_KEYS);
+    const skuKey = findKey(rowKeys, SKU_KEYS);
+    const itemNameKey = findKey(rowKeys, ITEMNAME_KEYS);
+    const qtyKey = findKey(rowKeys, QTY_KEYS);
+    const priceKey = findKey(rowKeys, ORDPRICE_KEYS);
+    const methodKey = findKey(rowKeys, METHOD_KEYS);
+    const cityKey = findKey(rowKeys, CITY_KEYS);
+    const warehouseKey = findKey(rowKeys, WAREHOUSE_KEYS);
+    const indexKey = findKey(rowKeys, INDEX_KEYS);
+    const addrKey = findKey(rowKeys, ADDR_KEYS);
+    const noteKey = findKey(rowKeys, NOTE_KEYS);
+    const ttnKey = findKey(rowKeys, TTN_KEYS);
+    const paidKey = findKey(rowKeys, PAID_KEYS);
+    const shippedKey = findKey(rowKeys, SHIPPED_KEYS);
+    const deliveredKey = findKey(rowKeys, DELIVERED_KEYS);
+
+    if(!qtyKey || (!skuKey && !itemNameKey)){
+      throw new Error('Не знайшов колонку «SKU»/«Товар» і «Кількість» — перевірте заголовки стовпців у файлі');
+    }
+
+    // групуємо рядки в замовлення: за колонкою № замовлення, якщо є, інакше кожен рядок = окреме замовлення
+    const groups = new Map();
+    let autoGroupCounter = 1;
+    rows.forEach(row => {
+      const groupKey = orderIdKey && row[orderIdKey] ? String(row[orderIdKey]).trim() : `__row${autoGroupCounter++}`;
+      if(!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey).push(row);
+    });
+
+    let ordersCreated = 0, itemsAdded = 0, itemsSkipped = 0;
+    const skippedNames = [];
+
+    groups.forEach(groupRows => {
+      const first = groupRows[0];
+      const id = nextOrderId++;
+      const deliveryMethodVal = methodKey && String(first[methodKey]||'').trim() ? normalizeMethod(String(first[methodKey])) : 'Нова Пошта';
+      const ttnVal = ttnKey ? String(first[ttnKey]||'').trim() : '';
+      const destSplit = cityKey ? splitDestination(first[cityKey]) : {city:'', warehouse:''};
+      const order = {
+        id, clientId:'', customer: customerKey ? String(first[customerKey]||'').trim() : '',
+        phone: phoneKey ? cleanPhone(first[phoneKey]) : '',
+        date: dateKey && first[dateKey] ? excelDateToStr(first[dateKey]) : todayStr(),
+        status:'Нове',
+        paid: paidKey ? parsePaidCell(first[paidKey]) : false,
+        shipped: shippedKey ? parseBoolCell(first[shippedKey]) : false,
+        delivered: deliveredKey ? parseBoolCell(first[deliveredKey]) : false,
+        items:[], notes: noteKey ? String(first[noteKey]||'').trim() : '',
+        collapsed:true, shipmentCollapsed:true, stockDeducted:false,
+        deliveryMethod: deliveryMethodVal,
+        city: destSplit.city, cityRef:'', warehouseRef:'',
+        warehouseDesc: warehouseKey ? String(first[warehouseKey]||'').trim() : destSplit.warehouse,
+        ukrIndex: indexKey ? String(first[indexKey]||'').trim() : '',
+        address: addrKey ? String(first[addrKey]||'').trim() : '',
+        ukrTtnNumber: deliveryMethodVal === 'Укрпошта' ? ttnVal : '',
+        weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
+        codAmount:'',
+        ttnNumber: deliveryMethodVal === 'Нова Пошта' ? ttnVal : '', ttnRef:''
+      };
+
+      groupRows.forEach(row => {
+        const skuVal = skuKey ? row[skuKey] : '';
+        const nameVal = itemNameKey ? row[itemNameKey] : '';
+        const qty = parseFloat(String(row[qtyKey]).replace(',', '.'));
+        if(!qty || isNaN(qty)) return;
+        const kit = findKitBySkuOrName(skuVal, nameVal);
+        if(!kit){
+          itemsSkipped++;
+          const label = String(skuVal || nameVal || '?');
+          if(!skippedNames.includes(label)) skippedNames.push(label);
+          return;
+        }
+        const price = priceKey && row[priceKey] !== '' ? parseFloat(String(row[priceKey]).replace(',', '.')) : (kit.price||0);
+        const existing = order.items.find(it => it.kitId === kit.id);
+        if(existing) existing.qty += qty;
+        else order.items.push({kitId: kit.id, qty, price: isNaN(price) ? (kit.price||0) : price});
+        itemsAdded++;
+      });
+
+      if(order.items.length > 0){
+        orders.push(order);
+        ordersCreated++;
+      } else {
+        nextOrderId--; // жодного товару не розпізнано — це замовлення не створюємо
+      }
+    });
+
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+
+    let msg = `Готово: створено ${ordersCreated} замовлень, додано ${itemsAdded} позицій.`;
+    if(itemsSkipped > 0){
+      msg += ` Пропущено ${itemsSkipped} позицій — SKU/назву не знайдено в довіднику: ${skippedNames.slice(0,8).join(', ')}${skippedNames.length>8?'…':''}.`;
+    }
+    setOrdersExcelStatus(msg, itemsSkipped>0 ? 'error' : 'ok');
+  }catch(err){
+    setOrdersExcelStatus('Помилка: ' + err.message, 'error');
+  }finally{
+    document.getElementById('ordersExcelInput').value = '';
+  }
+}
+
+function normalizeMethod(v){
+  const s = v.toLowerCase();
+  if(s.includes('укр')) return 'Укрпошта';
+  if(s.includes('самовив') || s.includes('pickup')) return 'Самовивіз';
+  return 'Нова Пошта';
+}
+
+function excelDateToStr(v){
+  // числове значення дати з Excel (кількість днів від 1900) або текстова дата
+  if(typeof v === 'number'){
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    if(!isNaN(d)) return d.toISOString().slice(0,10);
+  }
+  const s = String(v).trim();
+  const m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/);
+  if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  const d2 = new Date(s);
+  if(!isNaN(d2)) return d2.toISOString().slice(0,10);
+  return todayStr();
 }
 
 /* ---------- init ---------- */
