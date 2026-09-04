@@ -515,8 +515,12 @@
 
   <div class="section-title" style="margin-top:0;">
     База клієнтів <span class="n" id="clientCount"></span>
-    <span class="btns"><button class="btn btn-primary btn-sm" onclick="addClient()">+ Новий клієнт</button></span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="extractClientsFromOrders()">Вигрузити клієнтів із замовлень</button>
+      <button class="btn btn-primary btn-sm" onclick="addClient()">+ Новий клієнт</button>
+    </span>
   </div>
+  <p class="hint" style="margin:-8px 0 14px;">Скановує всі замовлення (і активні, і в архіві), звіряє за телефоном, щоб не дублювати, і рахує кількість відправок на кожного клієнта.</p>
   <input type="text" id="clientSearch" placeholder="Пошук за іменем або телефоном…" oninput="renderClients()" style="margin-bottom:14px;">
   <div id="clientList"></div>
 
@@ -3053,6 +3057,57 @@ let nextClientId = 1;
 let clients = [];
 
 function clientById(id){ return clients.find(c => c.id === id); }
+
+// звіряємо клієнтів за останніми 9 цифрами телефону — нейтралізує різницю форматів (0XX, 380XX, +380XX)
+function normPhoneKey(phone){
+  const d = String(phone||'').replace(/[^\d]/g,'').slice(-9);
+  return d.length === 9 ? d : '';
+}
+
+function extractClientsFromOrders(){
+  const phoneToClient = new Map();
+  clients.forEach(c => {
+    const key = normPhoneKey(c.phone);
+    if(key && !phoneToClient.has(key)) phoneToClient.set(key, c);
+  });
+
+  let createdCount = 0, linkedCount = 0, skippedNoPhone = 0;
+
+  orders.forEach(o => {
+    const key = normPhoneKey(o.phone);
+    if(!key){ skippedNoPhone++; return; } // без телефону звірити неможливо — пропускаємо, лишається як є
+
+    let client = phoneToClient.get(key);
+    if(!client){
+      const id = nextClientId++;
+      client = {
+        id, name: o.customer||'', phone: o.phone||'',
+        city: o.city||'', address: o.address||o.warehouseDesc||'', notes:'', collapsed:true
+      };
+      clients.push(client);
+      phoneToClient.set(key, client);
+      createdCount++;
+    } else {
+      // доповнюємо порожні поля клієнта даними з замовлення, не перезаписуючи вже заповнене
+      if(!client.name && o.customer) client.name = o.customer;
+      if(!client.city && o.city) client.city = o.city;
+      if(!client.address && (o.address||o.warehouseDesc)) client.address = o.address||o.warehouseDesc;
+    }
+
+    if(String(o.clientId) !== String(client.id)){
+      o.clientId = client.id;
+      linkedCount++;
+    }
+  });
+
+  renderClients();
+  renderOrders();
+  scheduleSave();
+
+  let msg = `Готово: створено нових клієнтів — ${createdCount}, прив'язано замовлень — ${linkedCount}.`;
+  if(skippedNoPhone > 0) msg += ` Пропущено без телефону: ${skippedNoPhone}.`;
+  alert(msg);
+}
 
 function addClient(){
   const id = nextClientId++;
