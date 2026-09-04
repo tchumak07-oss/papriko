@@ -371,6 +371,7 @@
   <div id="ordersExcelStatus" class="scan-status" style="margin-bottom:14px;"></div>
   <p class="hint" style="margin:-8px 0 14px;" id="ordersExcelFormatHint">
     Формат файлу: один рядок = одна позиція товару. Колонки (назви можуть відрізнятись): <strong>№ замовлення</strong> (щоб згрупувати кілька товарів в одне замовлення), <strong>Дата</strong>, <strong>Клієнт</strong>, <strong>Телефон</strong>, <strong>SKU</strong> (артикул набору з довідника «Товари»), <strong>Кількість</strong>, необов'язково — <strong>Ціна</strong>, <strong>Спосіб доставки</strong>, <strong>Місто</strong>, <strong>Відділення</strong>, <strong>Індекс</strong>, <strong>Адреса</strong>, <strong>ТТН</strong> (номер, якщо вже створена), <strong>Оплачено</strong>/<strong>Відправлено</strong>/<strong>Доставлено</strong> (так/ні), <strong>Примітка</strong>.
+    Якщо якийсь товар не знайдеться в довіднику — програма запитає по кожному окремо, чи створити для нього новий SKU (можна буде донастроїти склад і ціну пізніше).
   </p>
 
   <div id="orderList"></div>
@@ -3531,104 +3532,177 @@ function findKitBySkuOrName(skuVal, nameVal){
   return null;
 }
 
+// розбиває клітинку товару на окремі позиції: "740" | "2*740" | "740 і 850" | "740, 850" тощо
+function parseItemCell(cellVal){
+  const raw = String(cellVal||'').trim();
+  if(!raw || raw === '?') return [];
+  const parts = raw.split(/\s*[,;+\/]\s*|\s+(?:і|та|and)\s+/i).map(s=>s.trim()).filter(Boolean);
+  return parts.map(p => {
+    const m = p.match(/^(\d+)\s*[*x×]\s*(.+)$/i) || p.match(/^(.+)\s*[*x×]\s*(\d+)$/i);
+    if(m){
+      const numFirst = /^\d+$/.test(m[1]);
+      return numFirst ? {token: m[2].trim(), qty: parseInt(m[1],10)} : {token: m[1].trim(), qty: parseInt(m[2],10)};
+    }
+    return {token: p, qty: NaN}; // NaN = кількість не вказана в цій позиції, візьмемо з колонки «Кількість» або 1
+  });
+}
+
 async function handleOrdersExcelFile(file){
   if(!file) return;
   setOrdersExcelStatus('Читаю файл...', 'loading');
   try{
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, {type:'array'});
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
-    if(rows.length === 0) throw new Error('У файлі немає рядків з даними');
 
-    const rowKeys = Object.keys(rows[0]);
-    const orderIdKey = findKey(rowKeys, ORDER_ID_KEYS);
-    const dateKey = findKey(rowKeys, DATE_KEYS);
-    const customerKey = findKey(rowKeys, CUSTOMER_KEYS);
-    const phoneKey = findKey(rowKeys, PHONE_KEYS);
-    const skuKey = findKey(rowKeys, SKU_KEYS);
-    const itemNameKey = findKey(rowKeys, ITEMNAME_KEYS);
-    const qtyKey = findKey(rowKeys, QTY_KEYS);
-    const priceKey = findKey(rowKeys, ORDPRICE_KEYS);
-    const methodKey = findKey(rowKeys, METHOD_KEYS);
-    const cityKey = findKey(rowKeys, CITY_KEYS);
-    const warehouseKey = findKey(rowKeys, WAREHOUSE_KEYS);
-    const indexKey = findKey(rowKeys, INDEX_KEYS);
-    const addrKey = findKey(rowKeys, ADDR_KEYS);
-    const noteKey = findKey(rowKeys, NOTE_KEYS);
-    const ttnKey = findKey(rowKeys, TTN_KEYS);
-    const paidKey = findKey(rowKeys, PAID_KEYS);
-    const shippedKey = findKey(rowKeys, SHIPPED_KEYS);
-    const deliveredKey = findKey(rowKeys, DELIVERED_KEYS);
+    // ---- прохід 1: розбираємо аркуші, збираємо контексти й усі унікальні нерозпізнані товари ----
+    const sheetContexts = [];
+    let anyQtyOrSkuFound = false;
 
-    if(!qtyKey || (!skuKey && !itemNameKey)){
-      throw new Error('Не знайшов колонку «SKU»/«Товар» і «Кількість» — перевірте заголовки стовпців у файлі');
-    }
+    wb.SheetNames.forEach(sheetName => {
+      const sheet = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, {defval:''}).filter(r => Object.values(r).some(v => String(v).trim() !== ''));
+      if(rows.length === 0) return;
 
-    // групуємо рядки в замовлення: за колонкою № замовлення, якщо є, інакше кожен рядок = окреме замовлення
-    const groups = new Map();
-    let autoGroupCounter = 1;
-    rows.forEach(row => {
-      const groupKey = orderIdKey && row[orderIdKey] ? String(row[orderIdKey]).trim() : `__row${autoGroupCounter++}`;
-      if(!groups.has(groupKey)) groups.set(groupKey, []);
-      groups.get(groupKey).push(row);
+      const rowKeys = Object.keys(rows[0]);
+      const keys = {
+        orderIdKey: findKey(rowKeys, ORDER_ID_KEYS),
+        dateKey: findKey(rowKeys, DATE_KEYS),
+        customerKey: findKey(rowKeys, CUSTOMER_KEYS),
+        phoneKey: findKey(rowKeys, PHONE_KEYS),
+        skuKey: findKey(rowKeys, SKU_KEYS),
+        itemNameKey: findKey(rowKeys, ITEMNAME_KEYS),
+        qtyKey: findKey(rowKeys, QTY_KEYS),
+        priceKey: findKey(rowKeys, ORDPRICE_KEYS),
+        methodKey: findKey(rowKeys, METHOD_KEYS),
+        cityKey: findKey(rowKeys, CITY_KEYS),
+        warehouseKey: findKey(rowKeys, WAREHOUSE_KEYS),
+        indexKey: findKey(rowKeys, INDEX_KEYS),
+        addrKey: findKey(rowKeys, ADDR_KEYS),
+        noteKey: findKey(rowKeys, NOTE_KEYS),
+        ttnKey: findKey(rowKeys, TTN_KEYS),
+        paidKey: findKey(rowKeys, PAID_KEYS),
+        shippedKey: findKey(rowKeys, SHIPPED_KEYS),
+        deliveredKey: findKey(rowKeys, DELIVERED_KEYS)
+      };
+      if(!keys.skuKey && !keys.itemNameKey) return; // цей аркуш не схожий на список замовлень — пропускаємо
+      anyQtyOrSkuFound = true;
+      sheetContexts.push({sheetName, rows, keys});
     });
 
+    if(!anyQtyOrSkuFound){
+      throw new Error('Не знайшов колонку «SKU»/«Товар» на жодному аркуші — перевірте заголовки стовпців у файлі');
+    }
+
+    // збираємо всі унікальні нерозпізнані токени (у порядку появи) разом з підказкою по ціні
+    const unresolved = new Map(); // token -> priceHint
+    sheetContexts.forEach(({rows, keys}) => {
+      rows.forEach(row => {
+        const nameVal = keys.itemNameKey ? row[keys.itemNameKey] : '';
+        const skuVal = keys.skuKey ? row[keys.skuKey] : '';
+        parseItemCell(nameVal || skuVal).forEach(({token}) => {
+          if(!token || findKitBySkuOrName(token, token)) return;
+          if(!unresolved.has(token)){
+            const priceHint = keys.priceKey && row[keys.priceKey] !== '' ? parseFloat(String(row[keys.priceKey]).replace(',', '.')) : NaN;
+            unresolved.set(token, isNaN(priceHint) ? 0 : priceHint);
+          }
+        });
+      });
+    });
+
+    // ---- запитуємо по кожному нерозпізнаному товару, чи створити для нього SKU ----
+    let kitsCreated = 0;
+    if(unresolved.size > 0){
+      setOrdersExcelStatus(`Знайдено ${unresolved.size} товар(ів), яких немає в довіднику. Зараз запитаю по кожному...`, 'loading');
+      for(const [token, priceHint] of unresolved){
+        const create = confirm(`Товар «${token}» не знайдено в довіднику «Товари».\n\nСтворити для нього новий набір (SKU)?\n\n(Можна буде донастроїти склад і ціну пізніше у вкладці «Товари».)`);
+        if(create){
+          const kitId = nextKitId++;
+          kits.push({
+            id: kitId, sku: token, name: token, type: 'Набір', components: [],
+            weight: 0, logistics: 0, marketing: 0, price: priceHint || 0, qty: 0, collapsed: true
+          });
+          kitsCreated++;
+        }
+      }
+      if(kitsCreated > 0){
+        renderKits();
+        renderCostsPanel();
+        renderSummary();
+        renderChart();
+        scheduleSave();
+      }
+    }
+
+    // ---- прохід 2: тепер, коли потрібні SKU вже (можливо) створені, будуємо замовлення ----
     let ordersCreated = 0, itemsAdded = 0, itemsSkipped = 0;
     const skippedNames = [];
 
-    groups.forEach(groupRows => {
-      const first = groupRows[0];
-      const id = nextOrderId++;
-      const deliveryMethodVal = methodKey && String(first[methodKey]||'').trim() ? normalizeMethod(String(first[methodKey])) : 'Нова Пошта';
-      const ttnVal = ttnKey ? String(first[ttnKey]||'').trim() : '';
-      const destSplit = cityKey ? splitDestination(first[cityKey]) : {city:'', warehouse:''};
-      const order = {
-        id, clientId:'', customer: customerKey ? String(first[customerKey]||'').trim() : '',
-        phone: phoneKey ? cleanPhone(first[phoneKey]) : '',
-        date: dateKey && first[dateKey] ? excelDateToStr(first[dateKey]) : todayStr(),
-        status:'Нове',
-        paid: paidKey ? parsePaidCell(first[paidKey]) : false,
-        shipped: shippedKey ? parseBoolCell(first[shippedKey]) : false,
-        delivered: deliveredKey ? parseBoolCell(first[deliveredKey]) : false,
-        items:[], notes: noteKey ? String(first[noteKey]||'').trim() : '',
-        collapsed:true, shipmentCollapsed:true, stockDeducted:false,
-        deliveryMethod: deliveryMethodVal,
-        city: destSplit.city, cityRef:'', warehouseRef:'',
-        warehouseDesc: warehouseKey ? String(first[warehouseKey]||'').trim() : destSplit.warehouse,
-        ukrIndex: indexKey ? String(first[indexKey]||'').trim() : '',
-        address: addrKey ? String(first[addrKey]||'').trim() : '',
-        ukrTtnNumber: deliveryMethodVal === 'Укрпошта' ? ttnVal : '',
-        weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
-        codAmount:'',
-        ttnNumber: deliveryMethodVal === 'Нова Пошта' ? ttnVal : '', ttnRef:''
-      };
-
-      groupRows.forEach(row => {
-        const skuVal = skuKey ? row[skuKey] : '';
-        const nameVal = itemNameKey ? row[itemNameKey] : '';
-        const qty = parseFloat(String(row[qtyKey]).replace(',', '.'));
-        if(!qty || isNaN(qty)) return;
-        const kit = findKitBySkuOrName(skuVal, nameVal);
-        if(!kit){
-          itemsSkipped++;
-          const label = String(skuVal || nameVal || '?');
-          if(!skippedNames.includes(label)) skippedNames.push(label);
-          return;
-        }
-        const price = priceKey && row[priceKey] !== '' ? parseFloat(String(row[priceKey]).replace(',', '.')) : (kit.price||0);
-        const existing = order.items.find(it => it.kitId === kit.id);
-        if(existing) existing.qty += qty;
-        else order.items.push({kitId: kit.id, qty, price: isNaN(price) ? (kit.price||0) : price});
-        itemsAdded++;
+    sheetContexts.forEach(({sheetName, rows, keys}) => {
+      const groups = new Map();
+      let autoGroupCounter = 1;
+      rows.forEach(row => {
+        const groupKey = keys.orderIdKey && row[keys.orderIdKey] ? String(row[keys.orderIdKey]).trim() : `__${sheetName}_row${autoGroupCounter++}`;
+        if(!groups.has(groupKey)) groups.set(groupKey, []);
+        groups.get(groupKey).push(row);
       });
 
-      if(order.items.length > 0){
-        orders.push(order);
-        ordersCreated++;
-      } else {
-        nextOrderId--; // жодного товару не розпізнано — це замовлення не створюємо
-      }
+      groups.forEach(groupRows => {
+        const first = groupRows[0];
+        const id = nextOrderId++;
+        const deliveryMethodVal = keys.methodKey && String(first[keys.methodKey]||'').trim() ? normalizeMethod(String(first[keys.methodKey])) : 'Нова Пошта';
+        const ttnVal = keys.ttnKey ? String(first[keys.ttnKey]||'').trim() : '';
+        const destSplit = keys.cityKey ? splitDestination(first[keys.cityKey]) : {city:'', warehouse:''};
+        const order = {
+          id, clientId:'', customer: keys.customerKey ? String(first[keys.customerKey]||'').trim() : '',
+          phone: keys.phoneKey ? cleanPhone(first[keys.phoneKey]) : '',
+          date: keys.dateKey && first[keys.dateKey] ? excelDateToStr(first[keys.dateKey]) : todayStr(),
+          status:'Нове',
+          paid: keys.paidKey ? parsePaidCell(first[keys.paidKey]) : false,
+          shipped: keys.shippedKey ? parseBoolCell(first[keys.shippedKey]) : false,
+          delivered: keys.deliveredKey ? parseBoolCell(first[keys.deliveredKey]) : false,
+          items:[], notes: keys.noteKey ? String(first[keys.noteKey]||'').trim() : '',
+          collapsed:true, shipmentCollapsed:true, stockDeducted:false,
+          deliveryMethod: deliveryMethodVal,
+          city: destSplit.city, cityRef:'', warehouseRef:'',
+          warehouseDesc: keys.warehouseKey ? String(first[keys.warehouseKey]||'').trim() : destSplit.warehouse,
+          ukrIndex: keys.indexKey ? String(first[keys.indexKey]||'').trim() : '',
+          address: keys.addrKey ? String(first[keys.addrKey]||'').trim() : '',
+          ukrTtnNumber: deliveryMethodVal === 'Укрпошта' ? ttnVal : '',
+          weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
+          codAmount:'',
+          ttnNumber: deliveryMethodVal === 'Нова Пошта' ? ttnVal : '', ttnRef:''
+        };
+
+        groupRows.forEach(row => {
+          const skuVal = keys.skuKey ? row[keys.skuKey] : '';
+          const nameVal = keys.itemNameKey ? row[keys.itemNameKey] : '';
+          const rowQty = keys.qtyKey ? parseFloat(String(row[keys.qtyKey]).replace(',', '.')) : NaN;
+          const tokens = parseItemCell(nameVal || skuVal);
+          if(tokens.length === 0) return;
+
+          tokens.forEach(({token, qty: tokenQty}) => {
+            let qty = !isNaN(tokenQty) ? tokenQty : (!isNaN(rowQty) && rowQty > 0 ? rowQty : 1);
+            const kit = findKitBySkuOrName(token, token);
+            if(!kit){
+              itemsSkipped++;
+              if(!skippedNames.includes(token)) skippedNames.push(token);
+              return;
+            }
+            const price = keys.priceKey && row[keys.priceKey] !== '' ? parseFloat(String(row[keys.priceKey]).replace(',', '.')) : (kit.price||0);
+            const existing = order.items.find(it => it.kitId === kit.id);
+            if(existing) existing.qty += qty;
+            else order.items.push({kitId: kit.id, qty, price: isNaN(price) ? (kit.price||0) : price});
+            itemsAdded++;
+          });
+        });
+
+        if(order.items.length > 0){
+          orders.push(order);
+          ordersCreated++;
+        } else {
+          nextOrderId--; // жодного товару не розпізнано — це замовлення не створюємо
+        }
+      });
     });
 
     renderOrders();
@@ -3636,8 +3710,9 @@ async function handleOrdersExcelFile(file){
     scheduleSave();
 
     let msg = `Готово: створено ${ordersCreated} замовлень, додано ${itemsAdded} позицій.`;
+    if(kitsCreated > 0) msg += ` Створено нових SKU в довіднику: ${kitsCreated}.`;
     if(itemsSkipped > 0){
-      msg += ` Пропущено ${itemsSkipped} позицій — SKU/назву не знайдено в довіднику: ${skippedNames.slice(0,8).join(', ')}${skippedNames.length>8?'…':''}.`;
+      msg += ` Пропущено ${itemsSkipped} позицій — SKU/назву не знайдено (і не створено): ${skippedNames.slice(0,8).join(', ')}${skippedNames.length>8?'…':''}.`;
     }
     setOrdersExcelStatus(msg, itemsSkipped>0 ? 'error' : 'ok');
   }catch(err){
