@@ -362,6 +362,7 @@
     <span class="btns">
       <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
       <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
+      <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
       <button class="btn btn-primary btn-sm" onclick="addOrder()">+ Нове замовлення</button>
     </span>
   </div>
@@ -1527,6 +1528,55 @@ function duplicateOrder(sourceId){
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
+}
+
+// Оцінює "цінність" замовлення, щоб при видаленні дублікатів лишити найкорисніший запис
+// (той, де вже щось зроблено — оплата, відправка, ТТН тощо), а не довільний.
+function orderCompletenessScore(o){
+  let score = 0;
+  if(o.paid) score++;
+  if(o.shipped) score++;
+  if(o.delivered) score++;
+  if(o.stockDeducted) score++;
+  if(o.ttnNumber) score++;
+  if(o.notes) score++;
+  if(o.items && o.items.length) score += o.items.length * 0.1;
+  return score;
+}
+
+function removeDuplicateOrders(){
+  const groups = new Map();
+  orders.forEach(o => {
+    const key = normKey(o.customer||'') + '|' + (o.date||'');
+    if(!key.replace('|','')) return; // без імені й дати не групуємо — надто ризиковано
+    if(!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(o);
+  });
+
+  const toRemove = new Set();
+  let groupsAffected = 0;
+  groups.forEach(group => {
+    if(group.length < 2) return;
+    groupsAffected++;
+    // лишаємо запис з найвищим "рахунком завершеності"; при рівності — найстаріший (менший id)
+    const sorted = [...group].sort((a,b) => {
+      const diff = orderCompletenessScore(b) - orderCompletenessScore(a);
+      return diff !== 0 ? diff : a.id - b.id;
+    });
+    sorted.slice(1).forEach(o => toRemove.add(o.id));
+  });
+
+  if(toRemove.size === 0){
+    alert('Дублікатів (за іменем клієнта й датою) не знайдено.');
+    return;
+  }
+  if(!confirm(`Знайдено ${toRemove.size} дублікат(ів) у ${groupsAffected} групах (однакове ім'я клієнта + дата). Видалити зайві копії, лишивши по одній найповнішій у кожній групі?`)) return;
+
+  orders = orders.filter(o => !toRemove.has(o.id));
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+  alert(`Видалено ${toRemove.size} дублікат(ів).`);
 }
 function saveOrder(id){
   const o = orderById(id);
