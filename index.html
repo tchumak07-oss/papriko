@@ -384,10 +384,15 @@
   <div class="section-title" style="margin-top:0;">
     Відправки <span class="n" id="shipmentCount"></span>
     <span class="btns">
+      <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
+      <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
       <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
       <button class="btn btn-sm" id="syncAllNpBtn" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button>
     </span>
   </div>
+  <input type="file" id="deliveryReportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleDeliveryReportFile(this.files[0])">
+  <div id="deliveryReportStatus" class="scan-status"></div>
+  <p class="hint" style="margin:-8px 0 14px;">Це звичайний «Звіт по клієнту за період», який можна вивантажити з кабінету Нової Пошти. Програма зіставить номери ЕН з вашими відправками (за номером ТТН, а якщо ТТН ще не записана — за телефоном отримувача) і сама проставить «Відправлено» / «Доставлено» за статусом у звіті.</p>
   <p class="hint" style="margin:-8px 0 14px;">Кожна картка тут — це те саме замовлення, розгорнуте з полями доставки й ТТН. Створюються замовлення у вкладці «Замовлення» — там же є й імпорт з Excel, який заповнює і поля доставки.</p>
 
   <div class="catalog-panel" id="deliverySettingsPanel" style="margin-bottom:14px;">
@@ -687,9 +692,16 @@
     <span class="btns"><button class="btn btn-sm" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button></span>
   </div>
   <p class="hint" style="margin:-8px 0 14px;">Список не залежить від фільтра періоду вище — тут завжди всі поточні відправлення НП, які ще не позначені як «Доставлено». Відсортовано від найдовше в дорозі.</p>
-  <div class="catalog-panel"><div style="padding:14px 16px;">
+  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
     <div class="wh-row-head" style="grid-template-columns:90px 80px 1fr 1fr 130px 1fr 90px;"><div>Відправлено</div><div style="text-align:right;">Днів</div><div>Клієнт</div><div>Місто / відділення</div><div>ТТН</div><div>Статус НП</div><div></div></div>
     <div id="reportUndelivered"></div>
+  </div></div>
+
+  <div class="section-title">Повернення (перевірити повернення коштів)</div>
+  <p class="hint" style="margin:-8px 0 14px;">Замовлення, де Нова Пошта повідомила про відмову отримувача чи повернення посилки. Не залежить від фільтра періоду. Перевірте, чи не потрібно повернути клієнту гроші (якщо була передоплата) і чи не варто зняти позначку «Оплачено».</p>
+  <div class="catalog-panel"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 1fr 130px 1fr;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Сума</div><div>Оплачено</div><div>ТТН</div><div>Статус НП</div></div>
+    <div id="reportReturned"></div>
   </div></div>
 
   </div><!-- /section-reports -->
@@ -1950,12 +1962,13 @@ async function cancelNpWaybill(orderId){
 // StatusCode "1" = ТТН зареєстровано, вантаж ще не прийнято у відділенні.
 // Будь-який інший код означає, що відправлення вже рухається по мережі НП (це ще не доставка).
 function applyNpStatus(o, statusItem){
-  if(!statusItem) return {shipped:false, delivered:false, archived:false};
+  if(!statusItem) return {shipped:false, delivered:false, archived:false, returned:false};
   o.npStatusText = statusItem.Status || '';
   o.npStatusCode = statusItem.StatusCode || '';
   const wasShipped = o.shipped;
   const wasDelivered = o.delivered;
   const wasArchived = isArchived(o);
+  const wasReturned = o.npReturned;
   if(statusItem.StatusCode && statusItem.StatusCode !== '1'){
     o.shipped = true;
   }
@@ -1968,10 +1981,18 @@ function applyNpStatus(o, statusItem){
   if(statusLower.includes('отримано') || (statusLower.includes('переказ') && statusLower.includes('видано'))){
     o.delivered = true;
   }
+  // Клієнт відмовився / посилка їде назад — це НЕ доставка, окремо позначаємо для контролю повернення коштів.
+  if(statusLower.includes('поверн') || statusLower.includes('відмова')){
+    o.npReturned = true;
+    o.delivered = false;
+  } else if(statusLower.includes('отримано') || statusLower.includes('видано')){
+    o.npReturned = false; // якщо посилку зрештою таки отримали — знімаємо позначку повернення
+  }
   return {
     shipped: o.shipped && !wasShipped,
     delivered: o.delivered && !wasDelivered,
-    archived: isArchived(o) && !wasArchived
+    archived: isArchived(o) && !wasArchived,
+    returned: o.npReturned && !wasReturned
   };
 }
 
@@ -2005,21 +2026,131 @@ async function syncAllNpStatuses(){
     const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {
       Documents: withTtn.map(o => ({DocumentNumber: o.ttnNumber, Phone: o.phone || ''}))
     });
-    let justShippedCount = 0, justDeliveredCount = 0, justArchivedCount = 0;
+    let justShippedCount = 0, justDeliveredCount = 0, justArchivedCount = 0, justReturnedCount = 0;
     withTtn.forEach(o => {
       const statusItem = (data||[]).find(d => d.Number === o.ttnNumber);
       const res = applyNpStatus(o, statusItem);
       if(res.shipped) justShippedCount++;
       if(res.delivered) justDeliveredCount++;
       if(res.archived) justArchivedCount++;
+      if(res.returned) justReturnedCount++;
     });
     renderOrders();
     scheduleSave();
-    alert(`Перевірено ${withTtn.length} відправлень. Позначено «Відправлено»: ${justShippedCount}. «Доставлено»: ${justDeliveredCount}. Перенесено в архів (оплата+доставка підтверджені): ${justArchivedCount}.`);
+    let msg = `Перевірено ${withTtn.length} відправлень. Позначено «Відправлено»: ${justShippedCount}. «Доставлено»: ${justDeliveredCount}. Перенесено в архів (оплата+доставка підтверджені): ${justArchivedCount}.`;
+    if(justReturnedCount > 0) msg += ` ⚠ Повернень (перевірте повернення коштів): ${justReturnedCount}.`;
+    alert(msg);
   }catch(err){
     alert('Помилка синхронізації з НП: ' + err.message);
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = 'Синхронізувати статуси з НП'; }
+  }
+}
+
+/* ---------- звірка звіту доставки НП (Excel) ---------- */
+
+function normalizeTtnNumber(v){
+  if(v === '' || v === null || v === undefined) return '';
+  if(typeof v === 'number') return String(Math.round(v));
+  return String(v).replace(/[^\d]/g, '');
+}
+
+// порівнює телефони за останніми 9 цифрами — нейтралізує різницю в форматах (0XXXXXXXXX, 380XXXXXXXXX, +380...)
+function phonesMatch(a, b){
+  const da = String(a||'').replace(/[^\d]/g,'').slice(-9);
+  const db = String(b||'').replace(/[^\d]/g,'').slice(-9);
+  return da.length === 9 && da === db;
+}
+
+function setDeliveryReportStatus(text, kind){
+  const el = document.getElementById('deliveryReportStatus');
+  if(!el) return;
+  el.className = 'scan-status' + (kind ? ' '+kind : '');
+  el.textContent = text || '';
+}
+
+async function handleDeliveryReportFile(file){
+  if(!file) return;
+  setDeliveryReportStatus('Читаю файл...', 'loading');
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+    if(rows.length === 0) throw new Error('У файлі немає рядків з даними');
+
+    const rowKeys = Object.keys(rows[0]);
+    const ttnKey = findKey(rowKeys, ['номерен','номерент','ttn']);
+    const statusKey = findKey(rowKeys, ['статусенанадатуформуванн','статусен','статус']);
+    const contactKey = findKey(rowKeys, ['контактотримувача']);
+
+    if(!ttnKey){
+      throw new Error('Не знайшов колонку «Номер Е/Н» у файлі — переконайтесь, що це звіт «по клієнту за період» з кабінету Нової Пошти');
+    }
+
+    let matchedByTtn = 0, matchedByPhone = 0, statusUpdates = 0, archivedNow = 0, returnedNow = 0, unmatched = 0;
+    const unmatchedList = [];
+
+    rows.forEach(row => {
+      const ttn = normalizeTtnNumber(row[ttnKey]);
+      if(!ttn || ttn.length < 10) return; // пропускаємо службові/порожні рядки (заголовки, підсумки)
+
+      const statusText = statusKey ? String(row[statusKey]||'').trim() : '';
+      const contact = contactKey ? String(row[contactKey]||'') : '';
+      const commaIdx = contact.indexOf(',');
+      const contactName = (commaIdx > -1 ? contact.slice(0, commaIdx) : contact).trim();
+      const contactPhone = commaIdx > -1 ? contact.slice(commaIdx+1).trim() : '';
+
+      let order = orders.find(o => o.ttnNumber && normalizeTtnNumber(o.ttnNumber) === ttn);
+      if(order){
+        matchedByTtn++;
+      } else if(contactPhone){
+        order = orders.find(o => !o.ttnNumber && o.phone && phonesMatch(o.phone, contactPhone));
+        if(order){
+          order.ttnNumber = ttn;
+          matchedByPhone++;
+        }
+      }
+
+      if(!order){
+        unmatched++;
+        if(!unmatchedList.includes(contactName)) unmatchedList.push(contactName || ttn);
+        return;
+      }
+
+      const wasArchived = isArchived(order);
+      const wasShipped = order.shipped, wasDelivered = order.delivered, wasReturned = order.npReturned;
+      if(statusText) order.npStatusText = statusText;
+
+      if(statusText.includes('Поверн') || statusText.includes('Відмова')){
+        order.npReturned = true;
+        order.delivered = false;
+      } else if(statusText.includes('Отримано')){
+        order.shipped = true;
+        order.delivered = true;
+        order.npReturned = false;
+      } else if(statusText.includes('дорозі') || statusText.includes('Прибув') || statusText.includes('відділенн')){
+        order.shipped = true;
+      }
+
+      if(order.shipped !== wasShipped || order.delivered !== wasDelivered) statusUpdates++;
+      if(order.npReturned && !wasReturned) returnedNow++;
+      if(isArchived(order) && !wasArchived) archivedNow++;
+    });
+
+    renderOrders();
+    scheduleSave();
+
+    let msg = `Звірено ${matchedByTtn + matchedByPhone} відправлень (за ТТН: ${matchedByTtn}, за телефоном: ${matchedByPhone}). Оновлено статус у ${statusUpdates}. Перенесено в архів: ${archivedNow}.`;
+    if(returnedNow > 0) msg += ` ⚠ Повернень (потрібно перевірити повернення коштів): ${returnedNow}.`;
+    if(unmatched > 0){
+      msg += ` Не знайдено відповідного замовлення для ${unmatched}: ${unmatchedList.slice(0,6).join(', ')}${unmatchedList.length>6?'…':''}.`;
+    }
+    setDeliveryReportStatus(msg, unmatched > 0 ? 'error' : 'ok');
+  }catch(err){
+    setDeliveryReportStatus('Помилка: ' + err.message, 'error');
+  }finally{
+    document.getElementById('deliveryReportInput').value = '';
   }
 }
 
@@ -2644,6 +2775,29 @@ function renderReports(){
       `).join('');
     }
   }
+
+  // ---- повернення (для контролю повернення коштів) ----
+  const returnedEl = document.getElementById('reportReturned');
+  if(returnedEl){
+    const returned = orders.filter(o => o.npReturned).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    if(returned.length === 0){
+      returnedEl.innerHTML = '<div class="comp-empty">Повернень немає.</div>';
+    } else {
+      returnedEl.innerHTML = returned.map(o => {
+        const total = calcOrder(o).total;
+        return `
+          <div class="wh-row" style="grid-template-columns:90px 1fr 90px 1fr 130px 1fr;">
+            <div class="hint">${o.date||''}</div>
+            <div>${escapeAttr(o.customer||'Без імені')}</div>
+            <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(total)} грн</div>
+            <div class="hint" style="color:${o.paid?'var(--danger)':'var(--text-faint)'};">${o.paid ? '⚠ так — перевірити повернення' : 'ні'}</div>
+            <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber||o.ukrTtnNumber||'—')}</div>
+            <div class="hint">${escapeAttr(o.npStatusText||'')}</div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
 }
 
 function orderCollapsedHtml(o){
@@ -2737,6 +2891,7 @@ function shipmentCollapsedHtml(o){
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>' : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
+          ${o.npReturned ? '<span class="status-badge" style="background:var(--danger);color:#fff;">⟲ Повернення</span>' : ''}
           ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
