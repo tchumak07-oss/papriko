@@ -367,6 +367,15 @@
     </span>
   </div>
   <input type="file" id="ordersExcelInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleOrdersExcelFile(this.files[0])">
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="catalog-group-title">Виправити замовлення з датою в майбутньому</div>
+    <p class="hint" style="margin:0 0 8px;">Знаходить усі замовлення, у яких дата пізніша за сьогодні, і переставляє їм обрану дату нижче.</p>
+    <div class="fb-row">
+      <input type="date" id="fixFutureDateInput">
+      <button class="btn btn-sm" onclick="fixFutureOrderDates()">Змінити замовлення з майбутньою датою</button>
+    </div>
+    <div class="hint" id="fixFutureStatus" style="margin-top:6px;"></div>
+  </div></div>
   <div class="summary" id="ordersSummary" style="margin-top:0;margin-bottom:1rem;"></div>
   <p class="hint" style="margin:-8px 0 14px;">Тут — склад замовлення: клієнт, товари, статус. Адресу, ТТН і списання з залишків оформлюйте у вкладці «Відправки».</p>
   <div id="ordersExcelStatus" class="scan-status" style="margin-bottom:14px;"></div>
@@ -408,8 +417,9 @@
       <div>
         <label>Сортувати за</label>
         <select id="of-sort" onchange="renderOrders()">
-          <option value="date-desc">Дата (спочатку нові)</option>
-          <option value="date-asc">Дата (спочатку старі)</option>
+          <option value="id-desc">Час додавання (нові зверху)</option>
+          <option value="date-desc">Дата замовлення (спочатку нові)</option>
+          <option value="date-asc">Дата замовлення (спочатку старі)</option>
           <option value="total-desc">Сума (спочатку більша)</option>
           <option value="customer-asc">Клієнт (А-Я)</option>
         </select>
@@ -605,8 +615,9 @@
       <div>
         <label>Сортувати за</label>
         <select id="shf-sort" onchange="renderOrders()">
-          <option value="date-desc">Дата (спочатку нові)</option>
-          <option value="date-asc">Дата (спочатку старі)</option>
+          <option value="id-desc">Час додавання (нові зверху)</option>
+          <option value="date-desc">Дата замовлення (спочатку нові)</option>
+          <option value="date-asc">Дата замовлення (спочатку старі)</option>
           <option value="total-desc">Сума (спочатку більша)</option>
           <option value="customer-asc">Клієнт (А-Я)</option>
         </select>
@@ -1954,6 +1965,25 @@ function exportTodayShipmentsExcel(){
   XLSX.writeFile(wb, `vidpravlennya_${today}.xlsx`);
 }
 
+function fixFutureOrderDates(){
+  const statusEl = document.getElementById('fixFutureStatus');
+  const targetDate = document.getElementById('fixFutureDateInput').value || todayStr();
+  const todayTs = dateSortValue(todayStr());
+  const futureOrders = orders.filter(o => dateSortValue(o.date) > todayTs);
+
+  if(futureOrders.length === 0){
+    statusEl.textContent = 'Замовлень з датою в майбутньому не знайдено.';
+    return;
+  }
+  if(!confirm(`Знайдено ${futureOrders.length} замовлень(-я) з датою пізніше сьогодні. Змінити їм дату на ${targetDate}?`)) return;
+
+  futureOrders.forEach(o => { o.date = targetDate; });
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+  statusEl.textContent = `Готово: змінено дату у ${futureOrders.length} замовлень(-і) на ${targetDate}.`;
+}
+
 function removeDuplicateOrders(){
   const groups = new Map();
   orders.forEach(o => {
@@ -2970,9 +3000,10 @@ function applyOrderFilters(list){
 
   result = [...result].sort((a,b) => {
     if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
+    if(sortVal === 'date-desc') return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id);
     if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
     if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'') || (b.id - a.id);
-    return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id); // date-desc за замовчуванням
+    return b.id - a.id; // id-desc за замовчуванням — найновіше додане завжди зверху, незалежно від вписаної дати
   });
   return result;
 }
@@ -2981,7 +3012,7 @@ function resetOrderFilters(){
   document.getElementById('of-status').value = 'all';
   document.getElementById('of-paid').value = 'all';
   document.getElementById('of-shipped').value = 'all';
-  document.getElementById('of-sort').value = 'date-desc';
+  document.getElementById('of-sort').value = 'id-desc';
   document.getElementById('of-search').value = '';
   renderOrders();
 }
@@ -3020,9 +3051,10 @@ function applyShipmentFilters(list){
 
   result = [...result].sort((a,b) => {
     if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
+    if(sortVal === 'date-desc') return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id);
     if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
     if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'') || (b.id - a.id);
-    return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id); // date-desc за замовчуванням
+    return b.id - a.id; // id-desc за замовчуванням — найновіше додане завжди зверху, незалежно від вписаної дати
   });
   return result;
 }
@@ -3033,7 +3065,7 @@ function resetShipmentFilters(){
   document.getElementById('shf-delivered').value = 'all';
   document.getElementById('shf-method').value = 'all';
   document.getElementById('shf-deducted').value = 'all';
-  document.getElementById('shf-sort').value = 'date-desc';
+  document.getElementById('shf-sort').value = 'id-desc';
   document.getElementById('shf-search').value = '';
   renderOrders();
 }
@@ -4722,6 +4754,7 @@ renderInventory();
 populateMovementItemSelect();
 renderCash();
 document.getElementById('cash-date').value = todayStr();
+document.getElementById('fixFutureDateInput').value = todayStr();
 renderReports();
 autoConnectFirebase();
 </script>
