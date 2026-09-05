@@ -487,6 +487,20 @@
         <p class="hint" style="margin-top:6px;">Це поле — лише для вашого запису. Нова Пошта не приймає номер картки через API для окремої посилки: куди перераховувати післяплату, налаштовується один раз у кабінеті NovaPay (novapay.ua) чи мобільному застосунку.</p>
       </div>
       <div class="catalog-group">
+        <div class="catalog-group-title">Уведомлення в Telegram</div>
+        <p class="hint" style="margin:0 0 8px;">Створіть бота через <strong>@BotFather</strong> (команда /newbot, скопіюйте токен), додайте бота у вашу групу, і напишіть у групі будь-яке повідомлення. Тоді натисніть кнопку нижче — вона сама визначить ID групи.</p>
+        <div class="delivery-grid">
+          <div style="grid-column:span 2;"><label>Токен бота</label><input type="text" id="tgBotTokenInput" placeholder="напр. 123456:ABC-DEF..."></div>
+          <div><label>ID групи/чату</label><input type="text" id="tgChatIdInput" placeholder="напр. -1001234567890"></div>
+        </div>
+        <div class="fb-row" style="margin-top:10px;">
+          <button class="btn btn-sm" onclick="saveTelegramSettings()">Зберегти</button>
+          <button class="btn btn-sm" onclick="detectTelegramChatId()">Визначити ID групи автоматично</button>
+          <button class="btn btn-sm" onclick="sendTestTelegramMessage()">Надіслати тестове повідомлення</button>
+        </div>
+        <div class="hint" id="tgStatus" style="margin-top:6px;"></div>
+      </div>
+      <div class="catalog-group">
         <div class="catalog-group-title">Укрпошта</div>
         <p class="hint" style="margin:0;">Публічне API Укрпошти вимагає токен контрагента і підписані запити з сервера — з одного HTML-файлу в браузері безпечно це не підключити. Тому для Укрпошти адреса й індекс вводяться вручну, без автопошуку.</p>
       </div>
@@ -813,7 +827,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 
 function buildStatePayload(){
   return {
-    catalog, kits, orders, clients, stockMovements, cashTransactions, npApiKey, npSender,
+    catalog, kits, orders, clients, stockMovements, cashTransactions, npApiKey, npSender, tgBotToken, tgChatId,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId,
     updatedAt: new Date().toISOString()
   };
@@ -829,6 +843,8 @@ function applyRemoteData(data){
   cashTransactions = data.cashTransactions || [];
   npApiKey = data.npApiKey || '';
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
+  tgBotToken = data.tgBotToken || '';
+  tgChatId = data.tgChatId || '';
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
   nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
   nextOrderId = data.nextOrderId || (Math.max(0, ...orders.map(o=>o.id), 0) + 1);
@@ -850,6 +866,10 @@ function applyRemoteData(data){
   renderReports();
   const npInput = document.getElementById('npApiKeyInput');
   if(npInput) npInput.value = npApiKey;
+  const tgTokenInput = document.getElementById('tgBotTokenInput');
+  if(tgTokenInput) tgTokenInput.value = tgBotToken;
+  const tgChatInput = document.getElementById('tgChatIdInput');
+  if(tgChatInput) tgChatInput.value = tgChatId;
   const senderCityInput = document.getElementById('sender-city-input');
   if(senderCityInput) senderCityInput.value = npSender.citySenderName || '';
   const payoutCardInput = document.getElementById('payout-card-input');
@@ -1436,6 +1456,89 @@ function saveNpApiKey(){
   scheduleSave();
 }
 
+/* ---------- telegram notifications ---------- */
+
+let tgBotToken = '';
+let tgChatId = '';
+
+function saveTelegramSettings(){
+  tgBotToken = document.getElementById('tgBotTokenInput').value.trim();
+  tgChatId = document.getElementById('tgChatIdInput').value.trim();
+  document.getElementById('tgStatus').textContent = (tgBotToken && tgChatId) ? 'Збережено.' : 'Токен і/або ID групи порожні.';
+  scheduleSave();
+}
+
+async function detectTelegramChatId(){
+  const statusEl = document.getElementById('tgStatus');
+  const token = document.getElementById('tgBotTokenInput').value.trim();
+  if(!token){ statusEl.textContent = 'Спочатку впишіть токен бота.'; return; }
+  statusEl.textContent = 'Шукаю групу...';
+  try{
+    const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.description || 'Помилка Telegram API');
+    const groupUpdate = (data.result || []).reverse().find(u => u.message && u.message.chat && (u.message.chat.type === 'group' || u.message.chat.type === 'supergroup'));
+    if(!groupUpdate){
+      statusEl.textContent = 'Групу не знайдено. Переконайтесь, що бот доданий у групу, і хтось написав там хоч одне повідомлення після цього.';
+      return;
+    }
+    const chatId = groupUpdate.message.chat.id;
+    document.getElementById('tgChatIdInput').value = chatId;
+    tgBotToken = token;
+    tgChatId = String(chatId);
+    scheduleSave();
+    statusEl.textContent = `Знайдено групу «${groupUpdate.message.chat.title || ''}», ID: ${chatId}. Збережено.`;
+  }catch(err){
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+async function sendTelegramMessage(text){
+  if(!tgBotToken || !tgChatId) return {ok:false, error:'Telegram не налаштовано'};
+  try{
+    const res = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendMessage`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({chat_id: tgChatId, text, parse_mode:'HTML'})
+    });
+    const data = await res.json();
+    if(!data.ok) return {ok:false, error: data.description || 'Помилка Telegram API'};
+    return {ok:true};
+  }catch(err){
+    return {ok:false, error: err.message};
+  }
+}
+
+async function sendTestTelegramMessage(){
+  const statusEl = document.getElementById('tgStatus');
+  statusEl.textContent = 'Надсилаю...';
+  const res = await sendTelegramMessage('🌶️ Тестове повідомлення з програми "Прибутковість спецій". Якщо ви це бачите — все підключено правильно!');
+  statusEl.textContent = res.ok ? 'Надіслано успішно ✓' : ('Помилка: ' + res.error);
+}
+
+function notifyTelegramShipment(o){
+  if(!tgBotToken || !tgChatId) return;
+  const c = calcOrder(o);
+  const itemsText = o.items.map(it => {
+    const k = kitById(it.kitId);
+    return `• ${k ? escapeHtml(k.name) : '(товар)'} × ${it.qty}`;
+  }).join('\n');
+  const ttn = o.ttnNumber || o.ukrTtnNumber || '';
+  const lines = [
+    `📦 <b>Нова відправка</b>`,
+    `Клієнт: ${escapeHtml(o.customer||'—')}${o.phone ? ' · '+escapeHtml(o.phone) : ''}`,
+    itemsText,
+    `Сума: ${fmt(c.total)} грн`,
+    `Доставка: ${escapeHtml(deliverySummaryText(o))}`,
+  ];
+  if(ttn) lines.push(`ТТН: <code>${escapeHtml(ttn)}</code>`);
+  sendTelegramMessage(lines.join('\n'));
+}
+
+function escapeHtml(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 /* ---------- sender (for TTN creation) ---------- */
 
 let npSender = {
@@ -1661,6 +1764,10 @@ function saveShipment(id){
   const o = orderById(id);
   if(!o) return;
   o.shipmentCollapsed = true;
+  if(!o.telegramNotified && o.items.length > 0){
+    o.telegramNotified = true;
+    notifyTelegramShipment(o);
+  }
   renderOrders();
   scheduleSave();
 }
@@ -1880,6 +1987,10 @@ function linkExistingTtn(orderId){
   o.ttnRef = ''; // немає внутрішнього Ref з API — цю ТТН не створювали через програму, тож видалити її звідси не можна, лише відв'язати
   o.npStatusText = '';
   o.npStatusCode = '';
+  if(!o.telegramNotified){
+    o.telegramNotified = true;
+    notifyTelegramShipment(o);
+  }
   renderOrders();
   scheduleSave();
 }
@@ -1990,6 +2101,10 @@ async function createNpWaybill(orderId){
     o.ttnNumber = doc.IntDocNumber;
     o.ttnRef = doc.Ref;
     resultEl.innerHTML = ttnResultHtml(o);
+    if(!o.telegramNotified){
+      o.telegramNotified = true;
+      notifyTelegramShipment(o);
+    }
     scheduleSave();
   }catch(err){
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
