@@ -480,11 +480,11 @@
             </select>
           </div>
           <div style="grid-column:span 3;">
-            <label>Картка зарахування післяплати (для вашої довідки)</label>
-            <input type="text" id="payout-card-input" value="" placeholder="напр. 5375 4141 хххх 1234" oninput="npSender.payoutCard=this.value" onchange="scheduleSave()">
+            <label>Розрахунковий рахунок ФОП для зарахування (для вашої довідки)</label>
+            <input type="text" id="payout-card-input" value="" placeholder="напр. UA00 0000 0000 0000 0000 0000 0" oninput="npSender.payoutCard=this.value" onchange="scheduleSave()">
           </div>
         </div>
-        <p class="hint" style="margin-top:6px;">Це поле — лише для вашого запису. Нова Пошта не приймає номер картки через API для окремої посилки: куди перераховувати післяплату, налаштовується один раз у кабінеті NovaPay (novapay.ua) чи мобільному застосунку.</p>
+        <p class="hint" style="margin-top:6px;">Це поле — лише для вашого запису. Куди саме зараховувати кошти за послугою «Контроль оплати» — прив'язується один раз у договорі з NovaPay, а не в цій програмі.</p>
       </div>
       <div class="catalog-group">
         <div class="catalog-group-title">Уведомлення в Telegram</div>
@@ -2088,11 +2088,9 @@ async function createNpWaybill(orderId){
       RecipientsPhone: o.phone
     };
     if(o.codAmount && Number(o.codAmount) > 0){
-      docParams.BackwardDeliveryData = [{
-        PayerType: 'Recipient',
-        CargoType: 'Money',
-        RedeliveryString: String(o.codAmount)
-      }];
+      // «Контроль оплати» — кошти йдуть напряму на розрахунковий рахунок ФОП (за договором з NovaPay),
+      // на відміну від звичайної післяплати з поверненням на картку.
+      docParams.AfterpaymentOnGoodsCost = String(o.codAmount);
     }
     const docData = await npApiCall('InternetDocument', 'save', docParams);
     const doc = docData && docData[0];
@@ -2405,12 +2403,12 @@ function deliveryBlockHtml(o){
             <option ${o.paymentMethod==='Безготівка'?'selected':''}>Безготівка</option>
           </select>
         </div>
-        <div><label>Післяплата, грн</label><input type="number" step="1" value="${o.codAmount}" oninput="updateOrderField(${o.id},'codAmount',this.value)" placeholder="0 = без післяплати"></div>
+        <div><label>Сума контролю оплати, грн</label><input type="number" step="1" value="${o.codAmount}" oninput="updateOrderField(${o.id},'codAmount',this.value)" placeholder="0 = без контролю оплати"></div>
         <div style="display:flex;align-items:flex-end;">
           <button class="btn btn-primary btn-sm" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
         </div>
       </div>
-      <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі й переказується вам через NovaPay. На яку саме картку зараховувати — налаштовується один раз у кабінеті/додатку NovaPay, а не в цій програмі (Нова Пошта не дозволяє передавати довільний номер картки для кожної окремої посилки через це API).</p>
+      <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі. Оскільки у вас підключено послугу «Контроль оплати» (договір з NovaPay), кошти йдуть напряму на розрахунковий рахунок ФОП, а не готівкою чи на картку — без потреби вказувати картку для кожної посилки окремо.</p>
       <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
       ${!o.ttnNumber ? `
       <div class="delivery-grid" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft);">
