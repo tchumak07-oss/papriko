@@ -375,6 +375,55 @@
     Якщо якийсь товар не знайдеться в довіднику — програма запитає по кожному окремо, чи створити для нього новий SKU (можна буде донастроїти склад і ціну пізніше).
   </p>
 
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="catalog-group-title">Фільтр і сортування</div>
+    <div class="delivery-grid">
+      <div>
+        <label>Статус</label>
+        <select id="of-status" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option>Нове</option>
+          <option>В обробці</option>
+          <option>Відправлено</option>
+          <option>Оплачено</option>
+          <option>Скасовано</option>
+        </select>
+      </div>
+      <div>
+        <label>Оплачено</label>
+        <select id="of-paid" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="yes">Так</option>
+          <option value="no">Ні</option>
+        </select>
+      </div>
+      <div>
+        <label>Відправлено</label>
+        <select id="of-shipped" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="yes">Так</option>
+          <option value="no">Ні</option>
+        </select>
+      </div>
+      <div>
+        <label>Сортувати за</label>
+        <select id="of-sort" onchange="renderOrders()">
+          <option value="date-desc">Дата (спочатку нові)</option>
+          <option value="date-asc">Дата (спочатку старі)</option>
+          <option value="total-desc">Сума (спочатку більша)</option>
+          <option value="customer-asc">Клієнт (А-Я)</option>
+        </select>
+      </div>
+      <div style="grid-column:span 2;">
+        <label>Пошук за клієнтом</label>
+        <input type="text" id="of-search" placeholder="Ім'я клієнта…" oninput="renderOrders()">
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button class="btn btn-sm" onclick="resetOrderFilters()">Скинути фільтри</button>
+      </div>
+    </div>
+  </div></div>
+
   <div id="orderList"></div>
 
   </div><!-- /section-orders -->
@@ -1511,8 +1560,8 @@ function addOrder(){
   const id = nextOrderId++;
   orders.push({
     id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, delivered:false, items:[], notes:'', collapsed:false,
-    shipmentCollapsed: true, stockDeducted:false,
-    deliveryMethod: 'Нова Пошта',
+    shipmentCollapsed: true, stockDeducted:false, manualArchive:false,
+    deliveryMethod: 'Нова Пошта', region:'',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
     ukrIndex:'', address:'', ukrTtnNumber:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
@@ -2170,14 +2219,15 @@ function carrierBadgeHtml(o){
 }
 
 function deliverySummaryText(o){
+  const regionPart = o.region ? o.region + ', ' : '';
   if(o.deliveryMethod === 'Нова Пошта'){
     if(!o.city) return 'Нова Пошта — місто не вказане';
-    return `Нова Пошта, ${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}`;
+    return `Нова Пошта, ${regionPart}${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}`;
   }
   if(o.deliveryMethod === 'Укрпошта'){
-    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${o.address ? ', ' + o.address : ''}${o.ukrTtnNumber ? ' · ЕН '+o.ukrTtnNumber : ''}`;
+    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${regionPart ? ', ' + regionPart.replace(/, $/,'') : ''}${o.address ? ', ' + o.address : ''}${o.ukrTtnNumber ? ' · ЕН '+o.ukrTtnNumber : ''}`;
   }
-  return o.deliveryMethod + (o.address ? ', ' + o.address : '');
+  return o.deliveryMethod + (regionPart ? ', ' + regionPart.replace(/, $/,'') : '') + (o.address ? ', ' + o.address : '');
 }
 
 function autoCalcShipmentWeight(orderId){
@@ -2282,7 +2332,7 @@ function deliveryBlockHtml(o){
   return `
     <div class="delivery-block">
       <div class="delivery-grid">
-        <div style="grid-column:span 3;">
+        <div>
           <label>Спосіб доставки</label>
           <select onchange="setDeliveryMethod(${o.id}, this.value)">
             <option ${o.deliveryMethod==='Нова Пошта'?'selected':''}>Нова Пошта</option>
@@ -2290,13 +2340,64 @@ function deliveryBlockHtml(o){
             <option ${o.deliveryMethod==='Самовивіз'?'selected':''}>Самовивіз</option>
           </select>
         </div>
+        <div style="grid-column:span 2;">
+          <label>Область</label>
+          <input type="text" value="${escapeAttr(o.region||'')}" oninput="updateOrderField(${o.id},'region',this.value)" placeholder="напр. Рівненська обл.">
+        </div>
       </div>
       ${fieldsHtml}
     </div>
   `;
 }
 
-function isArchived(o){ return !!(o.paid && o.delivered); }
+function isArchived(o){ return !!((o.paid && o.delivered) || o.manualArchive); }
+
+function toggleManualArchive(id, checked){
+  const o = orderById(id);
+  if(!o) return;
+  o.manualArchive = checked;
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+
+function applyOrderFilters(list){
+  const statusEl = document.getElementById('of-status');
+  if(!statusEl) return list; // фільтри ще не відрендерені
+
+  const statusVal = statusEl.value;
+  const paidVal = document.getElementById('of-paid').value;
+  const shippedVal = document.getElementById('of-shipped').value;
+  const sortVal = document.getElementById('of-sort').value;
+  const search = (document.getElementById('of-search').value || '').trim().toLowerCase();
+
+  let result = list.filter(o => {
+    if(statusVal !== 'all' && o.status !== statusVal) return false;
+    if(paidVal === 'yes' && !o.paid) return false;
+    if(paidVal === 'no' && o.paid) return false;
+    if(shippedVal === 'yes' && !o.shipped) return false;
+    if(shippedVal === 'no' && o.shipped) return false;
+    if(search && !(o.customer||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  result = [...result].sort((a,b) => {
+    if(sortVal === 'date-asc') return (a.date||'').localeCompare(b.date||'') || (a.id - b.id);
+    if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
+    if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'') || (b.id - a.id);
+    return (b.date||'').localeCompare(a.date||'') || (b.id - a.id); // date-desc за замовчуванням, новіші (за id) зверху при однаковій даті
+  });
+  return result;
+}
+
+function resetOrderFilters(){
+  document.getElementById('of-status').value = 'all';
+  document.getElementById('of-paid').value = 'all';
+  document.getElementById('of-shipped').value = 'all';
+  document.getElementById('of-sort').value = 'date-desc';
+  document.getElementById('of-search').value = '';
+  renderOrders();
+}
 
 function applyShipmentFilters(list){
   const paidEl = document.getElementById('shf-paid');
@@ -2331,10 +2432,10 @@ function applyShipmentFilters(list){
   });
 
   result = [...result].sort((a,b) => {
-    if(sortVal === 'date-asc') return (a.date||'').localeCompare(b.date||'');
-    if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total;
-    if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'');
-    return (b.date||'').localeCompare(a.date||''); // date-desc за замовчуванням
+    if(sortVal === 'date-asc') return (a.date||'').localeCompare(b.date||'') || (a.id - b.id);
+    if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
+    if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'') || (b.id - a.id);
+    return (b.date||'').localeCompare(a.date||'') || (b.id - a.id); // date-desc за замовчуванням, новіші (за id) зверху при однаковій даті
   });
   return result;
 }
@@ -2355,9 +2456,13 @@ function renderOrders(){
   if(orders.length === 0){
     list.innerHTML = '<div class="comp-empty">Ще немає жодного замовлення. Натисніть «+ Нове замовлення».</div>';
   } else {
-    const sorted = [...orders].sort((a,b) => (b.date||'').localeCompare(a.date||''));
-    list.innerHTML = sorted.map(o => o.collapsed ? orderCollapsedHtml(o) : orderExpandedHtml(o)).join('');
-    orders.forEach(o => { if(!o.collapsed) renderOrderItems(o.id); renderOrderTotal(o.id); });
+    const filtered = applyOrderFilters(orders);
+    if(filtered.length === 0){
+      list.innerHTML = '<div class="comp-empty">Нічого не знайдено за цими фільтрами.</div>';
+    } else {
+      list.innerHTML = filtered.map(o => o.collapsed ? orderCollapsedHtml(o) : orderExpandedHtml(o)).join('');
+      filtered.forEach(o => { if(!o.collapsed) renderOrderItems(o.id); renderOrderTotal(o.id); });
+    }
   }
   document.getElementById('orderCount').textContent = orders.length;
 
@@ -2385,6 +2490,7 @@ function unarchiveOrder(id){
   const o = orderById(id);
   if(!o) return;
   o.shipped = false;
+  o.manualArchive = false;
   renderOrders();
   scheduleSave();
 }
@@ -2402,8 +2508,9 @@ function archiveCollapsedHtml(o){
     <div class="order-card order-card-collapsed shipped-card" data-archive="${o.id}">
       <div class="order-collapsed-row">
         <div class="order-collapsed-info">
-          <span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>
-          <span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>
+          ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
+          ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
+          ${o.manualArchive ? '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);">Вручну в архів</span>' : ''}
           ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
@@ -2424,8 +2531,9 @@ function archiveExpandedHtml(o){
     <div class="order-card shipped-card" data-archive="${o.id}">
       <div class="order-head">
         <div class="order-head-left">
-          <span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>
-          <span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>
+          ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
+          ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
+          ${o.manualArchive ? '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);">Вручну в архів</span>' : ''}
           ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
         </div>
@@ -2847,6 +2955,10 @@ function orderExpandedHtml(o){
             <input type="checkbox" ${o.paid?'checked':''} onchange="toggleOrderPaid(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
             Оплачено
           </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
+            <input type="checkbox" ${o.manualArchive?'checked':''} onchange="toggleManualArchive(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
+            В архів
+          </label>
         </div>
         <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
@@ -2933,6 +3045,10 @@ function shipmentExpandedHtml(o){
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.delivered?'checked':''} onchange="toggleOrderDelivered(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
             Доставлено
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
+            <input type="checkbox" ${o.manualArchive?'checked':''} onchange="toggleManualArchive(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
+            В архів
           </label>
         </div>
       </div>
