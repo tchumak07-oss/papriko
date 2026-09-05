@@ -520,8 +520,40 @@
         <p class="hint" style="margin-top:8px;">Кожне сповіщення про відправку матиме кнопку «📋 Список ТТН за сьогодні» — натискання в групі обробляється, <strong>тільки поки в браузері відкрита вкладка «Відправки»</strong> цієї програми (без свого сервера бот не може «слухати» групу цілодобово).</p>
       </div>
       <div class="catalog-group">
-        <div class="catalog-group-title">Укрпошта</div>
-        <p class="hint" style="margin:0;">Публічне API Укрпошти вимагає токен контрагента і підписані запити з сервера — з одного HTML-файлу в браузері безпечно це не підключити. Тому для Укрпошти адреса й індекс вводяться вручну, без автопошуку.</p>
+        <div class="catalog-group-title">Укрпошта — API (для створення декларацій)</div>
+        <p class="hint" style="margin:0 0 8px;">Дані видає ваш менеджер Укрпошти після підписання договору: PRODUCTION BEARER eCom і PROD_COUNTERPARTY TOKEN.</p>
+        <div class="delivery-grid">
+          <div><label>Bearer eCom</label><input type="text" id="ukrBearerInput" placeholder="11111111-2222-3333-aaaa-bcdef1234567"></div>
+          <div><label>Counterparty token</label><input type="text" id="ukrTokenInput" placeholder="токен контрагента"></div>
+          <div style="display:flex;align-items:flex-end;"><button class="btn btn-sm" onclick="saveUkrApiSettings()">Зберегти</button></div>
+        </div>
+        <div class="hint" id="ukrApiStatus" style="margin-top:6px;"></div>
+
+        <div class="catalog-group-title" style="margin-top:14px;">Дані відправника (Укрпошта)</div>
+        <div class="delivery-grid">
+          <div><label>Тип</label>
+            <select id="ukrSenderType">
+              <option value="PRIVATE_ENTREPRENEUR">ФОП</option>
+              <option value="COMPANY">Юридична особа</option>
+              <option value="INDIVIDUAL">Фізична особа</option>
+            </select>
+          </div>
+          <div style="grid-column:span 2;"><label>ПІБ / назва</label><input type="text" id="ukrSenderName" placeholder="Прізвище Ім'я По батькові або назва ФОП"></div>
+          <div><label>ІПН / ЄДРПОУ</label><input type="text" id="ukrSenderTin" placeholder="тільки цифри"></div>
+          <div><label>Телефон</label><input type="text" id="ukrSenderPhone" placeholder="0671231234"></div>
+          <div><label>Банківський рахунок (IBAN)</label><input type="text" id="ukrSenderIban" placeholder="UA0000000000000000000000000"></div>
+        </div>
+        <div class="delivery-grid" style="margin-top:8px;">
+          <div><label>Індекс відправника</label><input type="text" id="ukrSenderPostcode" placeholder="напр. 79000"></div>
+          <div><label>Область</label><input type="text" id="ukrSenderRegion"></div>
+          <div><label>Місто</label><input type="text" id="ukrSenderCity"></div>
+          <div><label>Вулиця</label><input type="text" id="ukrSenderStreet"></div>
+          <div><label>Будинок</label><input type="text" id="ukrSenderHouse"></div>
+        </div>
+        <div class="fb-row" style="margin-top:10px;">
+          <button class="btn btn-sm" onclick="createUkrSender()">Створити/оновити відправника в Укрпошті</button>
+        </div>
+        <div class="hint" id="ukrSenderStatus" style="margin-top:6px;"></div>
       </div>
     </div>
   </div>
@@ -847,6 +879,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 function buildStatePayload(){
   return {
     catalog, kits, orders, clients, stockMovements, cashTransactions, npApiKey, npSender, tgBotToken, tgChatId,
+    ukrBearer, ukrToken, ukrSender,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId,
     updatedAt: new Date().toISOString()
   };
@@ -864,6 +897,9 @@ function applyRemoteData(data){
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
   tgBotToken = data.tgBotToken || '';
   tgChatId = data.tgChatId || '';
+  ukrBearer = data.ukrBearer || '';
+  ukrToken = data.ukrToken || '';
+  if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
   nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
   nextOrderId = data.nextOrderId || (Math.max(0, ...orders.map(o=>o.id), 0) + 1);
@@ -889,6 +925,23 @@ function applyRemoteData(data){
   if(tgTokenInput) tgTokenInput.value = tgBotToken;
   const tgChatInput = document.getElementById('tgChatIdInput');
   if(tgChatInput) tgChatInput.value = tgChatId;
+  const ukrBearerInput = document.getElementById('ukrBearerInput');
+  if(ukrBearerInput) ukrBearerInput.value = ukrBearer;
+  const ukrTokenInput = document.getElementById('ukrTokenInput');
+  if(ukrTokenInput) ukrTokenInput.value = ukrToken;
+  const ukrSenderNameInput = document.getElementById('ukrSenderName');
+  if(ukrSenderNameInput){
+    document.getElementById('ukrSenderType').value = ukrSender.type || 'PRIVATE_ENTREPRENEUR';
+    ukrSenderNameInput.value = ukrSender.name || '';
+    document.getElementById('ukrSenderTin').value = ukrSender.tin || '';
+    document.getElementById('ukrSenderPhone').value = ukrSender.phone || '';
+    document.getElementById('ukrSenderIban').value = ukrSender.iban || '';
+    document.getElementById('ukrSenderPostcode').value = ukrSender.postcode || '';
+    document.getElementById('ukrSenderRegion').value = ukrSender.region || '';
+    document.getElementById('ukrSenderCity').value = ukrSender.city || '';
+    document.getElementById('ukrSenderStreet').value = ukrSender.street || '';
+    document.getElementById('ukrSenderHouse').value = ukrSender.house || '';
+  }
   const senderCityInput = document.getElementById('sender-city-input');
   if(senderCityInput) senderCityInput.value = npSender.citySenderName || '';
   const payoutCardInput = document.getElementById('payout-card-input');
@@ -1762,6 +1815,19 @@ function todayStr(){
   return d.toISOString().slice(0,10);
 }
 
+// перетворює дату у число для сортування; перевіряє відомі формати ЯВНО (а не покладається на Date.parse,
+// який іноді "успішно", але НЕВІРНО розпізнає "05.09.2026" як 9 травня замість 5 вересня)
+function dateSortValue(dateStr){
+  if(!dateStr) return -Infinity;
+  const s = String(dateStr).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); // канонічний формат програми: РРРР-ММ-ДД
+  if(m) return Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+  m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/); // дд.мм.рррр або дд/мм/рррр
+  if(m) return Date.parse(`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}T00:00:00`);
+  const t = Date.parse(s);
+  return isNaN(t) ? -Infinity : t;
+}
+
 function addOrder(){
   const id = nextOrderId++;
   orders.push({
@@ -1769,7 +1835,7 @@ function addOrder(){
     shipmentCollapsed: true, stockDeducted:false, manualArchive:false,
     deliveryMethod: 'Нова Пошта', region:'',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
-    ukrIndex:'', address:'', ukrTtnNumber:'',
+    ukrIndex:'', address:'', ukrCity:'', ukrStreet:'', ukrHouse:'', ukrApartment:'', ukrTtnNumber:'', ukrShipmentUuid:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
     codAmount:'',
     ttnNumber:'', ttnRef:''
@@ -2052,6 +2118,216 @@ function setDeliveryMethod(orderId, method){
   const o = orderById(orderId);
   if(!o) return;
   o.deliveryMethod = method;
+  renderOrders();
+  scheduleSave();
+}
+
+/* ---------- ukrposhta api ---------- */
+
+let ukrBearer = '';
+let ukrToken = '';
+let ukrSender = {
+  type:'PRIVATE_ENTREPRENEUR', name:'', tin:'', phone:'', iban:'',
+  postcode:'', region:'', city:'', street:'', house:'',
+  uuid:'' // uuid клієнта-відправника в Укрпошті, після створення
+};
+
+function saveUkrApiSettings(){
+  ukrBearer = document.getElementById('ukrBearerInput').value.trim();
+  ukrToken = document.getElementById('ukrTokenInput').value.trim();
+  document.getElementById('ukrApiStatus').textContent = (ukrBearer && ukrToken) ? 'Збережено.' : 'Bearer і/або token порожні.';
+  scheduleSave();
+}
+
+async function ukrApiCall(method, path, body){
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(`https://www.ukrposhta.ua/ecom/0.0.1${path}${sep}token=${encodeURIComponent(ukrToken)}`, {
+    method,
+    headers: {'Content-Type':'application/json', 'Authorization': 'Bearer ' + ukrBearer},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(()=>null);
+  if(!res.ok){
+    const msg = (data && (data.message || data.error || JSON.stringify(data))) || `Помилка Укрпошти API (${res.status})`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function readUkrSenderForm(){
+  ukrSender.type = document.getElementById('ukrSenderType').value;
+  ukrSender.name = document.getElementById('ukrSenderName').value.trim();
+  ukrSender.tin = document.getElementById('ukrSenderTin').value.trim();
+  ukrSender.phone = document.getElementById('ukrSenderPhone').value.trim();
+  ukrSender.iban = document.getElementById('ukrSenderIban').value.trim();
+  ukrSender.postcode = document.getElementById('ukrSenderPostcode').value.trim();
+  ukrSender.region = document.getElementById('ukrSenderRegion').value.trim();
+  ukrSender.city = document.getElementById('ukrSenderCity').value.trim();
+  ukrSender.street = document.getElementById('ukrSenderStreet').value.trim();
+  ukrSender.house = document.getElementById('ukrSenderHouse').value.trim();
+}
+
+async function createUkrSender(){
+  const statusEl = document.getElementById('ukrSenderStatus');
+  if(!ukrBearer || !ukrToken){ statusEl.textContent = 'Спочатку вкажіть Bearer і token вище.'; return; }
+  readUkrSenderForm();
+  if(!ukrSender.postcode || !ukrSender.city){ statusEl.textContent = 'Вкажіть хоча б індекс і місто відправника.'; return; }
+  if(!ukrSender.name || !ukrSender.phone){ statusEl.textContent = 'Вкажіть ПІБ/назву і телефон відправника.'; return; }
+  statusEl.textContent = 'Створюю адресу й клієнта-відправника...';
+  try{
+    const addr = await ukrApiCall('POST', '/addresses', {
+      postcode: ukrSender.postcode, region: ukrSender.region, city: ukrSender.city,
+      street: ukrSender.street || undefined, houseNumber: ukrSender.house || undefined
+    });
+    if(!addr || !addr.id) throw new Error('Не вдалося створити адресу відправника');
+
+    const name = splitFullName(ukrSender.name);
+    const clientBody = {
+      type: ukrSender.type,
+      addressId: addr.id,
+      phoneNumber: ukrSender.phone,
+      resident: true
+    };
+    if(ukrSender.type === 'INDIVIDUAL'){
+      clientBody.firstName = name.FirstName;
+      clientBody.lastName = name.LastName;
+      clientBody.middleName = name.MiddleName;
+    } else {
+      clientBody.name = ukrSender.name;
+      if(ukrSender.type === 'COMPANY') clientBody.edrpou = ukrSender.tin;
+      else clientBody.tin = ukrSender.tin;
+    }
+    if(ukrSender.iban) clientBody.bankAccount = ukrSender.iban;
+
+    const client = await ukrApiCall('POST', '/clients', clientBody);
+    if(!client || !client.uuid) throw new Error('Не вдалося створити клієнта-відправника');
+
+    ukrSender.uuid = client.uuid;
+    statusEl.textContent = `Готово, відправника створено (uuid: ${client.uuid.slice(0,8)}…).`;
+    scheduleSave();
+  }catch(err){
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+function ukrResultHtml(o){
+  if(o.ukrTtnNumber){
+    return `<div class="hint" style="color:var(--cardamom);">✓ Декларацію ${o.ukrShipmentUuid ? 'створено' : 'прив\'язано'}: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ukrTtnNumber)}</strong>
+      — <a href="https://track.ukrposhta.ua/tracking_UA.html?barcode=${encodeURIComponent(o.ukrTtnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
+      ${o.ukrShipmentUuid ? `· <a href="#" onclick="cancelUkrShipment(${o.id});return false;" style="color:var(--danger);">видалити</a>` : `· <a href="#" onclick="unlinkUkrTtn(${o.id});return false;" style="color:var(--danger);">відв'язати</a>`}
+      </div>`;
+  }
+  return '';
+}
+
+async function createUkrShipment(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const resultEl = document.getElementById(`ukr-result-${orderId}`);
+  if(!ukrBearer || !ukrToken){ alert('Спочатку вкажіть Bearer і token Укрпошти в «Налаштування доставки».'); return; }
+  if(!ukrSender.uuid){ alert('Спочатку створіть відправника в «Налаштування доставки».'); return; }
+  if(!o.ukrIndex || !o.ukrCity){ alert('Вкажіть індекс і місто отримувача.'); return; }
+  if(!o.customer){ alert('Вкажіть ПІБ отримувача.'); return; }
+  if(!o.phone){ alert('Вкажіть телефон отримувача.'); return; }
+  if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг) — поле спільне з Новою Поштою вище.'); return; }
+
+  resultEl.innerHTML = '<div class="hint">Створюю декларацію...</div>';
+  try{
+    const recAddr = await ukrApiCall('POST', '/addresses', {
+      postcode: o.ukrIndex, city: o.ukrCity,
+      street: o.ukrStreet || undefined, houseNumber: o.ukrHouse || undefined, apartmentNumber: o.ukrApartment || undefined
+    });
+    if(!recAddr || !recAddr.id) throw new Error('Не вдалося створити адресу отримувача');
+
+    const name = splitFullName(o.customer);
+    const recClient = await ukrApiCall('POST', '/clients', {
+      type: 'INDIVIDUAL',
+      firstName: name.FirstName, lastName: name.LastName, middleName: name.MiddleName,
+      addressId: recAddr.id, phoneNumber: o.phone
+    });
+    if(!recClient || !recClient.uuid) throw new Error('Не вдалося створити клієнта-отримувача');
+
+    const deliveryType = o.ukrStreet ? 'W2D' : 'W2W';
+    const shipmentBody = {
+      sender: {uuid: ukrSender.uuid},
+      recipient: {uuid: recClient.uuid},
+      deliveryType,
+      type: 'STANDARD',
+      paidByRecipient: o.payerType === 'Отримувач',
+      description: o.description || 'Товар',
+      parcels: [{
+        weight: Math.round(Number(o.weight) * 1000),
+        length: 20, width: 15, height: 15,
+        declaredPrice: Number(o.cost) || calcOrder(o).total || 100
+      }]
+    };
+    if(o.codAmount && Number(o.codAmount) > 0){
+      shipmentBody.postPay = Number(o.codAmount);
+      if(ukrSender.iban){
+        shipmentBody.transferPostPayToBankAccount = true;
+      }
+    }
+
+    const shipment = await ukrApiCall('POST', '/shipments', shipmentBody);
+    if(!shipment || !shipment.barcode) throw new Error('Декларацію не створено — немає ШКІ у відповіді');
+
+    o.ukrTtnNumber = shipment.barcode;
+    o.ukrShipmentUuid = shipment.uuid;
+    resultEl.innerHTML = ukrResultHtml(o);
+    scheduleSave();
+    if(!o.ttnTelegramNotified){
+      o.ttnTelegramNotified = true;
+      notifyTelegramShipment(o).then(res => {
+        const tgLine = res.ok
+          ? '<div class="hint" style="color:var(--cardamom);margin-top:4px;">✓ Сповіщення в Telegram надіслано</div>'
+          : `<div class="hint" style="color:var(--danger);margin-top:4px;">Telegram: ${escapeAttr(res.error)}</div>`;
+        resultEl.innerHTML = ukrResultHtml(o) + tgLine;
+        scheduleSave();
+      });
+    }
+  }catch(err){
+    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+async function cancelUkrShipment(orderId){
+  const o = orderById(orderId);
+  if(!o || !o.ukrShipmentUuid) return;
+  if(!confirm(`Видалити декларацію ${o.ukrTtnNumber} в Укрпошті?`)) return;
+  const resultEl = document.getElementById(`ukr-result-${orderId}`);
+  try{
+    await ukrApiCall('DELETE', `/shipments/${o.ukrShipmentUuid}`);
+    o.ukrTtnNumber = '';
+    o.ukrShipmentUuid = '';
+    resultEl.innerHTML = '<div class="hint">Декларацію видалено.</div>';
+    scheduleSave();
+  }catch(err){
+    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка видалення: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+function unlinkUkrTtn(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  if(!confirm(`Відв'язати декларацію ${o.ukrTtnNumber}? Саму декларацію в Укрпошті це не видалить.`)) return;
+  o.ukrTtnNumber = '';
+  o.ukrShipmentUuid = '';
+  renderOrders();
+  scheduleSave();
+}
+
+function linkExistingUkrTtn(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const input = document.getElementById(`ukr-ttn-manual-${orderId}`);
+  const ttn = (input.value || '').trim();
+  if(!ttn){ alert('Впишіть номер декларації.'); return; }
+  o.ukrTtnNumber = ttn;
+  o.ukrShipmentUuid = '';
+  if(!o.ttnTelegramNotified){
+    o.ttnTelegramNotified = true;
+    notifyTelegramShipment(o);
+  }
   renderOrders();
   scheduleSave();
 }
@@ -2521,7 +2797,8 @@ function deliverySummaryText(o){
     return `Нова Пошта, ${regionPart}${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}`;
   }
   if(o.deliveryMethod === 'Укрпошта'){
-    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${regionPart ? ', ' + regionPart.replace(/, $/,'') : ''}${o.address ? ', ' + o.address : ''}${o.ukrTtnNumber ? ' · ЕН '+o.ukrTtnNumber : ''}`;
+    const addrPart = o.ukrCity ? `${o.ukrCity}${o.ukrStreet ? ', '+o.ukrStreet+(o.ukrHouse?' '+o.ukrHouse:'')+(o.ukrApartment?', кв.'+o.ukrApartment:'') : ''}` : (o.address || '');
+    return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${regionPart ? ', ' + regionPart.replace(/, $/,'') : ''}${addrPart ? ', ' + addrPart : ''}${o.ukrTtnNumber ? ' · ЕН '+o.ukrTtnNumber : ''}`;
   }
   return o.deliveryMethod + (regionPart ? ', ' + regionPart.replace(/, $/,'') : '') + (o.address ? ', ' + o.address : '');
 }
@@ -2610,13 +2887,27 @@ function deliveryBlockHtml(o){
     fieldsHtml = `
       <div class="delivery-grid">
         <div><label>Індекс</label><input type="text" value="${escapeAttr(o.ukrIndex)}" oninput="updateOrderField(${o.id},'ukrIndex',this.value)" placeholder="напр. 79000"></div>
-        <div style="grid-column:span 2;"><label>Адреса</label><input type="text" value="${escapeAttr(o.address)}" oninput="updateOrderField(${o.id},'address',this.value)" placeholder="Вулиця, будинок, квартира, місто"></div>
-        <div style="grid-column:span 3;"><label>Номер декларації (ЕН)</label><input type="text" value="${escapeAttr(o.ukrTtnNumber||'')}" oninput="updateOrderField(${o.id},'ukrTtnNumber',this.value)" placeholder="напр. 0504651234567"></div>
+        <div><label>Місто</label><input type="text" value="${escapeAttr(o.ukrCity||'')}" oninput="updateOrderField(${o.id},'ukrCity',this.value)" placeholder="напр. Львів"></div>
+        <div><label>Вулиця (для двер)</label><input type="text" value="${escapeAttr(o.ukrStreet||'')}" oninput="updateOrderField(${o.id},'ukrStreet',this.value)" placeholder="залиште пустим для отримання на відділенні"></div>
+        <div><label>Будинок</label><input type="text" value="${escapeAttr(o.ukrHouse||'')}" oninput="updateOrderField(${o.id},'ukrHouse',this.value)"></div>
+        <div><label>Квартира</label><input type="text" value="${escapeAttr(o.ukrApartment||'')}" oninput="updateOrderField(${o.id},'ukrApartment',this.value)"></div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-primary btn-sm" type="button" onclick="createUkrShipment(${o.id})">Створити накладну (Укрпошта)</button>
+        </div>
       </div>
-      <p class="hint" style="margin-top:4px;">
-        Якщо декларацію вже оформили на відділенні Укрпошти (не через цю програму) — просто впишіть її номер сюди для власного обліку.
-        ${o.ukrTtnNumber ? `<br><a href="https://track.ukrposhta.ua/tracking_UA.html?barcode=${encodeURIComponent(o.ukrTtnNumber)}" target="_blank" style="color:var(--saffron);">Перевірити статус на сайті Укрпошти →</a>` : ''}
-      </p>
+      <p class="hint" style="margin-top:4px;">Якщо поле «Вулиця» порожнє — відправлення оформлюється до відділення (за індексом). Якщо заповнене — до дверей.</p>
+      <div id="ukr-result-${o.id}" style="margin-top:8px;">${ukrResultHtml(o)}</div>
+      ${!o.ukrTtnNumber ? `
+      <div class="delivery-grid" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft);">
+        <div style="grid-column:span 2;">
+          <label>Або прив'язати вже створену декларацію</label>
+          <input type="text" id="ukr-ttn-manual-${o.id}" placeholder="напр. 0504651234567">
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-sm" type="button" onclick="linkExistingUkrTtn(${o.id})">Прив'язати</button>
+        </div>
+      </div>
+      ` : ''}
     `;
   } else {
     fieldsHtml = `
@@ -2678,10 +2969,10 @@ function applyOrderFilters(list){
   });
 
   result = [...result].sort((a,b) => {
-    if(sortVal === 'date-asc') return (a.date||'').localeCompare(b.date||'') || (a.id - b.id);
+    if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
     if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
     if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'') || (b.id - a.id);
-    return (b.date||'').localeCompare(a.date||'') || (b.id - a.id); // date-desc за замовчуванням, новіші (за id) зверху при однаковій даті
+    return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id); // date-desc за замовчуванням
   });
   return result;
 }
@@ -2728,10 +3019,10 @@ function applyShipmentFilters(list){
   });
 
   result = [...result].sort((a,b) => {
-    if(sortVal === 'date-asc') return (a.date||'').localeCompare(b.date||'') || (a.id - b.id);
+    if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
     if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
     if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'') || (b.id - a.id);
-    return (b.date||'').localeCompare(a.date||'') || (b.id - a.id); // date-desc за замовчуванням, новіші (за id) зверху при однаковій даті
+    return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id); // date-desc за замовчуванням
   });
   return result;
 }
@@ -2859,7 +3150,7 @@ function archiveExpandedHtml(o){
 function renderArchive(){
   const el = document.getElementById('archiveList');
   if(!el) return;
-  const archived = orders.filter(isArchived).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const archived = orders.filter(isArchived).sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
   if(archived.length === 0){
     el.innerHTML = '<div class="comp-empty">Архів порожній. Сюди автоматично потрапляють відправки, позначені і «Оплачено», і «Відправлено».</div>';
   } else {
@@ -2941,7 +3232,7 @@ function renderCash(){
     <div class="card ${balance>=0?'profit':'negative'}"><div class="label">Залишок у касі</div><div class="value">${fmt(balance)} грн</div></div>
   `;
 
-  const sorted = [...cashTransactions].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const sorted = [...cashTransactions].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
   if(sorted.length === 0){
     tableEl.innerHTML = '<div class="comp-empty">Ще немає жодної операції.</div>';
     return;
@@ -3071,7 +3362,7 @@ function renderReports(){
 
   // ---- звіт по продажах за період (журнал оплачених замовлень) ----
   const salesEl = document.getElementById('reportSalesTable');
-  const salesSorted = [...paidOrdersInRange].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const salesSorted = [...paidOrdersInRange].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
   if(salesSorted.length === 0){
     salesEl.innerHTML = '<div class="comp-empty">Немає оплачених замовлень за цей період.</div>';
   } else {
@@ -3093,7 +3384,7 @@ function renderReports(){
   // ---- звіт по відвантаженнях за період (усе, що відправлене/доставлене в діапазоні дат) ----
   const shipmentsEl = document.getElementById('reportShipmentsTable');
   const shippedInRange = orders.filter(o => (o.shipped || o.delivered) && inReportRange(o.date))
-    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    .sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
   if(shippedInRange.length === 0){
     shipmentsEl.innerHTML = '<div class="comp-empty">Немає відвантажень за цей період.</div>';
   } else {
@@ -3137,7 +3428,7 @@ function renderReports(){
   // ---- звіт по витратах (детальний журнал операцій з каси) ----
   const expEl = document.getElementById('reportExpensesTable');
   const expRows = cashTransactions.filter(t => t.type==='Витрата' && inReportRange(t.date))
-    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    .sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
   if(expRows.length === 0){
     expEl.innerHTML = '<div class="comp-empty">Витрат за цей період немає.</div>';
   } else {
@@ -3187,7 +3478,7 @@ function renderReports(){
   // ---- повернення (для контролю повернення коштів) ----
   const returnedEl = document.getElementById('reportReturned');
   if(returnedEl){
-    const returned = orders.filter(o => o.npReturned).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    const returned = orders.filter(o => o.npReturned).sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
     if(returned.length === 0){
       returnedEl.innerHTML = '<div class="comp-empty">Повернень немає.</div>';
     } else {
@@ -3705,7 +3996,7 @@ function renderBalances(){
 function renderMovements(){
   const el = document.getElementById('movementsTable');
   if(!el) return;
-  const sorted = [...stockMovements].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const sorted = [...stockMovements].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
   if(sorted.length === 0){
     el.innerHTML = '<div class="comp-empty">Ще немає жодного руху товару.</div>';
     return;
