@@ -1599,12 +1599,29 @@ async function pollTelegramUpdates(){
 
 function buildTodayTtnListText(){
   const today = todayStr();
-  const todays = orders.filter(o => o.date === today && !isArchived(o) && (o.ttnNumber || o.ukrTtnNumber));
+  const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
+  const todays = orders
+    .filter(o => o.date === today && !isArchived(o) && (o.ttnNumber || o.ukrTtnNumber))
+    .sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9));
   if(todays.length === 0){
     return `📋 За ${today} поки немає жодної відправки з ТТН.`;
   }
-  const lines = todays.map(o => `• ${escapeHtml(o.customer||'Без імені')} — <code>${escapeHtml(o.ttnNumber||o.ukrTtnNumber)}</code> — ${fmt(calcOrder(o).total)} грн`);
-  return `📋 <b>ТТН за ${today}</b> (${todays.length}):\n` + lines.join('\n');
+  const groups = {};
+  todays.forEach(o => {
+    const key = o.deliveryMethod || 'Інше';
+    (groups[key] = groups[key] || []).push(o);
+  });
+  const sections = Object.keys(groups)
+    .sort((a,b) => (methodOrder[a] ?? 9) - (methodOrder[b] ?? 9))
+    .map(method => {
+      const lines = groups[method].map(o => {
+        const paidIcon = o.paid ? '🟢' : '🟡';
+        return `${paidIcon} ${escapeHtml(o.customer||'Без імені')} — <code>${escapeHtml(o.ttnNumber||o.ukrTtnNumber)}</code> — ${fmt(calcOrder(o).total)} грн${o.paid ? ' (оплачено)' : ' (не оплачено)'}`;
+      });
+      return `<b>${escapeHtml(method)}</b> (${groups[method].length}):\n` + lines.join('\n');
+    });
+  const paidCount = todays.filter(o => o.paid).length;
+  return `📋 <b>ТТН за ${today}</b> (${todays.length}, оплачено ${paidCount} з ${todays.length}):\n\n` + sections.join('\n\n');
 }
 
 async function handleListTodayCallback(cq){
@@ -1803,7 +1820,9 @@ function orderCompletenessScore(o){
 function openTodayShipmentsModal(){
   const today = todayStr();
   document.getElementById('todayShipmentsDate').textContent = today;
-  const todays = orders.filter(o => o.date === today && !isArchived(o));
+  const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
+  const todays = orders.filter(o => o.date === today && !isArchived(o))
+    .sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9));
   const tableEl = document.getElementById('todayShipmentsTable');
   if(todays.length === 0){
     tableEl.innerHTML = '<div class="comp-empty">Сьогодні ще немає жодного замовлення.</div>';
@@ -1836,7 +1855,9 @@ function closeTodayShipmentsModal(){
 
 function exportTodayShipmentsExcel(){
   const today = todayStr();
-  const todays = orders.filter(o => o.date === today && !isArchived(o));
+  const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
+  const todays = orders.filter(o => o.date === today && !isArchived(o))
+    .sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9));
   if(todays.length === 0){ alert('Сьогодні ще немає жодного замовлення.'); return; }
 
   const rows = todays.map(o => {
