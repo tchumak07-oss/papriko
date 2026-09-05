@@ -2087,12 +2087,9 @@ async function createNpWaybill(orderId){
       ContactRecipient: contactRecipientRef,
       RecipientsPhone: o.phone
     };
-    if(o.codAmount && Number(o.codAmount) > 0){
-      docParams.BackwardDeliveryData = [{
-        PayerType: 'Recipient',
-        CargoType: 'Money',
-        RedeliveryString: String(o.codAmount)
-      }];
+    if (o.codAmount && Number(o.codAmount) > 0) {
+  docParams.PaymentControlValue = String(o.codAmount);
+}
     }
     const docData = await npApiCall('InternetDocument', 'save', docParams);
     const doc = docData && docData[0];
