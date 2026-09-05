@@ -434,6 +434,7 @@
     Відправки <span class="n" id="shipmentCount"></span>
     <span class="btns">
       <button class="btn btn-sm" onclick="openTodayShipmentsModal()">Відправлення за сьогодні</button>
+      <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Відправити в Telegram відправлення за сьогодні</button>
       <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
       <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
       <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
@@ -1596,23 +1597,32 @@ async function pollTelegramUpdates(){
   }
 }
 
+function buildTodayTtnListText(){
+  const today = todayStr();
+  const todays = orders.filter(o => o.date === today && (o.ttnNumber || o.ukrTtnNumber));
+  if(todays.length === 0){
+    return `📋 За ${today} поки немає жодної відправки з ТТН.`;
+  }
+  const lines = todays.map(o => `• ${escapeHtml(o.customer||'Без імені')} — <code>${escapeHtml(o.ttnNumber||o.ukrTtnNumber)}</code> — ${fmt(calcOrder(o).total)} грн`);
+  return `📋 <b>ТТН за ${today}</b> (${todays.length}):\n` + lines.join('\n');
+}
+
 async function handleListTodayCallback(cq){
   // підтверджуємо натискання, щоб у клієнта зникло "завантаження" на кнопці
   fetch(`https://api.telegram.org/bot${tgBotToken}/answerCallbackQuery`, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({callback_query_id: cq.id})
   }).catch(()=>{});
+  await sendTelegramMessage(buildTodayTtnListText());
+}
 
-  const today = todayStr();
-  const todays = orders.filter(o => o.date === today && (o.ttnNumber || o.ukrTtnNumber));
-  let text;
-  if(todays.length === 0){
-    text = `📋 За ${today} поки немає жодної відправки з ТТН.`;
-  } else {
-    const lines = todays.map(o => `• ${escapeHtml(o.customer||'Без імені')} — <code>${escapeHtml(o.ttnNumber||o.ukrTtnNumber)}</code>`);
-    text = `📋 <b>ТТН за ${today}</b> (${todays.length}):\n` + lines.join('\n');
+async function sendTodayShipmentsToTelegram(){
+  if(!tgBotToken || !tgChatId){
+    alert('Спочатку налаштуйте Telegram (токен і ID групи) в «Налаштування доставки».');
+    return;
   }
-  await sendTelegramMessage(text);
+  const res = await sendTelegramMessage(buildTodayTtnListText());
+  alert(res.ok ? 'Надіслано в Telegram ✓' : ('Помилка: ' + res.error));
 }
 
 /* ---------- sender (for TTN creation) ---------- */
