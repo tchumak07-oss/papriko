@@ -361,11 +361,14 @@
     Замовлення <span class="n" id="orderCount"></span>
     <span class="btns">
       <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
+      <button class="btn btn-sm" onclick="document.getElementById('orderScreenshotInput').click()">Розпізнати замовлення зі скріншота</button>
       <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
       <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
       <button class="btn btn-primary btn-sm" onclick="addOrder()">+ Нове замовлення</button>
     </span>
   </div>
+  <input type="file" id="orderScreenshotInput" accept="image/*" style="display:none" onchange="handleOrderScreenshot(this.files[0])">
+  <div id="screenshotStatus" class="scan-status"></div>
   <input type="file" id="ordersExcelInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleOrdersExcelFile(this.files[0])">
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
     <div class="catalog-group-title">Виправити замовлення з датою в майбутньому</div>
@@ -445,6 +448,7 @@
     <span class="btns">
       <button class="btn btn-sm" onclick="openTodayShipmentsModal()">Відправлення за сьогодні</button>
       <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Відправити в Telegram відправлення за сьогодні</button>
+      <button class="btn btn-sm" onclick="sendSmsToTodayClients()">Відправити повідомлення клієнтам за сьогодні</button>
       <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
       <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
       <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
@@ -527,7 +531,23 @@
           <button class="btn btn-sm" onclick="sendTestTelegramMessage()">Надіслати тестове повідомлення</button>
         </div>
         <div class="hint" id="tgStatus" style="margin-top:6px;"></div>
-        <p class="hint" style="margin-top:8px;">Кожне сповіщення про відправку матиме кнопку «📋 Список ТТН за сьогодні» — натискання в групі обробляється, <strong>тільки поки в браузері відкрита вкладка «Відправки»</strong> цієї програми (без свого сервера бот не може «слухати» групу цілодобово).</p>
+        <p class="hint" style="margin-top:8px;">Кожне сповіщення про відправку матиме кнопку «📋 Список ТТН за сьогодні» — натискання в групі обробляється, <strong>тільки поки в браузері відкрита вкладка «Відправки»</strong> цієї програми (без свого сервера бот не може «слухати» групу цілодобово). Це саме обмеження стосується й розпізнавання скріншотів: надішліть у групу фото переписки з підписом «замовлення» (або будь-якою командою через «/») — бот сам створить чернетку замовлення, поки вкладка відкрита.</p>
+      </div>
+      <div class="catalog-group">
+        <div class="catalog-group-title">SMS клієнту (TurboSMS)</div>
+        <p class="hint" style="margin:0 0 8px;">На відміну від Telegram/Viber, SMS доходить на <strong>будь-який</strong> номер без попередньої підписки клієнта. Зареєструйтесь на turbosms.ua, увімкніть «HTTP API» в налаштуваннях шлюзу, і скопіюйте токен. Ім'я відправника (Alpha Name) активується окремо в кабінеті TurboSMS.</p>
+        <div class="delivery-grid">
+          <div style="grid-column:span 2;"><label>API-токен TurboSMS</label><input type="text" id="smsTokenInput" placeholder="токен з розділу Gateway (API)"></div>
+          <div><label>Ім'я відправника</label><input type="text" id="smsSenderInput" placeholder="напр. Papriko"></div>
+        </div>
+        <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!</textarea>
+        <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН) та <code>{name}</code> (ім'я клієнта).</p>
+        <div class="fb-row" style="margin-top:10px;">
+          <input type="text" id="smsTestPhoneInput" placeholder="Ваш номер для тесту, напр. 0671231234" style="max-width:220px;">
+          <button class="btn btn-sm" onclick="saveSmsSettings()">Зберегти</button>
+          <button class="btn btn-sm" onclick="sendTestSms()">Надіслати собі тестове SMS</button>
+        </div>
+        <div class="hint" id="smsStatus" style="margin-top:6px;"></div>
       </div>
       <div class="catalog-group">
         <div class="catalog-group-title">Укрпошта — API (для створення декларацій)</div>
@@ -890,7 +910,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 function buildStatePayload(){
   return {
     catalog, kits, orders, clients, stockMovements, cashTransactions, npApiKey, npSender, tgBotToken, tgChatId,
-    ukrBearer, ukrToken, ukrSender,
+    ukrBearer, ukrToken, ukrSender, smsToken, smsSender, smsTemplate,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId,
     updatedAt: new Date().toISOString()
   };
@@ -910,6 +930,9 @@ function applyRemoteData(data){
   tgChatId = data.tgChatId || '';
   ukrBearer = data.ukrBearer || '';
   ukrToken = data.ukrToken || '';
+  smsToken = data.smsToken || '';
+  smsSender = data.smsSender || '';
+  smsTemplate = data.smsTemplate || smsTemplate;
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
   nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
@@ -953,6 +976,12 @@ function applyRemoteData(data){
     document.getElementById('ukrSenderStreet').value = ukrSender.street || '';
     document.getElementById('ukrSenderHouse').value = ukrSender.house || '';
   }
+  const smsTokenInput = document.getElementById('smsTokenInput');
+  if(smsTokenInput) smsTokenInput.value = smsToken;
+  const smsSenderInput = document.getElementById('smsSenderInput');
+  if(smsSenderInput) smsSenderInput.value = smsSender;
+  const smsTemplateInput = document.getElementById('smsTemplateInput');
+  if(smsTemplateInput) smsTemplateInput.value = smsTemplate;
   const senderCityInput = document.getElementById('sender-city-input');
   if(senderCityInput) senderCityInput.value = npSender.citySenderName || '';
   const payoutCardInput = document.getElementById('payout-card-input');
@@ -1628,6 +1657,89 @@ function escapeHtml(s){
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+/* ---------- sms клієнту (turbosms) ---------- */
+
+let smsToken = '';
+let smsSender = '';
+let smsTemplate = 'Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!';
+
+function saveSmsSettings(){
+  smsToken = document.getElementById('smsTokenInput').value.trim();
+  smsSender = document.getElementById('smsSenderInput').value.trim();
+  smsTemplate = document.getElementById('smsTemplateInput').value.trim() || smsTemplate;
+  document.getElementById('smsStatus').textContent = (smsToken && smsSender) ? 'Збережено.' : 'Токен і/або ім\'я відправника порожні.';
+  scheduleSave();
+}
+
+// приводить телефон до формату 380XXXXXXXXX, який очікує TurboSMS
+function toIntlPhone(phone){
+  let d = String(phone||'').replace(/[^\d]/g,'');
+  if(d.length === 10 && d.startsWith('0')) d = '380' + d.slice(1);
+  else if(d.length === 9) d = '380' + d;
+  else if(d.length === 12 && d.startsWith('380')) { /* вже ок */ }
+  return d;
+}
+
+async function sendSms(phone, text){
+  if(!smsToken || !smsSender) return {ok:false, error:'SMS не налаштовано (вкажіть токен і ім\'я відправника)'};
+  const intlPhone = toIntlPhone(phone);
+  if(intlPhone.length !== 12) return {ok:false, error:'Невірний формат телефону: '+phone};
+  try{
+    const res = await fetch('https://api.turbosms.ua/message/send.json', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+smsToken},
+      body: JSON.stringify({recipients:[intlPhone], sms:{sender: smsSender, text}})
+    });
+    const data = await res.json();
+    const okCodes = [0, 800, 801, 802, 803];
+    if(!okCodes.includes(data.response_code)) return {ok:false, error: data.response_status || 'Помилка TurboSMS'};
+    const perRecipient = data.response_result && data.response_result[0];
+    if(perRecipient && perRecipient.response_code !== 0) return {ok:false, error: perRecipient.response_status};
+    return {ok:true};
+  }catch(err){
+    return {ok:false, error: err.message};
+  }
+}
+
+async function sendTestSms(){
+  const statusEl = document.getElementById('smsStatus');
+  const phone = document.getElementById('smsTestPhoneInput').value.trim();
+  if(!phone){ statusEl.textContent = 'Впишіть номер для тесту.'; return; }
+  statusEl.textContent = 'Надсилаю...';
+  const res = await sendSms(phone, 'Тестове SMS з програми "Прибутковість спецій" — усе підключено правильно!');
+  statusEl.textContent = res.ok ? 'Надіслано успішно ✓' : ('Помилка: ' + res.error);
+}
+
+function fillSmsTemplate(o){
+  const ttn = o.ttnNumber || o.ukrTtnNumber || '';
+  return smsTemplate.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '');
+}
+
+async function notifyCustomerSms(o){
+  if(!o.phone) return {ok:false, error:'У клієнта немає телефону'};
+  return sendSms(o.phone, fillSmsTemplate(o));
+}
+
+async function sendSmsToTodayClients(){
+  if(!smsToken || !smsSender){ alert('Спочатку налаштуйте SMS (токен і ім\'я відправника) в «Налаштування доставки».'); return; }
+  const today = todayStr();
+  const todays = orders.filter(o => o.date === today && !isArchived(o) && o.phone && (o.ttnNumber || o.ukrTtnNumber));
+  if(todays.length === 0){ alert('Сьогодні немає відправлень з ТТН і телефоном клієнта.'); return; }
+  if(!confirm(`Надіслати SMS ${todays.length} клієнт(ам) за сьогодні?`)) return;
+
+  let sent = 0, failed = 0;
+  const errors = [];
+  for(const o of todays){
+    const res = await notifyCustomerSms(o);
+    if(res.ok){ sent++; o.customerSmsSent = true; }
+    else { failed++; errors.push(`${o.customer||'?'}: ${res.error}`); }
+  }
+  scheduleSave();
+  let msg = `Надіслано: ${sent}. Помилок: ${failed}.`;
+  if(errors.length > 0) msg += `\n\n${errors.slice(0,5).join('\n')}${errors.length>5?'\n…':''}`;
+  alert(msg);
+}
+
 /* ---------- telegram: обробка натискань кнопки в групі (тільки поки відкрита ця вкладка) ---------- */
 
 let tgPollTimer = null;
@@ -1655,9 +1767,49 @@ async function pollTelegramUpdates(){
       if(upd.callback_query && upd.callback_query.data === 'list_today'){
         await handleListTodayCallback(upd.callback_query);
       }
+      if(upd.message && upd.message.photo && String(upd.message.chat.id) === String(tgChatId)){
+        const caption = (upd.message.caption || '').toLowerCase();
+        if(caption.includes('замовлення') || caption.startsWith('/')){
+          await handleTelegramOrderPhoto(upd.message);
+        }
+      }
     }
   }catch(err){
     console.warn('Telegram polling error:', err.message);
+  }
+}
+
+async function handleTelegramOrderPhoto(message){
+  try{
+    const photo = message.photo[message.photo.length - 1]; // найбільша роздільність
+    const fileRes = await fetch(`https://api.telegram.org/bot${tgBotToken}/getFile?file_id=${photo.file_id}`);
+    const fileData = await fileRes.json();
+    if(!fileData.ok) throw new Error(fileData.description || 'Не вдалося отримати файл');
+    const fileUrl = `https://api.telegram.org/file/bot${tgBotToken}/${fileData.result.file_path}`;
+    const imgRes = await fetch(fileUrl);
+    const blob = await imgRes.blob();
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const mediaType = blob.type || 'image/jpeg';
+
+    const extracted = await extractOrderFromImageBase64(base64, mediaType);
+    const id = nextOrderId++;
+    const order = newOrderDefaults(id);
+    applyExtractedToOrder(order, extracted);
+    orders.push(order);
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+
+    await sendTelegramMessage(
+      `✅ <b>Розпізнано зі скріншота</b>\nКлієнт: ${escapeHtml(order.customer||'—')}\nТелефон: ${escapeHtml(order.phone||'—')}\nМісто: ${escapeHtml(order.city||order.ukrCity||'—')}\n${extracted.itemsText ? 'Товари: '+escapeHtml(extracted.itemsText) : ''}\n\nПеревірте й додайте товари у вкладці «Замовлення».`
+    );
+  }catch(err){
+    await sendTelegramMessage(`⚠️ Не вдалося розпізнати скріншот: ${escapeHtml(err.message)}`);
   }
 }
 
@@ -1839,9 +1991,8 @@ function dateSortValue(dateStr){
   return isNaN(t) ? -Infinity : t;
 }
 
-function addOrder(){
-  const id = nextOrderId++;
-  orders.push({
+function newOrderDefaults(id){
+  return {
     id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, delivered:false, items:[], notes:'', collapsed:false,
     shipmentCollapsed: true, stockDeducted:false, manualArchive:false,
     deliveryMethod: 'Нова Пошта', region:'',
@@ -1850,7 +2001,12 @@ function addOrder(){
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
     codAmount:'',
     ttnNumber:'', ttnRef:''
-  });
+  };
+}
+
+function addOrder(){
+  const id = nextOrderId++;
+  orders.push(newOrderDefaults(id));
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -2315,6 +2471,10 @@ async function createUkrShipment(orderId){
         scheduleSave();
       });
     }
+    if(!o.customerSmsSent){
+      o.customerSmsSent = true;
+      notifyCustomerSms(o).then(() => scheduleSave());
+    }
   }catch(err){
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
   }
@@ -2357,6 +2517,10 @@ function linkExistingUkrTtn(orderId){
   if(!o.ttnTelegramNotified){
     o.ttnTelegramNotified = true;
     notifyTelegramShipment(o);
+  }
+  if(!o.customerSmsSent){
+    o.customerSmsSent = true;
+    notifyCustomerSms(o);
   }
   renderOrders();
   scheduleSave();
@@ -2473,6 +2637,10 @@ function linkExistingTtn(orderId){
     notifyTelegramShipment(o).then(res => {
       if(!res.ok && res.error !== 'Telegram не налаштовано') console.warn('Telegram notify failed:', res.error);
     });
+  }
+  if(!o.customerSmsSent){
+    o.customerSmsSent = true;
+    notifyCustomerSms(o);
   }
   renderOrders();
   scheduleSave();
@@ -2592,6 +2760,10 @@ async function createNpWaybill(orderId){
         resultEl.innerHTML = ttnResultHtml(o) + tgLine;
         scheduleSave();
       });
+    }
+    if(!o.customerSmsSent){
+      o.customerSmsSent = true;
+      notifyCustomerSms(o).then(() => scheduleSave());
     }
   }catch(err){
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
@@ -3784,7 +3956,7 @@ function showSection(name){
   if(name === 'archive') renderArchive();
   if(name === 'cash') renderCash();
   if(name === 'reports') renderReports();
-  if(name === 'shipments') startTelegramPolling(); else stopTelegramPolling();
+  if(name === 'shipments' || name === 'orders') startTelegramPolling(); else stopTelegramPolling();
 }
 
 /* ---------- clients ---------- */
@@ -4289,6 +4461,87 @@ function fileToBase64(file){
     reader.readAsDataURL(file);
   });
 }
+
+/* ---------- розпізнавання замовлення зі скріншота переписки (спільне для програми і бота) ---------- */
+
+async function extractOrderFromImageBase64(base64, mediaType){
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text:
+            'Це скріншот переписки з клієнтом інтернет-магазину спецій (Instagram, Viber, WhatsApp тощо). ' +
+            'Витягни: ПІБ отримувача, номер телефону, місто, відділення/адресу доставки, спосіб доставки (якщо згадано «Нова Пошта», «Укрпошта» чи самовивіз), ' +
+            'і перелік товарів/побажань клієнта звичайним текстом (як він сам написав, не намагайся підбирати точні назви з каталогу). ' +
+            'Відповідай ЛИШЕ JSON без пояснень, без markdown-огорожі, у форматі: ' +
+            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","notes":""}. ' +
+            'Якщо якесь поле не вдалось знайти в переписці — постав порожній рядок. Нічого не вигадуй.'
+          }
+        ]
+      }]
+    })
+  });
+  const data = await response.json();
+  if(!response.ok){ throw new Error(data?.error?.message || 'Помилка розпізнавання'); }
+  const text = (data.content || []).map(b => b.text || '').join('\n');
+  const clean = text.replace(/```json|```/g, '').trim();
+  let extracted;
+  try{ extracted = JSON.parse(clean); } catch(e){ throw new Error('Не вдалося розпізнати структуру переписки'); }
+  return extracted;
+}
+
+function applyExtractedToOrder(order, extracted){
+  order.customer = extracted.name || '';
+  order.phone = extracted.phone ? cleanPhone(extracted.phone) : '';
+  if(extracted.deliveryMethod === 'Укрпошта'){
+    order.deliveryMethod = 'Укрпошта';
+    order.ukrCity = extracted.city || '';
+  } else if(extracted.deliveryMethod === 'Самовивіз'){
+    order.deliveryMethod = 'Самовивіз';
+    order.address = extracted.city || extracted.warehouse || '';
+  } else {
+    order.deliveryMethod = 'Нова Пошта';
+    order.city = extracted.city || '';
+    order.warehouseDesc = extracted.warehouse || '';
+  }
+  const noteParts = [];
+  if(extracted.itemsText) noteParts.push('Товари з переписки: ' + extracted.itemsText);
+  if(extracted.notes) noteParts.push(extracted.notes);
+  order.notes = noteParts.join(' · ');
+}
+
+async function handleOrderScreenshot(file){
+  if(!file) return;
+  const statusEl = document.getElementById('screenshotStatus');
+  statusEl.className = 'scan-status loading';
+  statusEl.textContent = 'Розпізнаю скріншот переписки...';
+  try{
+    const base64 = await fileToBase64(file);
+    const mediaType = file.type || 'image/jpeg';
+    const extracted = await extractOrderFromImageBase64(base64, mediaType);
+    const id = nextOrderId++;
+    const order = newOrderDefaults(id);
+    applyExtractedToOrder(order, extracted);
+    orders.push(order);
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+    statusEl.className = 'scan-status ok';
+    statusEl.textContent = `Розпізнано: ${order.customer || '(ім\'я не знайдено)'}, ${order.phone || '(телефон не знайдено)'}. Перевірте картку внизу списку й додайте товари вручну.`;
+  }catch(err){
+    statusEl.className = 'scan-status error';
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }finally{
+    document.getElementById('orderScreenshotInput').value = '';
+  }
+}
+
 
 async function recognizeInvoice(base64, mediaType){
   const response = await fetch('https://api.anthropic.com/v1/messages', {
