@@ -468,6 +468,7 @@
       </div>
       <div class="fb-row" style="margin-bottom:14px;">
         <button class="btn btn-primary btn-sm" onclick="exportTodayShipmentsExcel()">Експортувати в Excel</button>
+        <button class="btn btn-sm" id="todayShipmentsFilterBtn" onclick="toggleTodayShipmentsFilter()">Показати невідправлені, але створені</button>
       </div>
       <div class="catalog-panel"><div style="padding:14px 16px;">
         <div class="wh-row-head" style="grid-template-columns:1fr 1fr 90px 100px 130px 1fr;"><div>Клієнт</div><div>Товари</div><div style="text-align:right;">Сума</div><div>Служба</div><div>ТТН</div><div>Статус</div></div>
@@ -1806,7 +1807,7 @@ async function handleTelegramOrderPhoto(message){
     scheduleSave();
 
     await sendTelegramMessage(
-      `✅ <b>Розпізнано зі скріншота</b>\nКлієнт: ${escapeHtml(order.customer||'—')}\nТелефон: ${escapeHtml(order.phone||'—')}\nМісто: ${escapeHtml(order.city||order.ukrCity||'—')}\n${extracted.itemsText ? 'Товари: '+escapeHtml(extracted.itemsText) : ''}\n\nПеревірте й додайте товари у вкладці «Замовлення».`
+      `✅ <b>Розпізнано зі скріншота</b>\nКлієнт: ${escapeHtml(order.customer||'—')}\nТелефон: ${escapeHtml(order.phone||'—')}\nМісто: ${escapeHtml(order.city||order.ukrCity||'—')}\n${extracted.itemsText ? 'Товари: '+escapeHtml(extracted.itemsText)+'\n' : ''}${extracted.specialRequest ? '⚠️ Побажання: '+escapeHtml(extracted.specialRequest)+'\n' : ''}${extracted.paymentPreference ? '💳 Оплата: '+escapeHtml(extracted.paymentPreference)+'\n' : ''}\nПеревірте й додайте товари у вкладці «Замовлення».`
     );
   }catch(err){
     await sendTelegramMessage(`⚠️ Не вдалося розпізнати скріншот: ${escapeHtml(err.message)}`);
@@ -2050,15 +2051,36 @@ function orderCompletenessScore(o){
 
 /* ---------- сьогоднішні відправлення (модальне вікно + експорт) ---------- */
 
+let todayShipmentsShowUnshippedOnly = false;
+
 function openTodayShipmentsModal(){
+  todayShipmentsShowUnshippedOnly = false;
+  renderTodayShipmentsModal();
+  document.getElementById('todayShipmentsModal').style.display = 'flex';
+}
+
+function toggleTodayShipmentsFilter(){
+  todayShipmentsShowUnshippedOnly = !todayShipmentsShowUnshippedOnly;
+  renderTodayShipmentsModal();
+}
+
+function renderTodayShipmentsModal(){
   const today = todayStr();
   document.getElementById('todayShipmentsDate').textContent = today;
   const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
-  const todays = orders.filter(o => o.date === today && !isArchived(o))
-    .sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9));
+  let todays = orders.filter(o => o.date === today && !isArchived(o));
+  if(todayShipmentsShowUnshippedOnly) todays = todays.filter(o => !o.shipped);
+  todays = todays.sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9));
+
+  const filterBtn = document.getElementById('todayShipmentsFilterBtn');
+  filterBtn.textContent = todayShipmentsShowUnshippedOnly ? 'Показати всі за сьогодні' : 'Показати невідправлені, але створені';
+  filterBtn.classList.toggle('btn-primary', todayShipmentsShowUnshippedOnly);
+
   const tableEl = document.getElementById('todayShipmentsTable');
   if(todays.length === 0){
-    tableEl.innerHTML = '<div class="comp-empty">Сьогодні ще немає жодного замовлення.</div>';
+    tableEl.innerHTML = todayShipmentsShowUnshippedOnly
+      ? '<div class="comp-empty">Усі сьогоднішні замовлення вже відправлені.</div>'
+      : '<div class="comp-empty">Сьогодні ще немає жодного замовлення.</div>';
   } else {
     tableEl.innerHTML = todays.map(o => {
       const c = calcOrder(o);
@@ -2079,7 +2101,6 @@ function openTodayShipmentsModal(){
       `;
     }).join('');
   }
-  document.getElementById('todayShipmentsModal').style.display = 'flex';
 }
 
 function closeTodayShipmentsModal(){
@@ -4478,9 +4499,11 @@ async function extractOrderFromImageBase64(base64, mediaType){
           { type: 'text', text:
             'Це скріншот переписки з клієнтом інтернет-магазину спецій (Instagram, Viber, WhatsApp тощо). ' +
             'Витягни: ПІБ отримувача, номер телефону, місто, відділення/адресу доставки, спосіб доставки (якщо згадано «Нова Пошта», «Укрпошта» чи самовивіз), ' +
-            'і перелік товарів/побажань клієнта звичайним текстом (як він сам написав, не намагайся підбирати точні назви з каталогу). ' +
+            'перелік товарів/побажань клієнта звичайним текстом (як він сам написав, не намагайся підбирати точні назви з каталогу), ' +
+            'окремо — будь-яке ОСОБЛИВЕ ПОБАЖАННЯ чи ЗАМІНУ складу набору (наприклад «замінити насіння на приправу до риби»), ' +
+            'і окремо — спосіб оплати, якщо клієнт його згадав (напр. «накладений платіж», «оплата при отриманні», «оплачу на карту заздалегідь»). ' +
             'Відповідай ЛИШЕ JSON без пояснень, без markdown-огорожі, у форматі: ' +
-            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","notes":""}. ' +
+            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","specialRequest":"","paymentPreference":"","notes":""}. ' +
             'Якщо якесь поле не вдалось знайти в переписці — постав порожній рядок. Нічого не вигадуй.'
           }
         ]
@@ -4512,6 +4535,8 @@ function applyExtractedToOrder(order, extracted){
   }
   const noteParts = [];
   if(extracted.itemsText) noteParts.push('Товари з переписки: ' + extracted.itemsText);
+  if(extracted.specialRequest) noteParts.push('⚠️ Особливе побажання: ' + extracted.specialRequest);
+  if(extracted.paymentPreference) noteParts.push('💳 Оплата: ' + extracted.paymentPreference);
   if(extracted.notes) noteParts.push(extracted.notes);
   order.notes = noteParts.join(' · ');
 }
