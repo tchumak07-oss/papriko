@@ -1599,7 +1599,7 @@ async function pollTelegramUpdates(){
 
 function buildTodayTtnListText(){
   const today = todayStr();
-  const todays = orders.filter(o => o.date === today && (o.ttnNumber || o.ukrTtnNumber));
+  const todays = orders.filter(o => o.date === today && !isArchived(o) && (o.ttnNumber || o.ukrTtnNumber));
   if(todays.length === 0){
     return `📋 За ${today} поки немає жодної відправки з ТТН.`;
   }
@@ -1803,7 +1803,7 @@ function orderCompletenessScore(o){
 function openTodayShipmentsModal(){
   const today = todayStr();
   document.getElementById('todayShipmentsDate').textContent = today;
-  const todays = orders.filter(o => o.date === today);
+  const todays = orders.filter(o => o.date === today && !isArchived(o));
   const tableEl = document.getElementById('todayShipmentsTable');
   if(todays.length === 0){
     tableEl.innerHTML = '<div class="comp-empty">Сьогодні ще немає жодного замовлення.</div>';
@@ -1836,7 +1836,7 @@ function closeTodayShipmentsModal(){
 
 function exportTodayShipmentsExcel(){
   const today = todayStr();
-  const todays = orders.filter(o => o.date === today);
+  const todays = orders.filter(o => o.date === today && !isArchived(o));
   if(todays.length === 0){ alert('Сьогодні ще немає жодного замовлення.'); return; }
 
   const rows = todays.map(o => {
