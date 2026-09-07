@@ -2045,13 +2045,20 @@ function duplicateOrder(sourceId){
   copy.status = 'Нове';
   copy.paid = false;
   copy.shipped = false;
+  copy.delivered = false;
+  copy.manualArchive = false;
+  copy.npReturned = false;
   copy.collapsed = false;
   copy.shipmentCollapsed = true;
   copy.stockDeducted = false;
   copy.ttnNumber = '';
   copy.ttnRef = '';
+  copy.ukrTtnNumber = '';
+  copy.ukrShipmentUuid = '';
   copy.npStatusText = '';
   copy.npStatusCode = '';
+  copy.ttnTelegramNotified = false;
+  copy.customerSmsSent = false;
   orders.push(copy);
   renderOrders();
   renderOrdersSummary();
@@ -2236,6 +2243,14 @@ function saveShipment(id){
   const o = orderById(id);
   if(!o) return;
   o.shipmentCollapsed = true;
+  if(!o.ttnTelegramNotified && (o.city || o.ukrCity || o.address)){
+    o.ttnTelegramNotified = true;
+    notifyTelegramShipment(o);
+  }
+  if(!o.customerSmsSent && (o.city || o.ukrCity || o.address)){
+    o.customerSmsSent = true;
+    notifyCustomerSms(o);
+  }
   renderOrders();
   scheduleSave();
 }
@@ -2546,20 +2561,6 @@ async function createUkrShipment(orderId){
     o.ukrShipmentUuid = shipment.uuid;
     resultEl.innerHTML = ukrResultHtml(o);
     scheduleSave();
-    if(!o.ttnTelegramNotified){
-      o.ttnTelegramNotified = true;
-      notifyTelegramShipment(o).then(res => {
-        const tgLine = res.ok
-          ? '<div class="hint" style="color:var(--cardamom);margin-top:4px;">✓ Сповіщення в Telegram надіслано</div>'
-          : `<div class="hint" style="color:var(--danger);margin-top:4px;">Telegram: ${escapeAttr(res.error)}</div>`;
-        resultEl.innerHTML = ukrResultHtml(o) + tgLine;
-        scheduleSave();
-      });
-    }
-    if(!o.customerSmsSent){
-      o.customerSmsSent = true;
-      notifyCustomerSms(o).then(() => scheduleSave());
-    }
   }catch(err){
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
   }
@@ -2599,14 +2600,6 @@ function linkExistingUkrTtn(orderId){
   if(!ttn){ alert('Впишіть номер декларації.'); return; }
   o.ukrTtnNumber = ttn;
   o.ukrShipmentUuid = '';
-  if(!o.ttnTelegramNotified){
-    o.ttnTelegramNotified = true;
-    notifyTelegramShipment(o);
-  }
-  if(!o.customerSmsSent){
-    o.customerSmsSent = true;
-    notifyCustomerSms(o);
-  }
   renderOrders();
   scheduleSave();
 }
@@ -2717,16 +2710,6 @@ function linkExistingTtn(orderId){
   o.ttnRef = ''; // немає внутрішнього Ref з API — цю ТТН не створювали через програму, тож видалити її звідси не можна, лише відв'язати
   o.npStatusText = '';
   o.npStatusCode = '';
-  if(!o.ttnTelegramNotified){
-    o.ttnTelegramNotified = true;
-    notifyTelegramShipment(o).then(res => {
-      if(!res.ok && res.error !== 'Telegram не налаштовано') console.warn('Telegram notify failed:', res.error);
-    });
-  }
-  if(!o.customerSmsSent){
-    o.customerSmsSent = true;
-    notifyCustomerSms(o);
-  }
   renderOrders();
   scheduleSave();
 }
@@ -2798,9 +2781,18 @@ async function createNpWaybill(orderId){
     const recipientRef = cpData && cpData[0] && cpData[0].Ref;
     if(!recipientRef) throw new Error('Не вдалося створити отримувача');
 
-    const contacts = await npApiCall('Counterparty', 'getCounterpartyContactPersons', {Ref: recipientRef, Page:'1'});
-    const contactRecipientRef = contacts && contacts[0] && contacts[0].Ref;
-    if(!contactRecipientRef) throw new Error('Не вдалося отримати контактну особу отримувача');
+    // явно створюємо контактну особу з АКТУАЛЬНИМ іменем — не покладаємось на ту, що вже може бути
+    // прив'язана до цього номера телефону з минулого разу (НП дозволяє приватним особам міняти
+    // лише телефон контрагента, а не ім'я, тому стара контактна особа могла "застрягти" зі старим прізвищем)
+    const contactData = await npApiCall('ContactPerson', 'save', {
+      CounterpartyRef: recipientRef,
+      FirstName: name.FirstName,
+      LastName: name.LastName,
+      MiddleName: name.MiddleName,
+      Phone: o.phone
+    });
+    const contactRecipientRef = contactData && contactData[0] && contactData[0].Ref;
+    if(!contactRecipientRef) throw new Error('Не вдалося створити контактну особу отримувача');
 
     const docParams = {
       PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
@@ -2836,20 +2828,6 @@ async function createNpWaybill(orderId){
     o.ttnRef = doc.Ref;
     resultEl.innerHTML = ttnResultHtml(o);
     scheduleSave();
-    if(!o.ttnTelegramNotified){
-      o.ttnTelegramNotified = true;
-      notifyTelegramShipment(o).then(res => {
-        const tgLine = res.ok
-          ? '<div class="hint" style="color:var(--cardamom);margin-top:4px;">✓ Сповіщення в Telegram надіслано</div>'
-          : `<div class="hint" style="color:var(--danger);margin-top:4px;">Telegram: ${escapeAttr(res.error)}</div>`;
-        resultEl.innerHTML = ttnResultHtml(o) + tgLine;
-        scheduleSave();
-      });
-    }
-    if(!o.customerSmsSent){
-      o.customerSmsSent = true;
-      notifyCustomerSms(o).then(() => scheduleSave());
-    }
   }catch(err){
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
   }
