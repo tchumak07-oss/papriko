@@ -535,6 +535,17 @@
         <p class="hint" style="margin-top:8px;">Кожне сповіщення про відправку матиме кнопку «📋 Список ТТН за сьогодні» — натискання в групі обробляється, <strong>тільки поки в браузері відкрита вкладка «Відправки»</strong> цієї програми (без свого сервера бот не може «слухати» групу цілодобово). Це саме обмеження стосується й розпізнавання скріншотів: надішліть у групу фото переписки з підписом «замовлення» (або будь-якою командою через «/») — бот сам створить чернетку замовлення, поки вкладка відкрита.</p>
       </div>
       <div class="catalog-group">
+        <div class="catalog-group-title">Ключ для розпізнавання (Anthropic API)</div>
+        <p class="hint" style="margin:0 0 8px;">Потрібен, щоб працювало розпізнавання накладних і скріншотів переписки поза чатом Claude — на вашому реальному сайті. Отримати: зайдіть на <strong>console.anthropic.com</strong> → зареєструйтесь → «API Keys» → «Create Key». Це окремий, платний за використанням сервіс (не пов'язаний із підпискою на Claude.ai) — розпізнавання одного фото коштує частки копійки.</p>
+        <div class="delivery-grid">
+          <div style="grid-column:span 3;"><label>API-ключ Anthropic</label><input type="text" id="anthropicKeyInput" placeholder="sk-ant-api03-..."></div>
+        </div>
+        <div class="fb-row" style="margin-top:10px;">
+          <button class="btn btn-sm" onclick="saveAnthropicKey()">Зберегти</button>
+        </div>
+        <div class="hint" id="anthropicKeyStatus" style="margin-top:6px;"></div>
+      </div>
+      <div class="catalog-group">
         <div class="catalog-group-title">SMS клієнту (TurboSMS)</div>
         <p class="hint" style="margin:0 0 8px;">На відміну від Telegram/Viber, SMS доходить на <strong>будь-який</strong> номер без попередньої підписки клієнта. Зареєструйтесь на turbosms.ua, увімкніть «HTTP API» в налаштуваннях шлюзу, і скопіюйте токен. Ім'я відправника (Alpha Name) активується окремо в кабінеті TurboSMS.</p>
         <div class="delivery-grid">
@@ -911,7 +922,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 function buildStatePayload(){
   return {
     catalog, kits, orders, clients, stockMovements, cashTransactions, npApiKey, npSender, tgBotToken, tgChatId,
-    ukrBearer, ukrToken, ukrSender, smsToken, smsSender, smsTemplate,
+    ukrBearer, ukrToken, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId,
     updatedAt: new Date().toISOString()
   };
@@ -934,6 +945,7 @@ function applyRemoteData(data){
   smsToken = data.smsToken || '';
   smsSender = data.smsSender || '';
   smsTemplate = data.smsTemplate || smsTemplate;
+  anthropicApiKey = data.anthropicApiKey || '';
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
   nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
@@ -983,6 +995,8 @@ function applyRemoteData(data){
   if(smsSenderInput) smsSenderInput.value = smsSender;
   const smsTemplateInput = document.getElementById('smsTemplateInput');
   if(smsTemplateInput) smsTemplateInput.value = smsTemplate;
+  const anthropicKeyInput = document.getElementById('anthropicKeyInput');
+  if(anthropicKeyInput) anthropicKeyInput.value = anthropicApiKey;
   const senderCityInput = document.getElementById('sender-city-input');
   if(senderCityInput) senderCityInput.value = npSender.citySenderName || '';
   const payoutCardInput = document.getElementById('payout-card-input');
@@ -1649,6 +1663,7 @@ function notifyTelegramShipment(o){
     `Доставка: ${escapeHtml(deliverySummaryText(o))}`,
   ];
   if(ttn) lines.push(`ТТН: <code>${escapeHtml(ttn)}</code>`);
+  if(o.notes) lines.push(`💬 Коментар: ${escapeHtml(o.notes)}`);
   return sendTelegramMessage(lines.join('\n'), {
     inline_keyboard: [[{text: '📋 Список ТТН за сьогодні', callback_data: 'list_today'}]]
   });
@@ -1659,6 +1674,13 @@ function escapeHtml(s){
 }
 
 /* ---------- sms клієнту (turbosms) ---------- */
+
+let anthropicApiKey = '';
+function saveAnthropicKey(){
+  anthropicApiKey = document.getElementById('anthropicKeyInput').value.trim();
+  document.getElementById('anthropicKeyStatus').textContent = anthropicApiKey ? 'Ключ збережено.' : 'Ключ порожній.';
+  scheduleSave();
+}
 
 let smsToken = '';
 let smsSender = '';
@@ -1833,7 +1855,8 @@ function buildTodayTtnListText(){
     .map(method => {
       const lines = groups[method].map(o => {
         const paidIcon = o.paid ? '🟢' : '🟡';
-        return `${paidIcon} ${escapeHtml(o.customer||'Без імені')} — <code>${escapeHtml(o.ttnNumber||o.ukrTtnNumber)}</code> — ${fmt(calcOrder(o).total)} грн${o.paid ? ' (оплачено)' : ' (не оплачено)'}`;
+        const base = `${paidIcon} ${escapeHtml(o.customer||'Без імені')} — <code>${escapeHtml(o.ttnNumber||o.ukrTtnNumber)}</code> — ${fmt(calcOrder(o).total)} грн${o.paid ? ' (оплачено)' : ' (не оплачено)'}`;
+        return o.notes ? base + `\n   💬 ${escapeHtml(o.notes)}` : base;
       });
       return `<b>${escapeHtml(method)}</b> (${groups[method].length}):\n` + lines.join('\n');
     });
@@ -2266,6 +2289,45 @@ function toggleOrderDelivered(id, checked){
   renderOrdersSummary();
   scheduleSave();
 }
+// шукає останню відправку цього клієнта (за clientId, а якщо не знайдено — за телефоном), крім поточного замовлення
+function findLastOrderForClient(clientId, phone, excludeOrderId){
+  const candidates = orders.filter(o => o.id !== excludeOrderId && (o.city || o.ukrCity || o.address));
+  let match = null;
+  if(clientId){
+    match = candidates.filter(o => String(o.clientId) === String(clientId)).sort((a,b) => b.id - a.id)[0];
+  }
+  if(!match && phone){
+    const key = normPhoneKey(phone);
+    if(key){
+      match = candidates.filter(o => normPhoneKey(o.phone) === key).sort((a,b) => b.id - a.id)[0];
+    }
+  }
+  return match || null;
+}
+
+function applyDeliveryFieldsFrom(order, source){
+  order.deliveryMethod = source.deliveryMethod;
+  order.region = source.region || '';
+  order.city = source.city || ''; order.cityRef = source.cityRef || '';
+  order.warehouseRef = source.warehouseRef || ''; order.warehouseDesc = source.warehouseDesc || '';
+  order.ukrIndex = source.ukrIndex || ''; order.address = source.address || '';
+  order.ukrCity = source.ukrCity || ''; order.ukrStreet = source.ukrStreet || '';
+  order.ukrHouse = source.ukrHouse || ''; order.ukrApartment = source.ukrApartment || '';
+}
+
+function pullPreviousDeliveryData(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const prev = findLastOrderForClient(o.clientId, o.phone, o.id);
+  if(!prev){
+    alert('Попередніх відправок цього клієнта не знайдено (за клієнтом чи телефоном).');
+    return;
+  }
+  applyDeliveryFieldsFrom(o, prev);
+  renderOrders();
+  scheduleSave();
+}
+
 function pickOrderClient(orderId, clientId){
   const o = orderById(orderId);
   const c = clientById(parseInt(clientId,10));
@@ -2274,6 +2336,8 @@ function pickOrderClient(orderId, clientId){
   if(c){
     o.customer = c.name;
     o.phone = c.phone;
+    const prev = findLastOrderForClient(o.clientId, o.phone, o.id);
+    if(prev) applyDeliveryFieldsFrom(o, prev);
   }
   renderOrders();
   scheduleSave();
@@ -3784,6 +3848,9 @@ function orderExpandedHtml(o){
         <div><label>ПІБ / назва</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Ім'я клієнта"></div>
         <div><label>Телефон</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)" placeholder="+380..."></div>
       </div>
+      <div class="fb-row" style="margin:8px 0 0;">
+        <button class="btn btn-sm" type="button" onclick="pullPreviousDeliveryData(${o.id})">Підтягнути дані доставки з попередньої відправки</button>
+      </div>
 
       <div class="comp-list" id="order-items-${o.id}" style="margin-top:14px;"></div>
 
@@ -3868,6 +3935,9 @@ function shipmentExpandedHtml(o){
       <div class="delivery-grid" style="margin-bottom:10px;">
         <div><label>ПІБ отримувача</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Прізвище Ім'я По батькові"></div>
         <div><label>Телефон отримувача</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)" placeholder="+380..."></div>
+      </div>
+      <div class="fb-row" style="margin:0 0 10px;">
+        <button class="btn btn-sm" type="button" onclick="pullPreviousDeliveryData(${o.id})">Підтягнути дані доставки з попередньої відправки</button>
       </div>
 
       <div class="comp-list" style="margin-bottom:10px;">${orderItemsReadOnlyHtml(o)}</div>
@@ -4486,9 +4556,15 @@ function fileToBase64(file){
 /* ---------- розпізнавання замовлення зі скріншота переписки (спільне для програми і бота) ---------- */
 
 async function extractOrderFromImageBase64(base64, mediaType){
+  if(!anthropicApiKey) throw new Error('Не вказано API-ключ Anthropic (Налаштування доставки → «Ключ для розпізнавання»)');
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 1000,
@@ -4569,9 +4645,15 @@ async function handleOrderScreenshot(file){
 
 
 async function recognizeInvoice(base64, mediaType){
+  if(!anthropicApiKey) throw new Error('Не вказано API-ключ Anthropic (Налаштування доставки → «Ключ для розпізнавання»)');
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 1500,
