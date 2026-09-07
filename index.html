@@ -1692,6 +1692,42 @@ function escapeHtml(s){
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// вирівнює текст під фіксовану ширину для моноширинної таблиці (обрізає з "…", якщо задовге)
+function padCol(str, width){
+  str = String(str||'');
+  if(str.length > width) str = str.slice(0, Math.max(0,width-1)) + '…';
+  return str.padEnd(width, ' ');
+}
+
+// будує компактну моноширинну таблицю (Дата | Клієнт | Сума | Опл) для списку замовлень,
+// згруповану по службах доставки; примітки виносяться окремими рядками під таблицею
+function buildShipmentsTableText(list, title){
+  const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
+  const groups = {};
+  list.forEach(o => { (groups[o.deliveryMethod||'Інше'] = groups[o.deliveryMethod||'Інше'] || []).push(o); });
+  const methods = Object.keys(groups).sort((a,b) => (methodOrder[a] ?? 9) - (methodOrder[b] ?? 9));
+
+  const colDate = 6, colName = 14, colSum = 8;
+  let out = title ? `📦 <b>${escapeHtml(title)}</b> (${list.length})\n\n` : '';
+  const noteLines = [];
+
+  methods.forEach(method => {
+    out += `<b>${escapeHtml(method)}</b> (${groups[method].length})\n`;
+    out += '<pre>' + padCol('Дата', colDate) + padCol('Клієнт', colName) + padCol('Сума', colSum) + 'Опл\n';
+    out += '-'.repeat(colDate + colName + colSum + 3) + '\n';
+    groups[method].forEach(o => {
+      const dateShort = (o.date||'').length >= 10 ? o.date.slice(5) : (o.date||'');
+      const paidMark = o.paid ? '+' : '-';
+      out += padCol(dateShort, colDate) + padCol(o.customer||'—', colName) + padCol(fmt(calcOrder(o).total), colSum) + paidMark + '\n';
+      if(o.notes) noteLines.push(`💬 ${escapeHtml(o.customer||'—')}: ${escapeHtml(o.notes)}`);
+    });
+    out += '</pre>\n';
+  });
+
+  if(noteLines.length > 0) out += '\n' + noteLines.join('\n');
+  return out.trim();
+}
+
 /* ---------- sms клієнту (turbosms) ---------- */
 
 let anthropicApiKey = '';
@@ -1865,22 +1901,26 @@ function buildTodayTtnListText(){
     return `📋 За ${today} поки немає жодної відправки з ТТН.`;
   }
   const groups = {};
-  todays.forEach(o => {
-    const key = o.deliveryMethod || 'Інше';
-    (groups[key] = groups[key] || []).push(o);
-  });
-  const sections = Object.keys(groups)
+  todays.forEach(o => { (groups[o.deliveryMethod||'Інше'] = groups[o.deliveryMethod||'Інше'] || []).push(o); });
+
+  const colName = 13, colTtn = 15;
+  let out = `📋 <b>ТТН за ${today}</b> (${todays.length})\n\n`;
+  const noteLines = [];
+  Object.keys(groups)
     .sort((a,b) => (methodOrder[a] ?? 9) - (methodOrder[b] ?? 9))
-    .map(method => {
-      const lines = groups[method].map(o => {
-        const paidIcon = o.paid ? '🟢' : '🟡';
-        const base = `${paidIcon} ${escapeHtml(o.customer||'Без імені')} — <code>${escapeHtml(o.ttnNumber||o.ukrTtnNumber)}</code> — ${fmt(calcOrder(o).total)} грн${o.paid ? ' (оплачено)' : ' (не оплачено)'}`;
-        return o.notes ? base + `\n   💬 ${escapeHtml(o.notes)}` : base;
+    .forEach(method => {
+      out += `<b>${escapeHtml(method)}</b> (${groups[method].length})\n`;
+      out += '<pre>' + padCol('Клієнт', colName) + padCol('ТТН', colTtn) + 'Опл\n';
+      out += '-'.repeat(colName + colTtn + 3) + '\n';
+      groups[method].forEach(o => {
+        const paidMark = o.paid ? '+' : '-';
+        out += padCol(o.customer||'—', colName) + padCol(o.ttnNumber||o.ukrTtnNumber||'', colTtn) + paidMark + '\n';
+        if(o.notes) noteLines.push(`💬 ${escapeHtml(o.customer||'—')}: ${escapeHtml(o.notes)}`);
       });
-      return `<b>${escapeHtml(method)}</b> (${groups[method].length}):\n` + lines.join('\n');
+      out += '</pre>\n';
     });
-  const paidCount = todays.filter(o => o.paid).length;
-  return `📋 <b>ТТН за ${today}</b> (${todays.length}, оплачено ${paidCount} з ${todays.length}):\n\n` + sections.join('\n\n');
+  if(noteLines.length > 0) out += '\n' + noteLines.join('\n');
+  return out.trim();
 }
 
 async function handleListTodayCallback(cq){
@@ -2240,22 +2280,8 @@ async function sendFilteredShipmentsToTelegram(){
   const {orders: list, from, to} = getFilteredShipments();
   if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
 
-  const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
-  const groups = {};
-  list.forEach(o => { (groups[o.deliveryMethod||'Інше'] = groups[o.deliveryMethod||'Інше'] || []).push(o); });
-  const sections = Object.keys(groups)
-    .sort((a,b) => (methodOrder[a] ?? 9) - (methodOrder[b] ?? 9))
-    .map(method => {
-      const lines = groups[method].map(o => {
-        const paidIcon = o.paid ? '🟢' : '🟡';
-        const statusText = [o.paid?'оплачено':'', o.shipped?'відправлено':'', o.delivered?'доставлено':''].filter(Boolean).join(', ') || 'нове';
-        const base = `${paidIcon} ${o.date||''} — ${escapeHtml(o.customer||'Без імені')} — ${fmt(calcOrder(o).total)} грн (${statusText})`;
-        return o.notes ? base + `\n   💬 ${escapeHtml(o.notes)}` : base;
-      });
-      return `<b>${escapeHtml(method)}</b> (${groups[method].length}):\n` + lines.join('\n');
-    });
   const period = from === to ? from : `${from} — ${to}`;
-  const text = `📦 <b>Звіт по відправленнях за ${period}</b> (${list.length}):\n\n` + sections.join('\n\n');
+  const text = buildShipmentsTableText(list, `Звіт по відправленнях за ${period}`);
 
   const res = await sendTelegramMessage(text);
   alert(res.ok ? 'Надіслано в Telegram ✓' : ('Помилка: ' + res.error));
