@@ -2148,8 +2148,9 @@ function closeTodayShipmentsModal(){
 function exportTodayShipmentsExcel(){
   const selectedDate = todayShipmentsSelectedDate || todayStr();
   const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
-  const todays = orders.filter(o => o.date === selectedDate && !isArchived(o))
-    .sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9));
+  let todays = orders.filter(o => o.date === selectedDate && !isArchived(o));
+  if(todayShipmentsShowUnshippedOnly) todays = todays.filter(o => !o.shipped);
+  todays = todays.sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9));
   if(todays.length === 0){ alert(`За ${selectedDate} ще немає жодного замовлення.`); return; }
 
   const rows = todays.map(o => {
