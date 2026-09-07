@@ -2239,6 +2239,29 @@ function editOrder(id){
   o.collapsed = false;
   renderOrders();
 }
+async function resendShipmentNotifications(id){
+  const o = orderById(id);
+  if(!o) return;
+  const resultEl = document.getElementById(`notify-result-${id}`);
+  if(resultEl) resultEl.innerHTML = '<div class="hint">Надсилаю...</div>';
+
+  o.ttnTelegramNotified = true;
+  o.customerSmsSent = true;
+
+  const [tgRes, smsRes] = await Promise.all([
+    notifyTelegramShipment(o),
+    notifyCustomerSms(o)
+  ]);
+
+  if(resultEl){
+    resultEl.innerHTML = `
+      <div class="hint" style="color:${tgRes.ok?'var(--cardamom)':'var(--danger)'};">Telegram: ${tgRes.ok ? '✓ надіслано' : 'помилка — '+escapeAttr(tgRes.error)}</div>
+      <div class="hint" style="color:${smsRes.ok?'var(--cardamom)':'var(--danger)'};">SMS: ${smsRes.ok ? '✓ надіслано' : 'помилка — '+escapeAttr(smsRes.error)}</div>
+    `;
+  }
+  scheduleSave();
+}
+
 function saveShipment(id){
   const o = orderById(id);
   if(!o) return;
@@ -2768,32 +2791,12 @@ async function createNpWaybill(orderId){
 
   try{
     const name = splitFullName(o.customer);
-    const cpData = await npApiCall('Counterparty', 'save', {
-      CityRef: o.cityRef,
-      FirstName: name.FirstName,
-      LastName: name.LastName,
-      MiddleName: name.MiddleName,
-      Phone: o.phone,
-      Email: '',
-      CounterpartyType: 'PrivatePerson',
-      CounterpartyProperty: 'Recipient'
-    });
-    const recipientRef = cpData && cpData[0] && cpData[0].Ref;
-    if(!recipientRef) throw new Error('Не вдалося створити отримувача');
+    const fullName = `${name.LastName} ${name.FirstName} ${name.MiddleName}`.trim();
 
-    // явно створюємо контактну особу з АКТУАЛЬНИМ іменем — не покладаємось на ту, що вже може бути
-    // прив'язана до цього номера телефону з минулого разу (НП дозволяє приватним особам міняти
-    // лише телефон контрагента, а не ім'я, тому стара контактна особа могла "застрягти" зі старим прізвищем)
-    const contactData = await npApiCall('ContactPerson', 'save', {
-      CounterpartyRef: recipientRef,
-      FirstName: name.FirstName,
-      LastName: name.LastName,
-      MiddleName: name.MiddleName,
-      Phone: o.phone
-    });
-    const contactRecipientRef = contactData && contactData[0] && contactData[0].Ref;
-    if(!contactRecipientRef) throw new Error('Не вдалося створити контактну особу отримувача');
-
+    // передаємо отримувача РЯДКОМ напряму в саму накладну (RecipientName/RecipientContactName),
+    // а не через збережений Контрагент/Контактну особу — так щоразу йде саме те ім'я, що зараз
+    // у замовленні, а не те, що колись "прилипло" до цього номера телефону в кабінеті НП
+    // (НП дозволяє приватним особам редагувати в збережених контактах лише телефон, а не ім'я).
     const docParams = {
       PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
       PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
@@ -2811,9 +2814,11 @@ async function createNpWaybill(orderId){
       SendersPhone: npSender.sendersPhone,
       CityRecipient: o.cityRef,
       RecipientAddress: o.warehouseRef,
-      Recipient: recipientRef,
-      ContactRecipient: contactRecipientRef,
-      RecipientsPhone: o.phone
+      RecipientType: 'PrivatePerson',
+      RecipientName: fullName,
+      RecipientContactName: fullName,
+      RecipientsPhone: o.phone,
+      NewAddress: '1'
     };
     if(o.codAmount && Number(o.codAmount) > 0){
       // «Контроль оплати» — кошти йдуть напряму на розрахунковий рахунок ФОП (за договором з NovaPay),
@@ -3916,7 +3921,9 @@ function shipmentExpandedHtml(o){
       </div>
       <div class="fb-row" style="margin:0 0 10px;">
         <button class="btn btn-sm" type="button" onclick="pullPreviousDeliveryData(${o.id})">Підтягнути дані доставки з попередньої відправки</button>
+        <button class="btn btn-sm" type="button" onclick="resendShipmentNotifications(${o.id})">Надіслати сповіщення (Telegram + SMS) зараз</button>
       </div>
+      <div id="notify-result-${o.id}" style="margin:0 0 10px;"></div>
 
       <div class="comp-list" style="margin-bottom:10px;">${orderItemsReadOnlyHtml(o)}</div>
       <div class="hint" style="margin-bottom:10px;">Сума замовлення: <strong style="color:var(--saffron);">${fmt(c.total)} грн</strong> — товари редагуються у вкладці «Замовлення».</div>
