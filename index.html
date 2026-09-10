@@ -2110,7 +2110,7 @@ function newOrderDefaults(id){
     shipmentCollapsed: true, stockDeducted:false, manualArchive:false,
     deliveryMethod: 'Нова Пошта', region:'',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
-    ukrIndex:'', address:'', ukrCity:'', ukrStreet:'', ukrHouse:'', ukrApartment:'', ukrTtnNumber:'', ukrShipmentUuid:'',
+    ukrIndex:'', address:'', ukrCity:'', ukrOfficeDesc:'', ukrStreet:'', ukrHouse:'', ukrApartment:'', ukrTtnNumber:'', ukrShipmentUuid:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
     codAmount:'',
     ttnNumber:'', ttnRef:''
@@ -2597,12 +2597,12 @@ function saveUkrApiSettings(){
   scheduleSave();
 }
 
-async function ukrApiCall(method, path, body){
+async function ukrApiCall(method, path, body, app){
   if(!ukrProxyUrl) throw new Error('Не вказано адресу проксі-функції (Налаштування доставки → «Укрпошта — API» → «Адреса проксі-функції»)');
   const res = await fetch(ukrProxyUrl, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ method, path, token: ukrToken, bearer: ukrBearer, body })
+    body: JSON.stringify({ app: app||'ecom', method, path, token: ukrToken, bearer: ukrBearer, body })
   });
   const data = await res.json().catch(()=>null);
   if(!res.ok){
@@ -2610,6 +2610,34 @@ async function ukrApiCall(method, path, body){
     throw new Error(msg);
   }
   return data;
+}
+
+// пошук відділення/міста Укрпошти за індексом (довідник адрес, окремий "додаток" API)
+async function ukrClassifierCall(path){
+  return ukrApiCall(null, path, null, 'classifier');
+}
+
+async function lookupUkrIndex(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const statusEl = document.getElementById(`ukr-index-status-${orderId}`);
+  if(!o.ukrIndex){ if(statusEl) statusEl.textContent = 'Впишіть індекс.'; return; }
+  if(!ukrBearer){ if(statusEl) statusEl.textContent = 'Спочатку вкажіть Bearer eCom вище.'; return; }
+  if(statusEl) statusEl.textContent = 'Шукаю...';
+  try{
+    const data = await ukrClassifierCall(`/get_postoffices_by_postindex?pi=${encodeURIComponent(o.ukrIndex)}`);
+    const entry = data && data.Entries && data.Entries.Entry && (Array.isArray(data.Entries.Entry) ? data.Entries.Entry[0] : data.Entries.Entry);
+    if(!entry){
+      if(statusEl) statusEl.textContent = 'За цим індексом нічого не знайдено.';
+      return;
+    }
+    o.ukrCity = entry.PDCITY_UA || entry.CITY_UA || o.ukrCity;
+    o.ukrOfficeDesc = entry.PO_SHORT || entry.PO_LONG || '';
+    renderOrders();
+    scheduleSave();
+  }catch(err){
+    if(statusEl) statusEl.textContent = 'Помилка: ' + err.message;
+  }
 }
 
 function readUkrSenderForm(){
@@ -2758,7 +2786,7 @@ async function createUkrShipment(orderId){
   if(!o.ukrIndex || !o.ukrCity){ alert('Вкажіть індекс і місто отримувача.'); return; }
   if(!o.customer){ alert('Вкажіть ПІБ отримувача.'); return; }
   if(!o.phone){ alert('Вкажіть телефон отримувача.'); return; }
-  if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг) — поле спільне з Новою Поштою вище.'); return; }
+  if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг).'); return; }
 
   resultEl.innerHTML = '<div class="hint">Створюю декларацію...</div>';
   try{
@@ -3384,16 +3412,29 @@ function deliveryBlockHtml(o){
   } else if(o.deliveryMethod === 'Укрпошта'){
     fieldsHtml = `
       <div class="delivery-grid">
-        <div><label>Індекс</label><input type="text" value="${escapeAttr(o.ukrIndex)}" oninput="updateOrderField(${o.id},'ukrIndex',this.value)" placeholder="напр. 79000"></div>
+        <div>
+          <label>Індекс</label>
+          <input type="text" value="${escapeAttr(o.ukrIndex)}" oninput="updateOrderField(${o.id},'ukrIndex',this.value)" placeholder="напр. 79000"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();lookupUkrIndex(${o.id});}">
+        </div>
+        <div><label>&nbsp;</label><button class="btn btn-sm" type="button" onclick="lookupUkrIndex(${o.id})">Знайти за індексом</button></div>
         <div><label>Місто</label><input type="text" value="${escapeAttr(o.ukrCity||'')}" oninput="updateOrderField(${o.id},'ukrCity',this.value)" placeholder="напр. Львів"></div>
         <div><label>Вулиця (для двер)</label><input type="text" value="${escapeAttr(o.ukrStreet||'')}" oninput="updateOrderField(${o.id},'ukrStreet',this.value)" placeholder="залиште пустим для отримання на відділенні"></div>
         <div><label>Будинок</label><input type="text" value="${escapeAttr(o.ukrHouse||'')}" oninput="updateOrderField(${o.id},'ukrHouse',this.value)"></div>
         <div><label>Квартира</label><input type="text" value="${escapeAttr(o.ukrApartment||'')}" oninput="updateOrderField(${o.id},'ukrApartment',this.value)"></div>
         <div><label>Сума контролю оплати, грн</label><input type="number" step="1" value="${o.codAmount}" oninput="updateOrderField(${o.id},'codAmount',this.value)" placeholder="0 = без контролю оплати"></div>
+      </div>
+      <div class="delivery-grid" style="margin-top:10px;">
+        <div><label>Вага, кг</label><input type="number" step="0.1" id="ship-weight-${o.id}" value="${o.weight}" oninput="updateOrderField(${o.id},'weight',this.value)" placeholder="0.5"></div>
+        <div style="display:flex;align-items:flex-end;"><button class="btn btn-sm" type="button" onclick="autoCalcShipmentWeight(${o.id})">Порахувати з товарів</button></div>
+        <div><label>Кількість місць</label><input type="number" step="1" value="${o.seatsAmount||1}" oninput="updateOrderField(${o.id},'seatsAmount',this.value)"></div>
+        <div><label>Оголошена вартість, грн</label><input type="number" step="1" value="${o.cost}" oninput="updateOrderField(${o.id},'cost',this.value)" placeholder="${fmt(calcOrder(o).total)}"></div>
+        <div style="grid-column:span 2;"><label>Опис вантажу</label><input type="text" value="${escapeAttr(o.description||'')}" oninput="updateOrderField(${o.id},'description',this.value)"></div>
         <div style="display:flex;align-items:flex-end;">
           <button class="btn btn-primary btn-sm" type="button" onclick="createUkrShipment(${o.id})">Створити накладну (Укрпошта)</button>
         </div>
       </div>
+      <p class="hint" id="ukr-index-status-${o.id}" style="margin-top:4px;">${o.ukrOfficeDesc ? `Відділення за цим індексом: <strong>${escapeAttr(o.ukrOfficeDesc)}</strong>` : ''}</p>
       <p class="hint" style="margin-top:4px;">Якщо поле «Вулиця» порожнє — відправлення оформлюється до відділення (за індексом). Якщо заповнене — до дверей. Сума контролю оплати передається в декларацію як післяплата (за наявності договору з NovaPay — надходить напряму на розрахунковий рахунок).</p>
       <div id="ukr-result-${o.id}" style="margin-top:8px;">${ukrResultHtml(o)}</div>
       ${!o.ukrTtnNumber ? `
