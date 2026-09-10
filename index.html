@@ -583,12 +583,13 @@
       </div>
       <div class="catalog-group">
         <div class="catalog-group-title">Укрпошта — API (для створення декларацій)</div>
-        <p class="hint" style="margin:0 0 8px;">Дані видає ваш менеджер Укрпошти після підписання договору: PRODUCTION BEARER eCom і PROD_COUNTERPARTY TOKEN.</p>
+        <p class="hint" style="margin:0 0 8px;">Дані видає ваш менеджер Укрпошти після підписання договору: PRODUCTION BEARER eCom і PROD_COUNTERPARTY TOKEN. Сервер Укрпошти блокує прямі запити з браузера, тому потрібна проміжна Firebase Cloud Function (проксі) — адресу вставте нижче після деплою.</p>
         <div class="delivery-grid">
           <div><label>Bearer eCom</label><input type="text" id="ukrBearerInput" placeholder="11111111-2222-3333-aaaa-bcdef1234567"></div>
           <div><label>Counterparty token</label><input type="text" id="ukrTokenInput" placeholder="токен контрагента"></div>
-          <div style="display:flex;align-items:flex-end;"><button class="btn btn-sm" onclick="saveUkrApiSettings()">Зберегти</button></div>
+          <div><label>Адреса проксі-функції</label><input type="text" id="ukrProxyUrlInput" placeholder="https://ukrposhtaproxy-....run.app"></div>
         </div>
+        <div class="fb-row" style="margin-top:8px;"><button class="btn btn-sm" onclick="saveUkrApiSettings()">Зберегти</button></div>
         <div class="hint" id="ukrApiStatus" style="margin-top:6px;"></div>
 
         <div class="catalog-group-title" style="margin-top:14px;">Дані відправника (Укрпошта)</div>
@@ -965,7 +966,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 function buildStatePayload(){
   return {
     catalog, kits, orders, clients, stockMovements, cashTransactions, npApiKey, npSender, tgBotToken, tgChatId,
-    ukrBearer, ukrToken, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
+    ukrBearer, ukrToken, ukrProxyUrl, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId,
     updatedAt: new Date().toISOString()
   };
@@ -985,6 +986,7 @@ function applyRemoteData(data){
   tgChatId = data.tgChatId || '';
   ukrBearer = data.ukrBearer || '';
   ukrToken = data.ukrToken || '';
+  ukrProxyUrl = data.ukrProxyUrl || '';
   smsToken = data.smsToken || '';
   smsSender = data.smsSender || '';
   smsTemplate = data.smsTemplate || smsTemplate;
@@ -1019,6 +1021,8 @@ function applyRemoteData(data){
   if(ukrBearerInput) ukrBearerInput.value = ukrBearer;
   const ukrTokenInput = document.getElementById('ukrTokenInput');
   if(ukrTokenInput) ukrTokenInput.value = ukrToken;
+  const ukrProxyUrlInput = document.getElementById('ukrProxyUrlInput');
+  if(ukrProxyUrlInput) ukrProxyUrlInput.value = ukrProxyUrl;
   const ukrSenderNameInput = document.getElementById('ukrSenderName');
   if(ukrSenderNameInput){
     document.getElementById('ukrSenderType').value = ukrSender.type || 'PRIVATE_ENTREPRENEUR';
@@ -2578,6 +2582,7 @@ function setDeliveryMethod(orderId, method){
 
 let ukrBearer = '';
 let ukrToken = '';
+let ukrProxyUrl = '';
 let ukrSender = {
   type:'PRIVATE_ENTREPRENEUR', name:'', tin:'', phone:'', iban:'',
   postcode:'', region:'', city:'', street:'', house:'',
@@ -2587,16 +2592,17 @@ let ukrSender = {
 function saveUkrApiSettings(){
   ukrBearer = document.getElementById('ukrBearerInput').value.trim();
   ukrToken = document.getElementById('ukrTokenInput').value.trim();
-  document.getElementById('ukrApiStatus').textContent = (ukrBearer && ukrToken) ? 'Збережено.' : 'Bearer і/або token порожні.';
+  ukrProxyUrl = document.getElementById('ukrProxyUrlInput').value.trim();
+  document.getElementById('ukrApiStatus').textContent = (ukrBearer && ukrToken && ukrProxyUrl) ? 'Збережено.' : 'Заповніть Bearer, token і адресу проксі-функції.';
   scheduleSave();
 }
 
 async function ukrApiCall(method, path, body){
-  const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch(`https://www.ukrposhta.ua/ecom/0.0.1${path}${sep}token=${encodeURIComponent(ukrToken)}`, {
-    method,
-    headers: {'Content-Type':'application/json', 'Authorization': 'Bearer ' + ukrBearer},
-    body: body ? JSON.stringify(body) : undefined
+  if(!ukrProxyUrl) throw new Error('Не вказано адресу проксі-функції (Налаштування доставки → «Укрпошта — API» → «Адреса проксі-функції»)');
+  const res = await fetch(ukrProxyUrl, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ method, path, token: ukrToken, bearer: ukrBearer, body })
   });
   const data = await res.json().catch(()=>null);
   if(!res.ok){
