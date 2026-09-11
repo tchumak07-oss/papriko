@@ -2690,7 +2690,10 @@ async function createUkrSender(){
     if(!client || !client.uuid) throw new Error('Не вдалося створити клієнта-відправника');
 
     ukrSender.uuid = client.uuid;
-    statusEl.textContent = `Готово, відправника створено (uuid: ${client.uuid.slice(0,8)}…).`;
+    const typeMismatch = client.type && client.type !== ukrSender.type;
+    statusEl.innerHTML = `Готово, відправника створено (uuid: ${escapeAttr(client.uuid)}).<br>
+      У відповіді Укрпошти тип клієнта: <strong>${escapeAttr(client.type || '(не повернуто)')}</strong>${typeMismatch ? ' <span style="color:var(--danger);">⚠️ не збігається з обраним — це, ймовірно, старий запис за цим телефоном/адресою</span>' : ''}<br>
+      <span style="color:var(--text-faint);">Повна відповідь: ${escapeAttr(JSON.stringify(client))}</span>`;
     scheduleSave();
   }catch(err){
     statusEl.textContent = 'Помилка: ' + err.message;
