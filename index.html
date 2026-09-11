@@ -795,7 +795,7 @@
   </div></div>
 
   <div class="catalog-panel"><div style="padding:14px 16px;" class="wh-movements">
-    <div class="wh-row-head"><div>Дата</div><div>Категорія / примітка</div><div style="text-align:right;">Сума</div><div>Тип</div><div>Джерело</div><div></div></div>
+    <div class="wh-row-head"><div>Дата</div><div>Категорія / примітка</div><div style="text-align:right;">Сума</div><div>Тип</div><div>Служба</div><div>Джерело</div><div></div></div>
     <div id="cashTable"></div>
   </div></div>
 
@@ -3823,16 +3823,20 @@ function renderCash(){
     tableEl.innerHTML = '<div class="comp-empty">Ще немає жодної операції.</div>';
     return;
   }
-  tableEl.innerHTML = sorted.map(t => `
+  tableEl.innerHTML = sorted.map(t => {
+    const linkedOrder = t.source === 'order' ? orderById(t.orderId) : null;
+    return `
     <div class="wh-row">
       <div class="hint">${t.date||''}</div>
       <div>${escapeAttr(t.category||'')}${t.note ? ' — '+escapeAttr(t.note) : ''}</div>
       <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${t.type==='Витрата'?'var(--danger)':'var(--cardamom)'};">${t.type==='Витрата'?'−':'+'}${fmt(t.amount)} грн</div>
       <div class="hint">${escapeAttr(t.type)}</div>
+      <div>${linkedOrder ? carrierBadgeHtml(linkedOrder) : ''}</div>
       <div class="hint">${t.source==='order' ? 'автоматично' : 'вручну'}</div>
       <button class="btn-ghost" onclick="removeCashTransaction(${t.id})" aria-label="Видалити операцію">×</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 /* ---------- reports ---------- */
