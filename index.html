@@ -2670,17 +2670,15 @@ async function createUkrSender(){
     const name = splitFullName(ukrSender.name);
     const clientBody = {
       type: ukrSender.type,
+      name: ukrSender.name, // API вимагає це поле явно (мін. 2 символи), попри те що документація обіцяє автогенерацію
       addressId: addr.id,
       phoneNumber: ukrSender.phone,
       resident: true
     };
     if(ukrSender.type === 'COMPANY'){
-      // юрособа — лише name + edrpou
-      clientBody.name = ukrSender.name;
       clientBody.edrpou = ukrSender.tin;
     } else {
-      // ФОП і фізособа — обов'язково firstName/lastName/middleName (не "name"!),
-      // "name" в API призначене саме для юросіб. Для ФОП додатково потрібен tin.
+      // ФОП і фізособа — додатково потрібні firstName/lastName/middleName
       clientBody.firstName = name.FirstName;
       clientBody.lastName = name.LastName;
       clientBody.middleName = name.MiddleName;
@@ -2804,6 +2802,7 @@ async function createUkrShipment(orderId){
     const name = splitFullName(o.customer);
     const recClient = await ukrApiCall('POST', '/clients', {
       type: 'INDIVIDUAL',
+      name: o.customer,
       firstName: name.FirstName, lastName: name.LastName, middleName: name.MiddleName,
       addressId: recAddr.id, phoneNumber: o.phone
     });
