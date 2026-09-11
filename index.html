@@ -1681,7 +1681,10 @@ function notifyTelegramShipment(o){
   if(ttn) lines.push(`ТТН: <code>${escapeHtml(ttn)}</code>`);
   if(o.notes) lines.push(`💬 Коментар: ${escapeHtml(o.notes)}`);
   return sendTelegramMessage(lines.join('\n'), {
-    inline_keyboard: [[{text: '📋 Список ТТН за сьогодні', callback_data: 'list_today'}]]
+    inline_keyboard: [[
+      {text: '📋 Список ТТН за сьогодні', callback_data: 'list_today'},
+      {text: '📦 Список не відправлених', callback_data: 'list_unshipped'}
+    ]]
   });
 }
 
@@ -1844,6 +1847,9 @@ async function pollTelegramUpdates(){
       if(upd.callback_query && upd.callback_query.data === 'list_today'){
         await handleListTodayCallback(upd.callback_query);
       }
+      if(upd.callback_query && upd.callback_query.data === 'list_unshipped'){
+        await handleListUnshippedCallback(upd.callback_query);
+      }
       if(upd.message && upd.message.photo && String(upd.message.chat.id) === String(tgChatId)){
         const caption = (upd.message.caption || '').toLowerCase();
         if(caption.includes('замовлення') || caption.startsWith('/')){
@@ -1929,6 +1935,20 @@ async function handleListTodayCallback(cq){
     body: JSON.stringify({callback_query_id: cq.id})
   }).catch(()=>{});
   await sendTelegramMessage(buildTodayTtnListText());
+}
+
+function buildUnshippedListText(){
+  const list = orders.filter(o => !o.shipped && !isArchived(o));
+  if(list.length === 0) return '📦 Наразі немає невідправлених замовлень — усе відправлено!';
+  return buildShipmentsTableText(list, 'Невідправлені замовлення');
+}
+
+async function handleListUnshippedCallback(cq){
+  fetch(`https://api.telegram.org/bot${tgBotToken}/answerCallbackQuery`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({callback_query_id: cq.id})
+  }).catch(()=>{});
+  await sendTelegramMessage(buildUnshippedListText());
 }
 
 async function sendTodayShipmentsToTelegram(){
