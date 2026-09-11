@@ -3604,6 +3604,7 @@ function archiveCollapsedHtml(o){
         <div class="kit-collapsed-actions">
           <button class="btn btn-sm" onclick="toggleArchiveEdit(${o.id})">Редагувати</button>
           <button class="btn btn-sm" onclick="unarchiveOrder(${o.id})">Повернути з архіву</button>
+          <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити назавжди">×</button>
         </div>
       </div>
     </div>
@@ -3625,6 +3626,7 @@ function archiveExpandedHtml(o){
         <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="toggleArchiveEdit(${o.id})">Згорнути</button>
           <button class="btn btn-sm" onclick="unarchiveOrder(${o.id})">Повернути з архіву</button>
+          <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити назавжди">×</button>
         </div>
       </div>
 
