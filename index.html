@@ -2738,8 +2738,8 @@ async function syncUkrStatus(orderId){
 
 async function syncAllUkrStatuses(){
   if(!ukrBearer){ alert('Спочатку вкажіть Bearer Укрпошти в «Налаштування доставки».'); return; }
-  const withTtn = orders.filter(o => o.deliveryMethod==='Укрпошта' && o.ukrTtnNumber); // включно з архівом
-  if(withTtn.length === 0){ alert('Немає декларацій Укрпошти для перевірки.'); return; }
+  const withTtn = orders.filter(o => o.deliveryMethod==='Укрпошта' && o.ukrTtnNumber && !isArchived(o));
+  if(withTtn.length === 0){ alert('Немає активних декларацій Укрпошти для перевірки (усі вже в архіві, або жодної ще не створено). Для перевірки архіву є окрема кнопка у вкладці «Архів».'); return; }
   try{
     let justShipped=0, justDelivered=0, justReturned=0, justPaid=0;
     // Укрпошта дозволяє до 100 штрихкодів за раз — розбиваємо на групи
@@ -2758,7 +2758,7 @@ async function syncAllUkrStatuses(){
     }
     renderOrders();
     scheduleSave();
-    alert(`Перевірено ${withTtn.length} декларацій Укрпошти (включно з архівом). «Відправлено»: ${justShipped}. «Доставлено»: ${justDelivered}. «Оплачено»: ${justPaid}. Повернень: ${justReturned}.`);
+    alert(`Перевірено ${withTtn.length} активних декларацій Укрпошти (без архіву). «Відправлено»: ${justShipped}. «Доставлено»: ${justDelivered}. «Оплачено»: ${justPaid}. Повернень: ${justReturned}.`);
   }catch(err){
     alert('Помилка синхронізації з Укрпоштою: ' + err.message);
   }
@@ -3167,8 +3167,8 @@ async function syncNpStatus(orderId){
 
 async function syncAllNpStatuses(){
   if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти.'); return; }
-  const withTtn = orders.filter(o => o.ttnNumber); // включно з архівом
-  if(withTtn.length === 0){ alert('Немає жодної ТТН для перевірки.'); return; }
+  const withTtn = orders.filter(o => o.ttnNumber && !isArchived(o));
+  if(withTtn.length === 0){ alert('Немає активних ТТН для перевірки (усі вже в архіві, або жодна ще не створена). Для перевірки архіву є окрема кнопка у вкладці «Архів».'); return; }
   const btn = document.getElementById('syncAllNpBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Перевіряю...'; }
   try{
@@ -3191,7 +3191,7 @@ async function syncAllNpStatuses(){
     }
     renderOrders();
     scheduleSave();
-    let msg = `Перевірено ${withTtn.length} відправлень (включно з архівом). «Відправлено»: ${justShippedCount}. «Доставлено»: ${justDeliveredCount}. «Оплачено»: ${justPaidCount}. Перенесено в архів: ${justArchivedCount}.`;
+    let msg = `Перевірено ${withTtn.length} активних відправлень (без архіву). «Відправлено»: ${justShippedCount}. «Доставлено»: ${justDeliveredCount}. «Оплачено»: ${justPaidCount}. Перенесено в архів: ${justArchivedCount}.`;
     if(justReturnedCount > 0) msg += ` ⚠ Повернень (перевірте повернення коштів): ${justReturnedCount}.`;
     alert(msg);
   }catch(err){
