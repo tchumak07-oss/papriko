@@ -264,8 +264,8 @@
 
   <div class="app-layout">
     <nav class="app-sidebar">
-      <button class="app-nav-btn" id="nav-products" onclick="showSection('products')"><span class="nav-icon">📦</span>Товари</button>
       <button class="app-nav-btn" id="nav-orders" onclick="showSection('orders')"><span class="nav-icon">🧾</span>Замовлення</button>
+      <button class="app-nav-btn" id="nav-products" onclick="showSection('products')"><span class="nav-icon">📦</span>Товари</button>
       <button class="app-nav-btn" id="nav-clients" onclick="showSection('clients')"><span class="nav-icon">👥</span>Клієнти</button>
       <button class="app-nav-btn" id="nav-warehouse" onclick="showSection('warehouse')"><span class="nav-icon">🏬</span>Склад</button>
       <button class="app-nav-btn" id="nav-archive" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
@@ -5401,7 +5401,7 @@ function excelDateToStr(v){
 }
 
 /* ---------- init ---------- */
-showSection('products');
+showSection('orders');
 renderCatalog();
 renderKits();
 renderOrders();
