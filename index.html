@@ -459,6 +459,7 @@
       <div class="catalog-group">
         <div class="catalog-group-title">Дані відправника (для створення ТТН)</div>
         <button class="btn btn-sm" onclick="loadSenderCounterparty()">Завантажити відправника з кабінету</button>
+        <select id="senderCounterpartySelect" onchange="selectSenderCounterparty(this.value)" style="display:none;margin-top:8px;"></select>
         <div class="hint" id="senderCounterpartyStatus" style="margin-top:6px;"></div>
         <div class="delivery-grid" style="margin-top:10px;">
           <div class="np-city-wrap">
@@ -1970,23 +1971,51 @@ let npSender = {
 };
 let senderCitySuggestions = [];
 
+let loadedSenderParties = [];
+
 async function loadSenderCounterparty(){
   if(!npApiKey){
     alert('Спочатку вкажіть і збережіть API-ключ Нової Пошти вище.');
     return;
   }
   const statusEl = document.getElementById('senderCounterpartyStatus');
+  const selectEl = document.getElementById('senderCounterpartySelect');
   statusEl.textContent = 'Завантажую...';
   try{
     const parties = await npApiCall('CounterpartyGeneral', 'getCounterparties', {CounterpartyProperty:'Sender', Page:'1'});
     if(!parties || parties.length === 0) throw new Error('У кабінеті не знайдено відправника. Перевірте API-ключ.');
-    const sender = parties[0];
-    npSender.senderRef = sender.Ref;
+    loadedSenderParties = parties;
+
+    if(parties.length > 1){
+      selectEl.innerHTML = parties.map((p, i) => {
+        const label = `${p.Description || 'Відправник '+(i+1)} — ${p.CounterpartyType || '?'}${p.EDRPOU ? ' (ЄДРПОУ '+p.EDRPOU+')' : ''}`;
+        return `<option value="${i}">${escapeAttr(label)}</option>`;
+      }).join('');
+      selectEl.style.display = '';
+      statusEl.textContent = `У кабінеті знайдено ${parties.length} відправників — оберіть потрібного у списку нижче (перевірте тип: ФОП чи приватна особа).`;
+    } else {
+      selectEl.style.display = 'none';
+    }
+
+    await selectSenderCounterparty(0);
+  }catch(err){
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+async function selectSenderCounterparty(index){
+  const sender = loadedSenderParties[index];
+  if(!sender) return;
+  const statusEl = document.getElementById('senderCounterpartyStatus');
+  const selectEl = document.getElementById('senderCounterpartySelect');
+  if(selectEl.style.display !== 'none') selectEl.value = index;
+  npSender.senderRef = sender.Ref;
+  try{
     const contacts = await npApiCall('Counterparty', 'getCounterpartyContactPersons', {Ref: sender.Ref, Page:'1'});
     if(!contacts || contacts.length === 0) throw new Error('Не знайдено контактну особу відправника.');
     npSender.contactSenderRef = contacts[0].Ref;
     npSender.sendersPhone = contacts[0].Phones || '';
-    statusEl.textContent = `Готово: ${sender.Description || sender.CounterpartyType || 'відправник'} завантажено.`;
+    statusEl.textContent = `Обрано: ${sender.Description || sender.CounterpartyType || 'відправник'} — тип: ${sender.CounterpartyType || '?'}${sender.EDRPOU ? ', ЄДРПОУ '+sender.EDRPOU : ''}.`;
     scheduleSave();
   }catch(err){
     statusEl.textContent = 'Помилка: ' + err.message;
@@ -2112,6 +2141,15 @@ function addOrder(){
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
+  scrollToOrderCard(id);
+}
+
+// прокручує сторінку до картки конкретного замовлення (наприклад, щойно створеного)
+function scrollToOrderCard(id){
+  setTimeout(() => {
+    const el = document.querySelector(`[data-order="${id}"]`);
+    if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 50);
 }
 
 // викликається з кнопки в шапці сайту — доступна з будь-якої вкладки:
