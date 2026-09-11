@@ -2674,14 +2674,17 @@ async function createUkrSender(){
       phoneNumber: ukrSender.phone,
       resident: true
     };
-    if(ukrSender.type === 'INDIVIDUAL'){
+    if(ukrSender.type === 'COMPANY'){
+      // юрособа — лише name + edrpou
+      clientBody.name = ukrSender.name;
+      clientBody.edrpou = ukrSender.tin;
+    } else {
+      // ФОП і фізособа — обов'язково firstName/lastName/middleName (не "name"!),
+      // "name" в API призначене саме для юросіб. Для ФОП додатково потрібен tin.
       clientBody.firstName = name.FirstName;
       clientBody.lastName = name.LastName;
       clientBody.middleName = name.MiddleName;
-    } else {
-      clientBody.name = ukrSender.name;
-      if(ukrSender.type === 'COMPANY') clientBody.edrpou = ukrSender.tin;
-      else clientBody.tin = ukrSender.tin;
+      if(ukrSender.type === 'PRIVATE_ENTREPRENEUR') clientBody.tin = ukrSender.tin;
     }
     if(ukrSender.iban) clientBody.bankAccount = ukrSender.iban;
 
@@ -2709,20 +2712,13 @@ function ukrResultHtml(o){
 }
 
 async function ukrTrackingApiCall(path, method, body){
-  const res = await fetch(`https://www.ukrposhta.ua/status-tracking/0.0.1${path}`, {
-    method: method || 'GET',
-    headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+ukrBearer},
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const data = await res.json().catch(()=>null);
-  if(!res.ok) throw new Error((data && (data.message||data.error)) || `Помилка Укрпошти (${res.status})`);
-  return data;
+  return ukrApiCall(method || 'GET', path, body, 'tracking');
 }
 
 // відображає внутрішні прапорці (shipped/delivered/returned) відповідно до коду події зі статус-трекінгу Укрпошти
 function applyUkrStatus(o, statusItem){
-  if(!statusItem) return {shipped:false, delivered:false, returned:false};
-  const wasShipped = o.shipped, wasDelivered = o.delivered, wasReturned = o.npReturned;
+  if(!statusItem) return {shipped:false, delivered:false, returned:false, paid:false};
+  const wasShipped = o.shipped, wasDelivered = o.delivered, wasReturned = o.npReturned, wasPaid = o.paid;
   o.ukrStatusText = statusItem.eventName || '';
   const event = Number(statusItem.event);
   if(event >= 10100) o.shipped = true; // прийнято на відділенні — вже в дорозі
@@ -2734,7 +2730,14 @@ function applyUkrStatus(o, statusItem){
     }
   }
   if(event === 31200 || event === 31300) o.npReturned = true;
-  return {shipped: o.shipped && !wasShipped, delivered: o.delivered && !wasDelivered, returned: o.npReturned && !wasReturned};
+  // текстове визначення оплати (контроль оплати/післяплата) — точних кодів події для цього
+  // Укрпошта не документує, тож ловимо за ключовими словами в тексті події.
+  const textLower = (o.ukrStatusText || '').toLowerCase();
+  if((textLower.includes('переказ') || textLower.includes('оплат') || textLower.includes('післяплат')) &&
+     (textLower.includes('виплачен') || textLower.includes('перерахован') || textLower.includes('зарахован') || textLower.includes('здійснен'))){
+    o.paid = true;
+  }
+  return {shipped: o.shipped && !wasShipped, delivered: o.delivered && !wasDelivered, returned: o.npReturned && !wasReturned, paid: o.paid && !wasPaid};
 }
 
 async function syncUkrStatus(orderId){
@@ -2748,7 +2751,9 @@ async function syncUkrStatus(orderId){
     scheduleSave();
     if(res.returned) alert(`⚠️ Схоже на повернення — статус Укрпошти: ${o.ukrStatusText}`);
     else if(res.delivered) alert(`«Доставлено» увімкнено автоматично — статус Укрпошти: ${o.ukrStatusText}`);
+    else if(res.paid) alert(`«Оплачено» увімкнено автоматично — статус Укрпошти: ${o.ukrStatusText}`);
     else if(res.shipped) alert(`«Відправлено» увімкнено автоматично — статус Укрпошти: ${o.ukrStatusText}`);
+    else alert(`Статус Укрпошти: ${o.ukrStatusText || '(поки немає даних)'}`);
   }catch(err){
     alert('Помилка оновлення статусу Укрпошти: ' + err.message);
   }
@@ -3124,12 +3129,20 @@ function applyNpStatus(o, statusItem){
     o.shipped = true;
   }
   const statusLower = (o.npStatusText || '').toLowerCase();
-  // "Грошовий переказ ... видано" — післяплату виплачено відправнику, отже посилку отримали й розрахунок закрито.
-  if(statusLower.includes('переказ') && statusLower.includes('видано')){
+  // Оплата: намагаємось зловити різні формулювання — і готівкову виплату післяплати,
+  // і зарахування на рахунок (Контроль оплати). Але через API статусів посилки
+  // НП не завжди передає підтвердження саме БАНКІВСЬКОГО переказу (Контроль оплати) —
+  // це може бути видно лише у фінансових звітах НП, а не в статусі відправлення.
+  // Тому 100%-е автоматичне визначення оплати для Контролю оплати не гарантоване —
+  // за потреби підтверджуйте оплату вручну, звірившись із надходженнями на рахунок.
+  const paidPhraseMatch =
+    (statusLower.includes('переказ') && (statusLower.includes('видано') || statusLower.includes('виплачен') || statusLower.includes('перерахован') || statusLower.includes('зарахован'))) ||
+    (statusLower.includes('оплат') && (statusLower.includes('здійснен') || statusLower.includes('отриман') || statusLower.includes('зарахован')));
+  if(paidPhraseMatch){
     o.paid = true;
   }
   // Фактичне отримання посилки отримувачем — лише тоді вважаємо "доставлено".
-  if(statusLower.includes('отримано') || (statusLower.includes('переказ') && statusLower.includes('видано'))){
+  if(statusLower.includes('отримано') || paidPhraseMatch){
     o.delivered = true;
   }
   // Клієнт відмовився / посилка їде назад — це НЕ доставка, окремо позначаємо для контролю повернення коштів.
