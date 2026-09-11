@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Прибутковість спецій</title>
+<title>Адміністрування Папріко</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -250,8 +250,8 @@
   <header>
     <div class="fb-row" style="justify-content:space-between;align-items:flex-start;">
       <div>
-        <p class="eyebrow">Ваги · облік прибутковості</p>
-        <h1>Прибутковість спецій</h1>
+        <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
+        <h1>Адміністрування Папріко</h1>
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
@@ -360,9 +360,11 @@
   <div id="section-orders" class="app-section">
 
   <div class="section-title" style="margin-top:0;">
-    Замовлення <span class="n" id="orderCount"></span>
-    <span class="btns">
+    <span style="display:flex;align-items:baseline;gap:.6rem;">
+      Замовлення <span class="n" id="orderCount"></span>
       <button class="btn btn-primary btn-sm" onclick="addOrder()">+ Нове замовлення</button>
+    </span>
+    <span class="btns">
       <button class="btn btn-sm" onclick="openTodayShipmentsModal()">Звіт по відправленнях</button>
       <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Відправити в Telegram відправлення за сьогодні</button>
       <button class="btn btn-sm" onclick="sendSmsToTodayClients()">Відправити повідомлення клієнтам за сьогодні</button>
@@ -1645,7 +1647,7 @@ async function sendTelegramMessage(text, replyMarkup){
 async function sendTestTelegramMessage(){
   const statusEl = document.getElementById('tgStatus');
   statusEl.textContent = 'Надсилаю...';
-  const res = await sendTelegramMessage('🌶️ Тестове повідомлення з програми "Прибутковість спецій". Якщо ви це бачите — все підключено правильно!');
+  const res = await sendTelegramMessage('🌶️ Тестове повідомлення з програми "Адміністрування Папріко". Якщо ви це бачите — все підключено правильно!');
   statusEl.textContent = res.ok ? 'Надіслано успішно ✓' : ('Помилка: ' + res.error);
 }
 
@@ -1771,7 +1773,7 @@ async function sendTestSms(){
   const phone = document.getElementById('smsTestPhoneInput').value.trim();
   if(!phone){ statusEl.textContent = 'Впишіть номер для тесту.'; return; }
   statusEl.textContent = 'Надсилаю...';
-  const res = await sendSms(phone, 'Тестове SMS з програми "Прибутковість спецій" — усе підключено правильно!');
+  const res = await sendSms(phone, 'Тестове SMS з програми "Адміністрування Папріко" — усе підключено правильно!');
   statusEl.textContent = res.ok ? 'Надіслано успішно ✓' : ('Помилка: ' + res.error);
 }
 
@@ -2475,6 +2477,22 @@ function orderKitOptionsHtml(){
   const opt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
   return `<option value="">Оберіть набір/товар…</option>${sorted.map(opt).join('')}`;
 }
+// тихо перераховує вагу з товарів (без alert) — викликається автоматично при зміні складу замовлення.
+// НЕ перезаписує вагу, якщо жоден товар не має вказаної ваги (щоб не затирати вже вписане вручну нулем).
+function autoUpdateWeightSilently(orderId){
+  const o = orderById(orderId);
+  if(!o) return;
+  const totalGrams = o.items.reduce((sum, it) => {
+    const k = kitById(it.kitId);
+    return sum + (k && k.weight ? k.weight : 0) * (it.qty||0);
+  }, 0);
+  if(totalGrams === 0) return;
+  const kg = Math.round((totalGrams/1000) * 10) / 10;
+  o.weight = kg;
+  const input = document.getElementById(`ship-weight-${orderId}`);
+  if(input) input.value = kg;
+}
+
 function addOrderItem(orderId){
   const select = document.getElementById(`order-item-select-${orderId}`);
   const qtyInput = document.getElementById(`order-item-qty-${orderId}`);
@@ -2487,6 +2505,7 @@ function addOrderItem(orderId){
   if(existing) existing.qty += qty;
   else o.items.push({kitId, qty, price: k ? (k.price||0) : 0});
   qtyInput.value = '';
+  autoUpdateWeightSilently(orderId);
   renderOrderItems(orderId);
   renderOrderTotal(orderId);
   renderOrdersSummary();
@@ -2495,6 +2514,7 @@ function addOrderItem(orderId){
 function removeOrderItem(orderId, kitId){
   const o = orderById(orderId);
   o.items = o.items.filter(it => it.kitId !== kitId);
+  autoUpdateWeightSilently(orderId);
   renderOrderItems(orderId);
   renderOrderTotal(orderId);
   renderOrdersSummary();
@@ -2505,6 +2525,7 @@ function updateOrderItemField(orderId, kitId, field, value){
   const it = o.items.find(it => it.kitId === kitId);
   if(!it) return;
   it[field] = parseFloat(value) || 0;
+  if(field === 'qty') autoUpdateWeightSilently(orderId);
   renderOrderItemLineTotal(orderId, kitId);
   renderOrderTotal(orderId);
   renderOrdersSummary();
