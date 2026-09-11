@@ -839,6 +839,13 @@
     <div id="reportShipmentsTable"></div>
   </div></div>
 
+  <div class="section-title">Статистика по областях України</div>
+  <p class="hint" style="margin:-8px 0 14px;">Скільки відправлень і на яку суму пішло в кожну область за обраний період. Область береться з поля «Область» у доставці — якщо не вказана, потрапляє в «Не вказано».</p>
+  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:1fr 100px 100px;"><div>Область</div><div style="text-align:right;">Відправлень</div><div style="text-align:right;">Сума</div></div>
+    <div id="reportRegions"></div>
+  </div></div>
+
   <div class="section-title">Звіт по витраті інгредієнтів</div>
   <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
     <div class="wh-row-head" style="grid-template-columns:1fr 100px 90px;"><div>Товар</div><div style="text-align:right;">Списано</div><div style="text-align:right;">Одиниця</div></div>
@@ -3992,6 +3999,31 @@ function renderReports(){
         </div>
       `;
     }).join('');
+  }
+
+  // ---- статистика по областях (з того самого набору відвантажень за період) ----
+  const regionsEl = document.getElementById('reportRegions');
+  if(regionsEl){
+    const regionStats = {};
+    shippedInRange.forEach(o => {
+      const key = (o.region||'').trim() || 'Не вказано';
+      const stat = regionStats[key] || {count:0, total:0};
+      stat.count += 1;
+      stat.total += calcOrder(o).total;
+      regionStats[key] = stat;
+    });
+    const regionRows = Object.entries(regionStats).sort((a,b) => b[1].count - a[1].count);
+    if(regionRows.length === 0){
+      regionsEl.innerHTML = '<div class="comp-empty">Немає відвантажень за цей період.</div>';
+    } else {
+      regionsEl.innerHTML = regionRows.map(([region, stat]) => `
+        <div class="wh-row" style="grid-template-columns:1fr 100px 100px;">
+          <div>${escapeAttr(region)}</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${stat.count}</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--saffron);">${fmt(stat.total)} грн</div>
+        </div>
+      `).join('');
+    }
   }
 
   // ---- звіт по витраті інгредієнтів (списання сировини/упаковки за період) ----
