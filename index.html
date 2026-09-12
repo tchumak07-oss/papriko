@@ -2301,12 +2301,18 @@ function getFilteredShipments(){
 
   const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
   let list = orders.filter(o => {
-    const ts = dateSortValue(o.date);
-    if(ts < fromTs || ts > toTs) return false;
     if(isArchived(o)) return false;
-    if(showAll || !anyStatusChecked) return true; // «Всі» або жоден чекбокс не обрано — показуємо все
-    return (fUnshipped && !o.shipped) || (fShipped && o.shipped) || (fInTransit && isInTransitOnly(o)) ||
-      (fAtBranch && isAtBranchAwaitingPickup(o)) || (fDelivered && o.delivered) || (fPaid && o.paid);
+
+    // «В дорозі» та «На відділенні» стосуються поточного стану посилки просто зараз —
+    // ігнорують період і показують геть усі такі зі списку, незалежно від дати замовлення.
+    if(fInTransit && isInTransitOnly(o)) return true;
+    if(fAtBranch && isAtBranchAwaitingPickup(o)) return true;
+
+    const ts = dateSortValue(o.date);
+    const dateOk = ts >= fromTs && ts <= toTs;
+    if(!dateOk) return false;
+    if(showAll || !anyStatusChecked) return true; // «Всі» або жоден чекбокс не обрано — показуємо все в межах періоду
+    return (fUnshipped && !o.shipped) || (fShipped && o.shipped) || (fDelivered && o.delivered) || (fPaid && o.paid);
   });
   list = list.sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9) || (b.id - a.id));
   return {orders: list, from, to};
