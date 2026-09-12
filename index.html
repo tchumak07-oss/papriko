@@ -804,13 +804,35 @@
           <option>Інше</option>
         </select>
       </div>
+      <div>
+        <label>Контрагент</label>
+        <select id="cash-counterparty">${counterpartySelectOptionsHtml('')}</select>
+      </div>
       <div style="grid-column:span 2;"><label>Примітка</label><input type="text" id="cash-note" placeholder="напр. оплата постачальнику за куркуму"></div>
     </div>
     <button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="addCashTransaction()">Додати операцію</button>
   </div></div>
 
+  <div class="catalog-panel" style="margin-bottom:14px;">
+    <button class="catalog-toggle" onclick="toggleCounterpartiesPanel()">
+      <span id="counterpartiesToggleLabel">База контрагентів</span>
+      <span id="counterpartiesToggleIcon">▸</span>
+    </button>
+    <div class="catalog-body" id="counterpartiesBody">
+      <div style="padding:14px 16px;">
+        <p class="hint" style="margin:0 0 10px;">Постачальники, орендодавці та інші контрагенти для операцій каси — щоб не вписувати назву щоразу вручну.</p>
+        <div class="fb-row" style="margin-bottom:14px;">
+          <input type="text" id="newCounterpartyName" placeholder="Назва / ПІБ контрагента">
+          <input type="text" id="newCounterpartyPhone" placeholder="Телефон (необов'язково)">
+          <button class="btn btn-sm" onclick="addCounterparty()">Додати</button>
+        </div>
+        <div id="counterpartiesList"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="catalog-panel"><div style="padding:14px 16px;" class="wh-movements">
-    <div class="wh-row-head"><div>Дата</div><div>Категорія / примітка</div><div style="text-align:right;">Сума</div><div>Тип</div><div>Служба</div><div>Джерело</div><div></div></div>
+    <div class="wh-row-head"><div>Дата</div><div>Категорія / примітка</div><div>Контрагент</div><div style="text-align:right;">Сума</div><div>Тип</div><div>Служба</div><div>Джерело</div><div></div></div>
     <div id="cashTable"></div>
   </div></div>
 
@@ -946,9 +968,9 @@ const HARDCODED_FIREBASE_CONFIG = {
 
 function buildStatePayload(){
   return {
-    catalog, kits, orders, clients, stockMovements, cashTransactions, npApiKey, npSender, tgBotToken, tgChatId,
+    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, npApiKey, npSender, tgBotToken, tgChatId,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
-    nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId,
+    nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId,
     updatedAt: new Date().toISOString()
   };
 }
@@ -961,6 +983,7 @@ function applyRemoteData(data){
   clients = data.clients || [];
   stockMovements = data.stockMovements || [];
   cashTransactions = data.cashTransactions || [];
+  counterparties = data.counterparties || [];
   npApiKey = data.npApiKey || '';
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
   tgBotToken = data.tgBotToken || '';
@@ -980,6 +1003,7 @@ function applyRemoteData(data){
   nextClientId = data.nextClientId || (Math.max(0, ...clients.map(c=>c.id), 0) + 1);
   nextMovementId = data.nextMovementId || (Math.max(0, ...stockMovements.map(m=>m.id), 0) + 1);
   nextCashId = data.nextCashId || (Math.max(0, ...cashTransactions.map(t=>t.id), 0) + 1);
+  nextCounterpartyId = data.nextCounterpartyId || (Math.max(0, ...counterparties.map(c=>c.id), 0) + 1);
   renderCatalog();
   renderKits();
   renderOrders();
@@ -992,6 +1016,8 @@ function applyRemoteData(data){
   renderInventory();
   populateMovementItemSelect();
   renderCash();
+  renderCounterparties();
+  renderCashCounterpartySelect();
   renderReports();
   const npInput = document.getElementById('npApiKeyInput');
   if(npInput) npInput.value = npApiKey;
@@ -1606,6 +1632,14 @@ function toggleDeliverySettings(){
   document.getElementById('deliveryToggleLabel').textContent = open
     ? 'Сховати налаштування доставки'
     : 'Налаштування доставки (Нова Пошта / Укрпошта)';
+}
+
+function toggleCounterpartiesPanel(){
+  const body = document.getElementById('counterpartiesBody');
+  const open = body.classList.toggle('open');
+  document.getElementById('counterpartiesToggleIcon').textContent = open ? '▾' : '▸';
+  document.getElementById('counterpartiesToggleLabel').textContent = open ? 'Сховати базу контрагентів' : 'База контрагентів';
+  if(open) renderCounterparties();
 }
 
 function saveNpApiKey(){
@@ -4029,6 +4063,77 @@ function renderArchive(){
 let nextCashId = 1;
 let cashTransactions = [];
 
+/* ---------- контрагенти (постачальники тощо) ---------- */
+
+let nextCounterpartyId = 1;
+let counterparties = [];
+
+function counterpartyById(id){ return counterparties.find(c => String(c.id) === String(id)); }
+
+function addCounterparty(){
+  const nameInput = document.getElementById('newCounterpartyName');
+  const phoneInput = document.getElementById('newCounterpartyPhone');
+  const name = (nameInput.value || '').trim();
+  if(!name){ alert('Впишіть назву/ім\'я контрагента.'); return; }
+  const id = nextCounterpartyId++;
+  counterparties.push({id, name, phone: (phoneInput.value||'').trim(), notes:''});
+  nameInput.value = '';
+  phoneInput.value = '';
+  renderCounterparties();
+  renderCashCounterpartySelect();
+  scheduleSave();
+}
+
+function updateCounterpartyField(id, field, value){
+  const c = counterpartyById(id);
+  if(!c) return;
+  c[field] = value;
+  renderCashCounterpartySelect();
+  renderCash();
+  scheduleSave();
+}
+
+function removeCounterparty(id){
+  const c = counterpartyById(id);
+  if(!c) return;
+  const usedCount = cashTransactions.filter(t => String(t.counterpartyId) === String(id)).length;
+  const warn = usedCount > 0 ? `\n\nЦей контрагент використаний у ${usedCount} операціях каси — там просто лишиться його стара назва текстом.` : '';
+  if(!confirm(`Видалити контрагента «${c.name}»?${warn}`)) return;
+  counterparties = counterparties.filter(x => x.id !== id);
+  renderCounterparties();
+  renderCashCounterpartySelect();
+  renderCash();
+  scheduleSave();
+}
+
+function renderCounterparties(){
+  const el = document.getElementById('counterpartiesList');
+  if(!el) return;
+  if(counterparties.length === 0){
+    el.innerHTML = '<div class="comp-empty">Ще немає жодного контрагента.</div>';
+    return;
+  }
+  const sorted = [...counterparties].sort((a,b) => a.name.localeCompare(b.name));
+  el.innerHTML = sorted.map(c => `
+    <div class="wh-row" style="grid-template-columns:1fr 160px 40px;">
+      <input type="text" value="${escapeAttr(c.name)}" oninput="updateCounterpartyField(${c.id},'name',this.value)">
+      <input type="text" value="${escapeAttr(c.phone||'')}" placeholder="телефон" oninput="updateCounterpartyField(${c.id},'phone',this.value)">
+      <button class="btn-ghost" onclick="removeCounterparty(${c.id})" aria-label="Видалити контрагента">×</button>
+    </div>
+  `).join('');
+}
+
+function counterpartySelectOptionsHtml(selectedId){
+  const sorted = [...counterparties].sort((a,b) => a.name.localeCompare(b.name));
+  return `<option value="">— без контрагента —</option>` +
+    sorted.map(c => `<option value="${c.id}" ${String(selectedId)===String(c.id)?'selected':''}>${escapeAttr(c.name)}</option>`).join('');
+}
+
+function renderCashCounterpartySelect(){
+  const sel = document.getElementById('cash-counterparty');
+  if(sel) sel.innerHTML = counterpartySelectOptionsHtml('');
+}
+
 // проходить по всіх замовленнях в архіві й позначає «Оплачено» ті, де це забули зробити
 // (найчастіше — коли замовлення потрапило в архів через ручний прапорець «В архів», без галочки оплати).
 // Після цього каса сама підхопить надходження через syncCashFromArchive().
@@ -4076,14 +4181,16 @@ function addCashTransaction(){
   const amountInput = document.getElementById('cash-amount');
   const dateInput = document.getElementById('cash-date');
   const category = document.getElementById('cash-category').value;
+  const counterpartySelect = document.getElementById('cash-counterparty');
   const noteInput = document.getElementById('cash-note');
   const amount = parseFloat(amountInput.value);
   if(!amount || isNaN(amount) || amount <= 0){ alert('Вкажіть суму більше нуля.'); return; }
   cashTransactions.push({
     id: nextCashId++, date: dateInput.value || todayStr(), type, amount,
-    category, note: noteInput.value || '', source:'manual', orderId:null
+    category, counterpartyId: counterpartySelect.value || '', note: noteInput.value || '', source:'manual', orderId:null
   });
-  amountInput.value = ''; noteInput.value = '';
+  amountInput.value = ''; noteInput.value ='';
+  counterpartySelect.value = '';
   renderCash();
   scheduleSave();
 }
@@ -4131,10 +4238,14 @@ function renderCash(){
   tableEl.innerHTML = sorted.map(t => {
     const linkedOrder = t.source === 'order' ? orderById(t.orderId) : null;
     const isManual = t.source !== 'order';
+    const counterparty = counterpartyById(t.counterpartyId);
     return `
     <div class="wh-row">
       <div class="hint">${t.date||''}</div>
       <div>${isManual ? cashCategorySelectHtml(t) : escapeAttr(t.category||'')}${t.note ? ' — '+escapeAttr(t.note) : ''}</div>
+      <div>${isManual
+        ? `<select onchange="updateCashTransaction(${t.id},'counterpartyId',this.value)" style="width:auto;display:inline-block;">${counterpartySelectOptionsHtml(t.counterpartyId)}</select>`
+        : escapeAttr(counterparty ? counterparty.name : '')}</div>
       <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${t.type==='Витрата'?'var(--danger)':'var(--cardamom)'};">
         ${t.type==='Витрата'?'−':'+'}${isManual
           ? `<input type="number" step="1" value="${t.amount}" oninput="updateCashTransaction(${t.id},'amount',this.value)" style="width:80px;display:inline-block;text-align:right;font-family:'JetBrains Mono',monospace;">`
@@ -5724,6 +5835,7 @@ renderMovements();
 renderInventory();
 populateMovementItemSelect();
 renderCash();
+renderCounterparties();
 document.getElementById('cash-date').value = todayStr();
 document.getElementById('fixFutureDateInput').value = todayStr();
 renderReports();
