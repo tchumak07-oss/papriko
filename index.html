@@ -875,6 +875,7 @@
   <div class="catalog-panel"><div style="padding:14px 16px;" class="wh-movements">
     <div class="wh-row-head"><div>Дата</div><div>Категорія / примітка</div><div>Контрагент</div><div style="text-align:right;">Сума</div><div>Тип</div><div>Служба</div><div>Джерело</div><div></div></div>
     <div id="cashTable"></div>
+    <p class="hint" id="cashFilteredSummary" style="margin-top:10px;"></p>
   </div></div>
 
   </div><!-- /section-cash -->
@@ -4313,9 +4314,20 @@ function renderCash(){
     return true;
   });
 
+  const filteredSummaryEl = document.getElementById('cashFilteredSummary');
+
   if(filtered.length === 0){
     tableEl.innerHTML = sorted.length === 0 ? '<div class="comp-empty">Ще немає жодної операції.</div>' : '<div class="comp-empty">Нічого не знайдено за цими фільтрами.</div>';
+    if(filteredSummaryEl) filteredSummaryEl.textContent = '';
     return;
+  }
+  if(filteredSummaryEl){
+    const filteredIncome = filtered.filter(t=>t.type==='Надходження').reduce((s,t)=>s+t.amount,0);
+    const filteredExpense = filtered.filter(t=>t.type==='Витрата').reduce((s,t)=>s+t.amount,0);
+    const parts = [`Показано: <strong>${filtered.length}</strong> операцій`];
+    if(filteredExpense > 0) parts.push(`витрати: <strong style="color:var(--danger);">${fmt(filteredExpense)} грн</strong>`);
+    if(filteredIncome > 0) parts.push(`надходження: <strong style="color:var(--cardamom);">${fmt(filteredIncome)} грн</strong>`);
+    filteredSummaryEl.innerHTML = parts.join(' · ');
   }
   tableEl.innerHTML = filtered.map(t => {
     const linkedOrder = t.source === 'order' ? orderById(t.orderId) : null;
