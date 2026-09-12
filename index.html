@@ -4100,6 +4100,14 @@ function removeCashTransaction(id){
   scheduleSave();
 }
 
+const CASH_CATEGORIES = ['Закупівля сировини','Упаковка','Оренда','Зарплата','Реклама','Логістика','Податки','Продаж','Інше'];
+
+function cashCategorySelectHtml(t){
+  return `<select onchange="updateCashTransaction(${t.id},'category',this.value)" style="width:auto;display:inline-block;">
+    ${CASH_CATEGORIES.map(c => `<option ${t.category===c?'selected':''}>${c}</option>`).join('')}
+  </select>`;
+}
+
 function renderCash(){
   const summaryEl = document.getElementById('cashSummary');
   const tableEl = document.getElementById('cashTable');
@@ -4122,11 +4130,16 @@ function renderCash(){
   }
   tableEl.innerHTML = sorted.map(t => {
     const linkedOrder = t.source === 'order' ? orderById(t.orderId) : null;
+    const isManual = t.source !== 'order';
     return `
     <div class="wh-row">
       <div class="hint">${t.date||''}</div>
-      <div>${escapeAttr(t.category||'')}${t.note ? ' — '+escapeAttr(t.note) : ''}</div>
-      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${t.type==='Витрата'?'var(--danger)':'var(--cardamom)'};">${t.type==='Витрата'?'−':'+'}${fmt(t.amount)} грн</div>
+      <div>${isManual ? cashCategorySelectHtml(t) : escapeAttr(t.category||'')}${t.note ? ' — '+escapeAttr(t.note) : ''}</div>
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${t.type==='Витрата'?'var(--danger)':'var(--cardamom)'};">
+        ${t.type==='Витрата'?'−':'+'}${isManual
+          ? `<input type="number" step="1" value="${t.amount}" oninput="updateCashTransaction(${t.id},'amount',this.value)" style="width:80px;display:inline-block;text-align:right;font-family:'JetBrains Mono',monospace;">`
+          : fmt(t.amount)} грн
+      </div>
       <div class="hint">${escapeAttr(t.type)}</div>
       <div>${linkedOrder ? carrierBadgeHtml(linkedOrder) : ''}</div>
       <div class="hint">${t.source==='order' ? 'автоматично' : 'вручну'}</div>
@@ -4134,6 +4147,19 @@ function renderCash(){
     </div>
   `;
   }).join('');
+}
+
+function updateCashTransaction(id, field, value){
+  const t = cashTransactions.find(x => x.id === id);
+  if(!t) return;
+  if(field === 'amount'){
+    const num = parseFloat(value);
+    t.amount = isNaN(num) ? 0 : Math.abs(num);
+  } else {
+    t[field] = value;
+  }
+  renderCash();
+  scheduleSave();
 }
 
 /* ---------- reports ---------- */
