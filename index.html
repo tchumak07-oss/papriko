@@ -3600,7 +3600,7 @@ function deliverySummaryText(o){
   const regionPart = o.region ? o.region + ', ' : '';
   if(o.deliveryMethod === 'Нова Пошта'){
     if(!o.city) return 'Нова Пошта — місто не вказане';
-    return `Нова Пошта, ${regionPart}${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}`;
+    return `Нова Пошта, ${regionPart}${o.city}${o.warehouseDesc ? ', ' + o.warehouseDesc : ''}${o.ttnNumber ? ' · ТТН '+o.ttnNumber : ''}`;
   }
   if(o.deliveryMethod === 'Укрпошта'){
     const addrPart = o.ukrCity ? `${o.ukrCity}${o.ukrStreet ? ', '+o.ukrStreet+(o.ukrHouse?' '+o.ukrHouse:'')+(o.ukrApartment?', кв.'+o.ukrApartment:'') : ''}` : (o.address || '');
