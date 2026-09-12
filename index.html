@@ -2568,6 +2568,53 @@ function autoUpdateWeightSilently(orderId){
   if(input) input.value = kg;
 }
 
+function toggleNewSkuForm(orderId){
+  const form = document.getElementById(`new-sku-form-${orderId}`);
+  if(!form) return;
+  const showing = form.style.display !== 'none';
+  form.style.display = showing ? 'none' : 'block';
+  if(!showing){
+    const nameInput = document.getElementById(`new-sku-name-${orderId}`);
+    if(nameInput) nameInput.focus();
+  }
+}
+
+function createSkuFromOrder(orderId){
+  const nameInput = document.getElementById(`new-sku-name-${orderId}`);
+  const priceInput = document.getElementById(`new-sku-price-${orderId}`);
+  const name = (nameInput.value || '').trim();
+  const price = parseFloat(priceInput.value) || 0;
+  if(!name){ alert('Впишіть назву товару.'); return; }
+
+  const id = nextKitId++;
+  kits.push({
+    id, sku: nextSku(), name, type: 'Набір', components: [],
+    weight: 0, logistics: 0, marketing: 0, price, qty: 0, collapsed: true
+  });
+  renderKits();
+  renderCostsPanel();
+  renderSummary();
+  renderChart();
+
+  // одразу додаємо щойно створений товар у це замовлення
+  const o = orderById(orderId);
+  const existing = o.items.find(it => it.kitId === id);
+  if(existing) existing.qty += 1;
+  else o.items.push({kitId: id, qty: 1, price});
+  autoUpdateWeightSilently(orderId);
+
+  nameInput.value = '';
+  priceInput.value = '';
+  toggleNewSkuForm(orderId);
+  renderOrderItems(orderId);
+  renderOrderTotal(orderId);
+  renderOrdersSummary();
+  // оновлюємо список вибору товару в цій картці, щоб новий SKU теж туди потрапив
+  const select = document.getElementById(`order-item-select-${orderId}`);
+  if(select) select.innerHTML = orderKitOptionsHtml();
+  scheduleSave();
+}
+
 function addOrderItem(orderId){
   const select = document.getElementById(`order-item-select-${orderId}`);
   const qtyInput = document.getElementById(`order-item-qty-${orderId}`);
@@ -2758,20 +2805,42 @@ async function ukrTrackingApiCall(path, method, body){
 }
 
 // відображає внутрішні прапорці (shipped/delivered/returned) відповідно до коду події зі статус-трекінгу Укрпошти
+// Офіційна таблиця кодів подій Укrpошти (Annex B, Status Tracking API), згрупована за "Ecom API status":
+//   REGISTERED   10100                                — лише створено/зареєстровано, ЩЕ НЕ відправлено фізично
+//   DELIVERING   20700, 20800, 20900, 21500, 31100     — вже реально в дорозі
+//   IN_DEPARTMENT 21700                                — прибуло на відділення отримувача
+//   STORAGE      21400                                 — передано на зберігання (теж уже в дорозі)
+//   FORWARDING   31300, 31400                          — переадресовано/невдала спроба, все ще в мережі
+//   DELIVERED    41000 (без eventReason_id=10), 48000  — фактично вручено отримувачу
+//   RETURNED     41000 + eventReason_id=10 (=41010)    — по факту повернено відправнику, а не вручено отримувачу
+//   RETURNING    31200                                 — триває процес повернення
+//   CANCELLED    10600, 10602                          — скасовано (реєстрацію знято)
+const UKR_SHIPPED_EVENTS = [20700,20800,20900,21500,31100,21700,21400,31300,31400];
+const UKR_CANCELLED_EVENTS = [10600,10602];
+
 function applyUkrStatus(o, statusItem){
   if(!statusItem) return {shipped:false, delivered:false, returned:false, paid:false};
   const wasShipped = o.shipped, wasDelivered = o.delivered, wasReturned = o.npReturned, wasPaid = o.paid;
   o.ukrStatusText = statusItem.eventName || '';
   const event = Number(statusItem.event);
-  if(event >= 10100) o.shipped = true; // прийнято на відділенні — вже в дорозі
-  if(event === 41000 || event === 48000){
-    if(statusItem.eventReason_id === 10 || String(statusItem.eventReason||'').includes('відправ') || String(statusItem.eventReason||'').toLowerCase().includes('sender')){
-      o.npReturned = true; // "вручено відправнику" = фактично повернення
+  const reasonId = Number(statusItem.eventReason_id);
+
+  if(event === 10100 || UKR_CANCELLED_EVENTS.includes(event)){
+    // REGISTERED / CANCELLED — декларація лише створена (або скасована), фізично ще нікуди не рухалась.
+    // Свідомо НЕ позначаємо як «Відправлено».
+  } else if(UKR_SHIPPED_EVENTS.includes(event)){
+    o.shipped = true;
+  } else if(event === 41000 || event === 48000){
+    if(reasonId === 10){
+      o.npReturned = true; // "вручено відправнику" (41010) = фактично повернення, а не доставка отримувачу
     } else {
+      o.shipped = true;
       o.delivered = true;
     }
+  } else if(event === 31200){
+    o.npReturned = true;
   }
-  if(event === 31200 || event === 31300) o.npReturned = true;
+
   // текстове визначення оплати (контроль оплати/післяплата) — точних кодів події для цього
   // Укрпошта не документує, тож ловимо за ключовими словами в тексті події.
   const textLower = (o.ukrStatusText || '').toLowerCase();
@@ -2779,6 +2848,7 @@ function applyUkrStatus(o, statusItem){
      (textLower.includes('виплачен') || textLower.includes('перерахован') || textLower.includes('зарахован') || textLower.includes('здійснен'))){
     o.paid = true;
   }
+
   return {shipped: o.shipped && !wasShipped, delivered: o.delivered && !wasDelivered, returned: o.npReturned && !wasReturned, paid: o.paid && !wasPaid};
 }
 
@@ -4269,6 +4339,20 @@ function orderExpandedHtml(o){
         <select id="order-item-select-${o.id}">${orderKitOptionsHtml()}</select>
         <input type="number" step="1" placeholder="к-сть" id="order-item-qty-${o.id}">
         <button class="btn btn-sm" onclick="addOrderItem(${o.id})">Додати</button>
+      </div>
+      <div class="fb-row" style="margin:-8px 0 14px;">
+        <button class="btn btn-sm" type="button" onclick="toggleNewSkuForm(${o.id})">+ Новий товар (SKU)</button>
+      </div>
+      <div id="new-sku-form-${o.id}" style="display:none;margin:-8px 0 14px;">
+        <div class="delivery-grid">
+          <div><label>Назва товару</label><input type="text" id="new-sku-name-${o.id}" placeholder="напр. Набір за 850"></div>
+          <div><label>Ціна, грн</label><input type="number" step="1" id="new-sku-price-${o.id}" placeholder="850"></div>
+          <div style="display:flex;align-items:flex-end;gap:8px;">
+            <button class="btn btn-primary btn-sm" type="button" onclick="createSkuFromOrder(${o.id})">Створити й додати</button>
+            <button class="btn-ghost" type="button" onclick="toggleNewSkuForm(${o.id})" aria-label="Скасувати">×</button>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:4px;">Створює новий товар одразу зі складом і ціною й додає його в це замовлення. Склад (з чого складається), логістику й маркетинг можна донастроїти пізніше у вкладці «Товари».</p>
       </div>
 
       <textarea class="order-notes" rows="2" placeholder="Примітки" oninput="updateOrderField(${o.id},'notes',this.value)">${escapeAttr(o.notes||'')}</textarea>
