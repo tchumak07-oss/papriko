@@ -407,10 +407,11 @@
 
   <div id="todayShipmentsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center;">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:960px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
         <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;">Звіт по відправленнях</h3>
         <button class="btn-ghost" onclick="closeTodayShipmentsModal()" aria-label="Закрити">×</button>
       </div>
+      <p class="hint" id="todayShipmentsSyncStatus" style="margin:0 0 14px;"></p>
 
       <div class="delivery-grid" style="margin-bottom:10px;">
         <div><label>Період з</label><input type="date" id="tsPeriodFrom" onchange="renderTodayShipmentsModal()"></div>
@@ -425,6 +426,8 @@
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterAll" onchange="onTsFilterAllChange()" style="width:auto;accent-color:var(--saffron);"> Всі</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterUnshipped" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Створені, не відправлені</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterShipped" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Створені і відправлені</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterInTransit" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> В дорозі</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterAtBranch" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> На відділенні, ще не забрали</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterDelivered" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Доставлені</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterPaid" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Оплачені</label>
       </div>
@@ -2216,6 +2219,8 @@ function onTsFilterAllChange(){
   if(document.getElementById('tsFilterAll').checked){
     document.getElementById('tsFilterUnshipped').checked = false;
     document.getElementById('tsFilterShipped').checked = false;
+    document.getElementById('tsFilterInTransit').checked = false;
+    document.getElementById('tsFilterAtBranch').checked = false;
     document.getElementById('tsFilterDelivered').checked = false;
     document.getElementById('tsFilterPaid').checked = false;
   }
@@ -2224,23 +2229,45 @@ function onTsFilterAllChange(){
 function onTsFilterSpecificChange(){
   const anyChecked = document.getElementById('tsFilterUnshipped').checked
     || document.getElementById('tsFilterShipped').checked
+    || document.getElementById('tsFilterInTransit').checked
+    || document.getElementById('tsFilterAtBranch').checked
     || document.getElementById('tsFilterDelivered').checked
     || document.getElementById('tsFilterPaid').checked;
   if(anyChecked) document.getElementById('tsFilterAll').checked = false;
   renderTodayShipmentsModal();
 }
 
-function openTodayShipmentsModal(){
+async function openTodayShipmentsModal(){
   const today = todayStr();
   document.getElementById('tsPeriodFrom').value = today;
   document.getElementById('tsPeriodTo').value = today;
   document.getElementById('tsFilterAll').checked = true;
   document.getElementById('tsFilterUnshipped').checked = false;
   document.getElementById('tsFilterShipped').checked = false;
+  document.getElementById('tsFilterInTransit').checked = false;
+  document.getElementById('tsFilterAtBranch').checked = false;
   document.getElementById('tsFilterDelivered').checked = false;
   document.getElementById('tsFilterPaid').checked = false;
   renderTodayShipmentsModal();
   document.getElementById('todayShipmentsModal').style.display = 'flex';
+
+  // автоматично звіряємо статуси з НП і Укrpошти, щоб звіт одразу показував свіжі дані
+  const syncStatusEl = document.getElementById('todayShipmentsSyncStatus');
+  if(syncStatusEl) syncStatusEl.textContent = 'Синхронізую статуси з НП і Укрпоштою...';
+  const [npRes, ukrRes] = await Promise.all([syncAllNpStatusesQuiet(), syncAllUkrStatusesQuiet()]);
+  renderOrders();
+  scheduleSave();
+  renderTodayShipmentsModal();
+  if(syncStatusEl){
+    const parts = [];
+    if(npRes.skipped) parts.push('НП: ключ не вказано');
+    else if(!npRes.ok) parts.push('НП: помилка — ' + npRes.error);
+    else parts.push(`НП: перевірено ${npRes.checked}`);
+    if(ukrRes.skipped) parts.push('Укрпошта: Bearer не вказано');
+    else if(!ukrRes.ok) parts.push('Укрпошта: помилка — ' + ukrRes.error);
+    else parts.push(`Укрпошта: перевірено ${ukrRes.checked}`);
+    syncStatusEl.textContent = 'Синхронізовано. ' + parts.join(' · ');
+  }
 }
 
 function setTodayShipmentsPeriod(kind){
@@ -2266,9 +2293,11 @@ function getFilteredShipments(){
   const showAll = document.getElementById('tsFilterAll').checked;
   const fUnshipped = document.getElementById('tsFilterUnshipped').checked;
   const fShipped = document.getElementById('tsFilterShipped').checked;
+  const fInTransit = document.getElementById('tsFilterInTransit').checked;
+  const fAtBranch = document.getElementById('tsFilterAtBranch').checked;
   const fDelivered = document.getElementById('tsFilterDelivered').checked;
   const fPaid = document.getElementById('tsFilterPaid').checked;
-  const anyStatusChecked = fUnshipped || fShipped || fDelivered || fPaid;
+  const anyStatusChecked = fUnshipped || fShipped || fInTransit || fAtBranch || fDelivered || fPaid;
 
   const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
   let list = orders.filter(o => {
@@ -2276,7 +2305,8 @@ function getFilteredShipments(){
     if(ts < fromTs || ts > toTs) return false;
     if(isArchived(o)) return false;
     if(showAll || !anyStatusChecked) return true; // «Всі» або жоден чекбокс не обрано — показуємо все
-    return (fUnshipped && !o.shipped) || (fShipped && o.shipped) || (fDelivered && o.delivered) || (fPaid && o.paid);
+    return (fUnshipped && !o.shipped) || (fShipped && o.shipped) || (fInTransit && isInTransitOnly(o)) ||
+      (fAtBranch && isAtBranchAwaitingPickup(o)) || (fDelivered && o.delivered) || (fPaid && o.paid);
   });
   list = list.sort((a,b) => (methodOrder[a.deliveryMethod] ?? 9) - (methodOrder[b.deliveryMethod] ?? 9) || (b.id - a.id));
   return {orders: list, from, to};
@@ -2294,7 +2324,8 @@ function renderTodayShipmentsModal(){
         const k = kitById(it.kitId);
         return `${k ? k.name : '(товар)'} × ${it.qty}`;
       }).join(', ');
-      const statusText = [o.paid?'Оплачено':'', o.shipped?'Відправлено':'', o.delivered?'Доставлено':''].filter(Boolean).join(', ') || o.status;
+      const transitLabel = isAtBranchAwaitingPickup(o) ? 'на відділенні' : (isInTransitOnly(o) ? 'в дорозі' : '');
+      const statusText = [o.paid?'Оплачено':'', transitLabel, o.delivered?'Доставлено':''].filter(Boolean).join(', ') || o.status;
       return `
         <div class="wh-row" style="grid-template-columns:90px 1fr 1fr 90px 100px 130px 1fr;">
           <div class="hint">${o.date||''}</div>
@@ -2887,13 +2918,14 @@ async function syncUkrStatus(orderId){
   }
 }
 
-async function syncAllUkrStatuses(){
-  if(!ukrBearer){ alert('Спочатку вкажіть Bearer Укрпошти в «Налаштування доставки».'); return; }
+// "Тиха" версія без спливаючих вікон — використовується і кнопкою, і автосинхронізацією при відкритті звіту.
+// Повертає {ok, error, checked, shipped, delivered, paid, returned} або {ok:false, error, skipped:true} якщо немає ключа/даних.
+async function syncAllUkrStatusesQuiet(){
+  if(!ukrBearer) return {ok:false, skipped:true, error:'Не вказано Bearer Укрпошти'};
   const withTtn = orders.filter(o => o.deliveryMethod==='Укрпошта' && o.ukrTtnNumber && !isArchived(o));
-  if(withTtn.length === 0){ alert('Немає активних декларацій Укрпошти для перевірки (усі вже в архіві, або жодної ще не створено). Для перевірки архіву є окрема кнопка у вкладці «Архів».'); return; }
+  if(withTtn.length === 0) return {ok:true, checked:0, shipped:0, delivered:0, paid:0, returned:0};
   try{
     let justShipped=0, justDelivered=0, justReturned=0, justPaid=0;
-    // Укрпошта дозволяє до 100 штрихкодів за раз — розбиваємо на групи
     for(let i=0; i<withTtn.length; i+=100){
       const chunk = withTtn.slice(i, i+100);
       const barcodes = chunk.map(o => o.ukrTtnNumber);
@@ -2907,12 +2939,21 @@ async function syncAllUkrStatuses(){
         if(res.paid) justPaid++;
       });
     }
-    renderOrders();
-    scheduleSave();
-    alert(`Перевірено ${withTtn.length} активних декларацій Укрпошти (без архіву). «Відправлено»: ${justShipped}. «Доставлено»: ${justDelivered}. «Оплачено»: ${justPaid}. Повернень: ${justReturned}.`);
+    return {ok:true, checked:withTtn.length, shipped:justShipped, delivered:justDelivered, paid:justPaid, returned:justReturned};
   }catch(err){
-    alert('Помилка синхронізації з Укрпоштою: ' + err.message);
+    return {ok:false, error: err.message};
   }
+}
+
+async function syncAllUkrStatuses(){
+  if(!ukrBearer){ alert('Спочатку вкажіть Bearer Укрпошти в «Налаштування доставки».'); return; }
+  const withTtn = orders.filter(o => o.deliveryMethod==='Укрпошта' && o.ukrTtnNumber && !isArchived(o));
+  if(withTtn.length === 0){ alert('Немає активних декларацій Укрпошти для перевірки (усі вже в архіві, або жодної ще не створено). Для перевірки архіву є окрема кнопка у вкладці «Архів».'); return; }
+  const res = await syncAllUkrStatusesQuiet();
+  if(!res.ok){ alert('Помилка синхронізації з Укрпоштою: ' + res.error); return; }
+  renderOrders();
+  scheduleSave();
+  alert(`Перевірено ${res.checked} активних декларацій Укрпошти (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Повернень: ${res.returned}.`);
 }
 
 async function createUkrShipment(orderId){
@@ -3121,6 +3162,15 @@ function linkExistingTtn(orderId){
   o.ttnRef = ''; // немає внутрішнього Ref з API — цю ТТН не створювали через програму, тож видалити її звідси не можна, лише відв'язати
   o.npStatusText = '';
   o.npStatusCode = '';
+
+  // ТТН прив'язується вручну (не через нашу форму створення), тож суму контролю оплати ми не знаємо —
+  // питаємо одразу, щоб не було розбіжності з реальною накладною (як уже траплялось).
+  if(!o.codAmount || Number(o.codAmount) <= 0){
+    const codInput = prompt('Якщо на цій ТТН є накладений платіж / контроль оплати — впишіть суму, грн (для автоматичного визначення оплати після доставки). Залиште порожнім, якщо оплати через НП немає.', '');
+    const codVal = parseFloat(codInput);
+    if(!isNaN(codVal) && codVal > 0) o.codAmount = codVal;
+  }
+
   renderOrders();
   scheduleSave();
 }
@@ -3250,6 +3300,19 @@ async function cancelNpWaybill(orderId){
   }
 }
 
+// Розрізняє «на відділенні, ще не забрали» від «просто в дорозі» — за текстом останнього
+// відомого статусу (НП чи Укrpошта), який ми вже зберігаємо в кожному замовленні.
+function isAtBranchAwaitingPickup(o){
+  if(o.delivered || !o.shipped) return false;
+  const text = ((o.npStatusText || o.ukrStatusText || '')).toLowerCase();
+  return text.includes('прибуло у відділення') || text.includes('прибув у відділення') ||
+         text.includes('прибуло на відділення') || text.includes('прибув на відділення') ||
+         text.includes('очікує отримання') || text.includes('на відділенні') || text.includes('очікує клієнта');
+}
+function isInTransitOnly(o){
+  return !!o.shipped && !o.delivered && !isAtBranchAwaitingPickup(o);
+}
+
 // StatusCode "1" = ТТН зареєстровано, вантаж ще не прийнято у відділенні.
 // Будь-який інший код означає, що відправлення вже рухається по мережі НП (це ще не доставка).
 function applyNpStatus(o, statusItem){
@@ -3321,15 +3384,12 @@ async function syncNpStatus(orderId){
   }
 }
 
-async function syncAllNpStatuses(){
-  if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти.'); return; }
+async function syncAllNpStatusesQuiet(){
+  if(!npApiKey) return {ok:false, skipped:true, error:'Не вказано API-ключ Нової Пошти'};
   const withTtn = orders.filter(o => o.ttnNumber && !isArchived(o));
-  if(withTtn.length === 0){ alert('Немає активних ТТН для перевірки (усі вже в архіві, або жодна ще не створена). Для перевірки архіву є окрема кнопка у вкладці «Архів».'); return; }
-  const btn = document.getElementById('syncAllNpBtn');
-  if(btn){ btn.disabled = true; btn.textContent = 'Перевіряю...'; }
+  if(withTtn.length === 0) return {ok:true, checked:0, shipped:0, delivered:0, archived:0, returned:0, paid:0};
   try{
     let justShippedCount = 0, justDeliveredCount = 0, justArchivedCount = 0, justReturnedCount = 0, justPaidCount = 0;
-    // НП теж має обмеження на кількість документів у запиті — на всяк випадок розбиваємо по 100
     for(let i=0; i<withTtn.length; i+=100){
       const chunk = withTtn.slice(i, i+100);
       const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {
@@ -3345,10 +3405,25 @@ async function syncAllNpStatuses(){
         if(res.paid) justPaidCount++;
       });
     }
+    return {ok:true, checked:withTtn.length, shipped:justShippedCount, delivered:justDeliveredCount, archived:justArchivedCount, returned:justReturnedCount, paid:justPaidCount};
+  }catch(err){
+    return {ok:false, error: err.message};
+  }
+}
+
+async function syncAllNpStatuses(){
+  if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти.'); return; }
+  const withTtn = orders.filter(o => o.ttnNumber && !isArchived(o));
+  if(withTtn.length === 0){ alert('Немає активних ТТН для перевірки (усі вже в архіві, або жодна ще не створена). Для перевірки архіву є окрема кнопка у вкладці «Архів».'); return; }
+  const btn = document.getElementById('syncAllNpBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Перевіряю...'; }
+  try{
+    const res = await syncAllNpStatusesQuiet();
+    if(!res.ok){ alert('Помилка синхронізації з НП: ' + res.error); return; }
     renderOrders();
     scheduleSave();
-    let msg = `Перевірено ${withTtn.length} активних відправлень (без архіву). «Відправлено»: ${justShippedCount}. «Доставлено»: ${justDeliveredCount}. «Оплачено»: ${justPaidCount}. Перенесено в архів: ${justArchivedCount}.`;
-    if(justReturnedCount > 0) msg += ` ⚠ Повернень (перевірте повернення коштів): ${justReturnedCount}.`;
+    let msg = `Перевірено ${res.checked} активних відправлень (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Перенесено в архів: ${res.archived}.`;
+    if(res.returned > 0) msg += ` ⚠ Повернень (перевірте повернення коштів): ${res.returned}.`;
     alert(msg);
   }catch(err){
     alert('Помилка синхронізації з НП: ' + err.message);
