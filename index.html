@@ -3333,9 +3333,10 @@ async function cancelNpWaybill(orderId){
 function isAtBranchAwaitingPickup(o){
   if(o.delivered || !o.shipped) return false;
   const text = ((o.npStatusText || o.ukrStatusText || '')).toLowerCase();
-  return text.includes('прибуло у відділення') || text.includes('прибув у відділення') ||
-         text.includes('прибуло на відділення') || text.includes('прибув на відділення') ||
-         text.includes('очікує отримання') || text.includes('на відділенні') || text.includes('очікує клієнта');
+  // "прибул..." + "відділенн..." ловить будь-який прийменник (до/у/на) — напр. "Прибуло до Відділення",
+  // "прибув у відділення", "прибуло на відділення" тощо.
+  if(text.includes('прибул') && text.includes('відділенн')) return true;
+  return text.includes('очікує отримання') || text.includes('на відділенні') || text.includes('очікує клієнта');
 }
 function isInTransitOnly(o){
   return !!o.shipped && !o.delivered && !isAtBranchAwaitingPickup(o);
