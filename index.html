@@ -2759,6 +2759,7 @@ async function createUkrSender(){
     const clientBody = {
       type: ukrSender.type,
       name: ukrSender.name, // API вимагає це поле явно (мін. 2 символи), попри те що документація обіцяє автогенерацію
+      contactPersonName: ukrSender.name, // у діагностиці це поле поверталось порожнім — схоже, впливає на ім'я, що друкується на самій накладній
       addressId: addr.id,
       phoneNumber: ukrSender.phone,
       resident: true
@@ -2922,6 +2923,7 @@ async function createUkrShipment(orderId){
     const recClient = await ukrApiCall('POST', '/clients', {
       type: 'INDIVIDUAL',
       name: o.customer,
+      contactPersonName: o.customer,
       firstName: name.FirstName, lastName: name.LastName, middleName: name.MiddleName,
       addressId: recAddr.id, phoneNumber: o.phone
     });
