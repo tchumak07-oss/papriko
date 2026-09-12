@@ -444,6 +444,8 @@
         <button class="btn btn-sm" onclick="sendFilteredShipmentsToTelegram()">Відправити в Telegram</button>
       </div>
 
+      <p class="hint" id="todayShipmentsSummary" style="margin:0 0 10px;"></p>
+
       <div class="catalog-panel"><div style="padding:14px 16px;">
         <div class="wh-row-head" style="grid-template-columns:36px 90px 1fr 1fr 90px 100px 130px 1fr;"><div>№</div><div>Дата</div><div>Клієнт</div><div>Товари</div><div style="text-align:right;">Сума</div><div>Служба</div><div>ТТН</div><div>Статус</div></div>
         <div id="todayShipmentsTable"></div>
@@ -806,7 +808,7 @@
       </div>
       <div>
         <label>Контрагент</label>
-        <select id="cash-counterparty">${counterpartySelectOptionsHtml('')}</select>
+        <select id="cash-counterparty"></select>
       </div>
       <div style="grid-column:span 2;"><label>Примітка</label><input type="text" id="cash-note" placeholder="напр. оплата постачальнику за куркуму"></div>
     </div>
@@ -830,6 +832,45 @@
       </div>
     </div>
   </div>
+
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="catalog-group-title">Фільтр операцій</div>
+    <div class="delivery-grid">
+      <div>
+        <label>Тип</label>
+        <select id="cf-type" onchange="renderCash()">
+          <option value="all">Усі</option>
+          <option value="Надходження">Лише надходження</option>
+          <option value="Витрата">Лише витрати</option>
+        </select>
+      </div>
+      <div>
+        <label>Категорія</label>
+        <select id="cf-category" onchange="renderCash()">
+          <option value="all">Усі</option>
+          <option>Закупівля сировини</option>
+          <option>Упаковка</option>
+          <option>Оренда</option>
+          <option>Зарплата</option>
+          <option>Реклама</option>
+          <option>Логістика</option>
+          <option>Податки</option>
+          <option>Продаж</option>
+          <option>Інше</option>
+        </select>
+      </div>
+      <div>
+        <label>Контрагент</label>
+        <select id="cf-counterparty" onchange="renderCash()">
+          <option value="all">Усі</option>
+          <option value="none">без контрагента</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button class="btn btn-sm" onclick="resetCashFilters()">Скинути</button>
+      </div>
+    </div>
+  </div></div>
 
   <div class="catalog-panel"><div style="padding:14px 16px;" class="wh-movements">
     <div class="wh-row-head"><div>Дата</div><div>Категорія / примітка</div><div>Контрагент</div><div style="text-align:right;">Сума</div><div>Тип</div><div>Служба</div><div>Джерело</div><div></div></div>
@@ -2379,6 +2420,15 @@ function getFilteredShipments(){
 function renderTodayShipmentsModal(){
   const {orders: list, from, to} = getFilteredShipments();
   const tableEl = document.getElementById('todayShipmentsTable');
+  const summaryEl = document.getElementById('todayShipmentsSummary');
+  if(summaryEl){
+    if(list.length === 0){
+      summaryEl.textContent = '';
+    } else {
+      const total = list.reduce((s,o) => s + calcOrder(o).total, 0);
+      summaryEl.innerHTML = `Обрано: <strong style="color:var(--saffron);">${list.length}</strong> відправлень(-ня) на загальну суму <strong style="color:var(--saffron);">${fmt(total)} грн</strong>.`;
+    }
+  }
   if(list.length === 0){
     tableEl.innerHTML = `<div class="comp-empty">Нічого не знайдено за ${from===to ? from : from+' — '+to} із цими фільтрами.</div>`;
   } else {
@@ -4132,6 +4182,15 @@ function counterpartySelectOptionsHtml(selectedId){
 function renderCashCounterpartySelect(){
   const sel = document.getElementById('cash-counterparty');
   if(sel) sel.innerHTML = counterpartySelectOptionsHtml('');
+
+  const filterSel = document.getElementById('cf-counterparty');
+  if(filterSel){
+    const prevValue = filterSel.value;
+    const sorted = [...counterparties].sort((a,b) => a.name.localeCompare(b.name));
+    filterSel.innerHTML = `<option value="all">Усі</option><option value="none">без контрагента</option>` +
+      sorted.map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('');
+    if([...filterSel.options].some(o => o.value === prevValue)) filterSel.value = prevValue;
+  }
 }
 
 // проходить по всіх замовленнях в архіві й позначає «Оплачено» ті, де це забули зробити
@@ -4215,6 +4274,13 @@ function cashCategorySelectHtml(t){
   </select>`;
 }
 
+function resetCashFilters(){
+  document.getElementById('cf-type').value = 'all';
+  document.getElementById('cf-category').value = 'all';
+  document.getElementById('cf-counterparty').value = 'all';
+  renderCash();
+}
+
 function renderCash(){
   const summaryEl = document.getElementById('cashSummary');
   const tableEl = document.getElementById('cashTable');
@@ -4231,11 +4297,27 @@ function renderCash(){
   `;
 
   const sorted = [...cashTransactions].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
-  if(sorted.length === 0){
-    tableEl.innerHTML = '<div class="comp-empty">Ще немає жодної операції.</div>';
+
+  const typeEl = document.getElementById('cf-type');
+  const categoryEl = document.getElementById('cf-category');
+  const counterpartyEl = document.getElementById('cf-counterparty');
+  const typeFilter = typeEl ? typeEl.value : 'all';
+  const categoryFilter = categoryEl ? categoryEl.value : 'all';
+  const counterpartyFilter = counterpartyEl ? counterpartyEl.value : 'all';
+
+  const filtered = sorted.filter(t => {
+    if(typeFilter !== 'all' && t.type !== typeFilter) return false;
+    if(categoryFilter !== 'all' && t.category !== categoryFilter) return false;
+    if(counterpartyFilter === 'none' && t.counterpartyId) return false;
+    if(counterpartyFilter !== 'all' && counterpartyFilter !== 'none' && String(t.counterpartyId) !== counterpartyFilter) return false;
+    return true;
+  });
+
+  if(filtered.length === 0){
+    tableEl.innerHTML = sorted.length === 0 ? '<div class="comp-empty">Ще немає жодної операції.</div>' : '<div class="comp-empty">Нічого не знайдено за цими фільтрами.</div>';
     return;
   }
-  tableEl.innerHTML = sorted.map(t => {
+  tableEl.innerHTML = filtered.map(t => {
     const linkedOrder = t.source === 'order' ? orderById(t.orderId) : null;
     const isManual = t.source !== 'order';
     const counterparty = counterpartyById(t.counterpartyId);
@@ -5836,6 +5918,7 @@ renderInventory();
 populateMovementItemSelect();
 renderCash();
 renderCounterparties();
+renderCashCounterpartySelect();
 document.getElementById('cash-date').value = todayStr();
 document.getElementById('fixFutureDateInput').value = todayStr();
 renderReports();
