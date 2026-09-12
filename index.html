@@ -2826,10 +2826,11 @@ function applyUkrStatus(o, statusItem){
   const event = Number(statusItem.event);
   const reasonId = Number(statusItem.eventReason_id);
 
-  if(event === 10100 || UKR_CANCELLED_EVENTS.includes(event)){
-    // REGISTERED / CANCELLED — декларація лише створена (або скасована), фізично ще нікуди не рухалась.
-    // Свідомо НЕ позначаємо як «Відправлено».
-  } else if(UKR_SHIPPED_EVENTS.includes(event)){
+  if(UKR_CANCELLED_EVENTS.includes(event)){
+    // CANCELLED — реєстрацію скасовано, фізично нікуди не рухалось.
+  } else if(event === 10100 || UKR_SHIPPED_EVENTS.includes(event)){
+    // 10100 "Прийнято" — посилку вже фізично прийняли на відділенні (підтверджено реальним тестом
+    // трекінгу Укrpошти), тобто це і є момент фактичного відправлення, а не просто "зареєстровано".
     o.shipped = true;
   } else if(event === 41000 || event === 48000){
     if(reasonId === 10){
