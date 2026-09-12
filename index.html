@@ -3280,6 +3280,10 @@ function applyNpStatus(o, statusItem){
   // Фактичне отримання посилки отримувачем — лише тоді вважаємо "доставлено".
   if(statusLower.includes('отримано') || paidPhraseMatch){
     o.delivered = true;
+    // За вашим рішенням: якщо була сума післяплати/контролю оплати — вважаємо оплаченим одразу
+    // після доставки (без очікування окремого підтвердження переказу, якого API все одно не дає).
+    // Автоматично додається дохід у касу; звірку з реальним надходженням коштів робите самі пізніше.
+    if(Number(o.codAmount) > 0) o.paid = true;
   }
   // Клієнт відмовився / посилка їде назад — це НЕ доставка, окремо позначаємо для контролю повернення коштів.
   if(statusLower.includes('поверн') || statusLower.includes('відмова')){
@@ -4279,6 +4283,7 @@ function orderCollapsedHtml(o){
           ${o.shipped ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>' : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
           ${o.npReturned ? '<span class="status-badge" style="background:var(--danger);color:#fff;">⟲ Повернення</span>' : ''}
+          ${(o.delivered && !o.paid && Number(o.codAmount) > 0) ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);" title="НП API не передає підтвердження переказу по «Контролю оплати» — перевірте виписку банку">💰 Перевірте оплату</span>' : ''}
           ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
@@ -4310,6 +4315,7 @@ function orderExpandedHtml(o){
             ${ORDER_STATUSES.map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
           </select>
           ${carrierBadgeHtml(o)}
+          ${(o.delivered && !o.paid && Number(o.codAmount) > 0) ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);" title="НП API не передає підтвердження переказу по «Контролю оплати» — перевірте виписку банку">💰 Перевірте оплату</span>' : ''}
         </div>
         <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
