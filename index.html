@@ -256,11 +256,12 @@
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.11.09.26</span>
-        <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
+        <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
     </div>
   </header>
+  <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()" style="position:fixed;top:16px;right:24px;z-index:200;box-shadow:0 4px 14px rgba(0,0,0,0.4);">+ Нове замовлення</button>
 
   <div class="app-layout">
     <nav class="app-sidebar">
@@ -2145,11 +2146,19 @@ function addOrder(){
 }
 
 // прокручує сторінку до картки конкретного замовлення (наприклад, щойно створеного)
-function scrollToOrderCard(id){
-  setTimeout(() => {
-    const el = document.querySelector(`[data-order="${id}"]`);
-    if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
-  }, 50);
+function scrollToOrderCard(id, attempt){
+  attempt = attempt || 0;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-order="${id}"]`);
+      if(el){
+        el.scrollIntoView({behavior:'smooth', block:'start'});
+      } else if(attempt < 10){
+        // картка ще не в DOM (наприклад, секція щойно стала видимою) — пробуємо ще раз трохи пізніше
+        setTimeout(() => scrollToOrderCard(id, attempt + 1), 60);
+      }
+    });
+  });
 }
 
 // викликається з кнопки в шапці сайту — доступна з будь-якої вкладки:
