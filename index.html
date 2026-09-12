@@ -422,7 +422,7 @@
         </div>
       </div>
 
-      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterAll" onchange="onTsFilterAllChange()" style="width:auto;accent-color:var(--saffron);"> Всі</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterUnshipped" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Створені, не відправлені</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterShipped" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Створені і відправлені</label>
@@ -432,13 +432,20 @@
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterPaid" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Оплачені</label>
       </div>
 
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+        <span class="hint" style="font-weight:600;">Служба:</span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterCarrierNp" onchange="renderTodayShipmentsModal()" style="width:auto;accent-color:var(--saffron);"> Нова Пошта</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterCarrierUkr" onchange="renderTodayShipmentsModal()" style="width:auto;accent-color:var(--saffron);"> Укрпошта</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterCarrierPickup" onchange="renderTodayShipmentsModal()" style="width:auto;accent-color:var(--saffron);"> Самовивіз</label>
+      </div>
+
       <div class="fb-row" style="margin-bottom:14px;">
         <button class="btn btn-primary btn-sm" onclick="exportTodayShipmentsExcel()">Експортувати в Excel</button>
         <button class="btn btn-sm" onclick="sendFilteredShipmentsToTelegram()">Відправити в Telegram</button>
       </div>
 
       <div class="catalog-panel"><div style="padding:14px 16px;">
-        <div class="wh-row-head" style="grid-template-columns:90px 1fr 1fr 90px 100px 130px 1fr;"><div>Дата</div><div>Клієнт</div><div>Товари</div><div style="text-align:right;">Сума</div><div>Служба</div><div>ТТН</div><div>Статус</div></div>
+        <div class="wh-row-head" style="grid-template-columns:36px 90px 1fr 1fr 90px 100px 130px 1fr;"><div>№</div><div>Дата</div><div>Клієнт</div><div>Товари</div><div style="text-align:right;">Сума</div><div>Служба</div><div>ТТН</div><div>Статус</div></div>
         <div id="todayShipmentsTable"></div>
       </div></div>
     </div>
@@ -2248,6 +2255,9 @@ async function openTodayShipmentsModal(){
   document.getElementById('tsFilterAtBranch').checked = false;
   document.getElementById('tsFilterDelivered').checked = false;
   document.getElementById('tsFilterPaid').checked = false;
+  document.getElementById('tsFilterCarrierNp').checked = false;
+  document.getElementById('tsFilterCarrierUkr').checked = false;
+  document.getElementById('tsFilterCarrierPickup').checked = false;
   renderTodayShipmentsModal();
   document.getElementById('todayShipmentsModal').style.display = 'flex';
 
@@ -2299,9 +2309,20 @@ function getFilteredShipments(){
   const fPaid = document.getElementById('tsFilterPaid').checked;
   const anyStatusChecked = fUnshipped || fShipped || fInTransit || fAtBranch || fDelivered || fPaid;
 
+  const fCarrierNp = document.getElementById('tsFilterCarrierNp').checked;
+  const fCarrierUkr = document.getElementById('tsFilterCarrierUkr').checked;
+  const fCarrierPickup = document.getElementById('tsFilterCarrierPickup').checked;
+  const anyCarrierChecked = fCarrierNp || fCarrierUkr || fCarrierPickup;
+
   const methodOrder = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2};
   let list = orders.filter(o => {
     if(isArchived(o)) return false;
+
+    // фільтр служби доставки — звужує будь-який інший результат нижче (якщо нічого не обрано, пропускає всіх)
+    if(anyCarrierChecked){
+      const carrierOk = (fCarrierNp && o.deliveryMethod==='Нова Пошта') || (fCarrierUkr && o.deliveryMethod==='Укрпошта') || (fCarrierPickup && o.deliveryMethod==='Самовивіз');
+      if(!carrierOk) return false;
+    }
 
     // «В дорозі» та «На відділенні» стосуються поточного стану посилки просто зараз —
     // ігнорують період і показують геть усі такі зі списку, незалежно від дати замовлення.
@@ -2324,7 +2345,7 @@ function renderTodayShipmentsModal(){
   if(list.length === 0){
     tableEl.innerHTML = `<div class="comp-empty">Нічого не знайдено за ${from===to ? from : from+' — '+to} із цими фільтрами.</div>`;
   } else {
-    tableEl.innerHTML = list.map(o => {
+    tableEl.innerHTML = list.map((o, idx) => {
       const c = calcOrder(o);
       const itemsText = o.items.map(it => {
         const k = kitById(it.kitId);
@@ -2333,7 +2354,8 @@ function renderTodayShipmentsModal(){
       const transitLabel = isAtBranchAwaitingPickup(o) ? 'на відділенні' : (isInTransitOnly(o) ? 'в дорозі' : '');
       const statusText = [o.paid?'Оплачено':'', transitLabel, o.delivered?'Доставлено':''].filter(Boolean).join(', ') || o.status;
       return `
-        <div class="wh-row" style="grid-template-columns:90px 1fr 1fr 90px 100px 130px 1fr;">
+        <div class="wh-row" style="grid-template-columns:36px 90px 1fr 1fr 90px 100px 130px 1fr;">
+          <div class="hint" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text-faint);">${idx+1}</div>
           <div class="hint">${o.date||''}</div>
           <div>${escapeAttr(o.customer||'Без імені')}</div>
           <div class="hint">${escapeAttr(itemsText)}</div>
