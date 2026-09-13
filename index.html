@@ -3789,12 +3789,25 @@ async function createNpWaybill(orderId){
     // а не через збережений Контрагент/Контактну особу — так щоразу йде саме те ім'я, що зараз
     // у замовленні, а не те, що колись "прилипло" до цього номера телефону в кабінеті НП
     // (НП дозволяє приватним особам редагувати в збережених контактах лише телефон, а не ім'я).
+    // НП тепер вимагає OptionsSeat — габарити й вагу кожного окремого місця (навіть при SeatsAmount=1).
+    const seatsCount = parseInt(o.seatsAmount, 10) || 1;
+    const weightPerSeat = (Number(o.weight) || 0.5) / seatsCount;
+    const seatDims = {L: 20, W: 15, H: 10}; // типові габарити невеликої коробки зі спеціями, см
+    const optionsSeat = Array.from({length: seatsCount}, () => ({
+      volumetricVolume: ((seatDims.L * seatDims.W * seatDims.H) / 1000000).toFixed(4),
+      volumetricWidth: String(seatDims.W),
+      volumetricLength: String(seatDims.L),
+      volumetricHeight: String(seatDims.H),
+      weight: weightPerSeat.toFixed(2)
+    }));
+
     const docParams = {
       PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
       PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
       DateTime: npDateFormat(o.date),
       CargoType: 'Cargo',
       Weight: String(o.weight),
+      OptionsSeat: optionsSeat,
       ServiceType: 'WarehouseWarehouse',
       SeatsAmount: String(o.seatsAmount || 1),
       Description: o.description || 'Товар',
