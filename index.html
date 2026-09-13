@@ -3404,33 +3404,12 @@ async function updateNpCodAmount(orderId){
   const statusEl = document.getElementById(`ttn-cod-status-${orderId}`);
   if(statusEl) statusEl.textContent = 'Оновлюю...';
   try{
-    const name = splitFullName(o.customer);
-    const fullName = `${name.LastName} ${name.FirstName} ${name.MiddleName}`.trim();
-    // update у НП вимагає ті самі поля, що й save, плюс Ref документа, який змінюємо
+    // мінімальний набір полів — лише те, що дійсно змінюємо, плюс ідентифікатор документа.
+    // Спроба передати весь набір полів, як для save (включно з рядковим отримувачем), викликала
+    // помилку "Recipient not selected" — судячи з усього, update не сумісний з тим самим способом
+    // задання отримувача рядком, що й save.
     const docParams = {
       Ref: o.ttnRef,
-      PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
-      PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
-      // для update НП вимагає DateTime не раніше сьогодні — дата самого замовлення тут не підходить,
-      // якщо воно було створене раніше (саме це й спричиняло помилку "DateTime cannot be less then now").
-      DateTime: npDateFormat(todayStr()),
-      CargoType: 'Cargo',
-      Weight: String(o.weight),
-      ServiceType: 'WarehouseWarehouse',
-      SeatsAmount: String(o.seatsAmount || 1),
-      Description: o.description || 'Товар',
-      Cost: String(o.cost || calcOrder(o).total || 100),
-      CitySender: npSender.citySenderRef,
-      Sender: npSender.senderRef,
-      SenderAddress: npSender.senderAddressRef,
-      ContactSender: npSender.contactSenderRef,
-      SendersPhone: npSender.sendersPhone,
-      CityRecipient: o.cityRef,
-      RecipientAddress: o.warehouseRef,
-      RecipientType: 'PrivatePerson',
-      RecipientName: fullName,
-      RecipientContactName: fullName,
-      RecipientsPhone: o.phone,
       AfterpaymentOnGoodsCost: String(newAmount)
     };
     await npApiCall('InternetDocument', 'update', docParams);
