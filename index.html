@@ -2223,7 +2223,12 @@ function calcOrder(o){
 
 function todayStr(){
   const d = new Date();
-  return d.toISOString().slice(0,10);
+  // локальна дата (не UTC!) — toISOString() рахує за UTC, і пізно ввечері за Києвом
+  // могла "відставати" на добу, через що НП відхиляв дату як таку, що вже минула.
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
 }
 
 // перетворює дату у число для сортування; перевіряє відомі формати ЯВНО (а не покладається на Date.parse,
