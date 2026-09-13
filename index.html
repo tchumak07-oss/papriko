@@ -1013,6 +1013,31 @@
     </div></div>
   </div>
 
+  <div class="section-title">
+    <span id="rb-margin-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-margin')">▸ Маржа по продажах</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportMarginReportExcel()">Вивести в Excel</button></span>
+  </div>
+  <div id="rb-margin" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Прибуток і маржа по кожному оплаченому замовленню за обраний період — щоб бачити, які продажі дають кращий результат, а які ледь окупаються. Відсортовано за маржею — від найгіршої до найкращої.</p>
+    <p class="hint" id="reportMarginSummary" style="margin:0 0 10px;"></p>
+    <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:90px 1fr 100px 100px 100px 90px;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Виручка</div><div style="text-align:right;">Собівартість</div><div style="text-align:right;">Прибуток</div><div style="text-align:right;">Маржа</div></div>
+      <div id="reportMarginTable"></div>
+    </div></div>
+  </div>
+
+  <div class="section-title">
+    <span id="rb-skumargin-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-skumargin')">▸ Маржа по SKU (товарах)</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportSkuMarginReportExcel()">Вивести в Excel</button></span>
+  </div>
+  <div id="rb-skumargin" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Те саме, але зведено по кожному товару (SKU) за весь період — скільки продано, яка сумарна виручка, собівартість і маржа саме по цьому товару. Відсортовано від найгіршої маржі до найкращої.</p>
+    <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:1fr 90px 90px 100px 100px 90px;"><div>Товар</div><div style="text-align:right;">Продано</div><div style="text-align:right;">Виручка</div><div style="text-align:right;">Собівартість</div><div style="text-align:right;">Прибуток</div><div style="text-align:right;">Маржа</div></div>
+      <div id="reportSkuMarginTable"></div>
+    </div></div>
+  </div>
+
   <div class="section-title"><span id="rb-shipments-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-shipments')">▸ Звіт по відвантаженнях за період</span></div>
   <div id="rb-shipments" style="display:none;">
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
@@ -4863,9 +4888,63 @@ function oblastFromUkrIndex(indexStr){
   return found ? found[2] : '';
 }
 
+// НП повертає назву області непослідовно в різних записах довідника міст (десь "Львівська область",
+// десь просто "Львівська") — уніфікуємо формат, щоб однакові області не рахувались як різні.
+function normalizeOblastName(name){
+  if(!name) return '';
+  let n = name.trim();
+  n = n.replace(/\s*обл(асть|\.)?\s*$/i, '').trim();
+  if(!n) return name.trim();
+  if(/^м\.?\s*(київ|севастополь)/i.test(n) || /крим/i.test(n)) return name.trim();
+  return n + ' область';
+}
+
 // кеш "назва міста НП (нижній регістр) -> область", щоб не питати API повторно для того самого міста
 let npCityOblastCache = {};
 let lastRegionRows = [];
+let lastMarginRows = [];
+let lastSkuMarginRows = [];
+
+function exportSkuMarginReportExcel(){
+  if(lastSkuMarginRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  const rows = lastSkuMarginRows.map(r => ({
+    'SKU': r.k.sku || '',
+    'Назва': r.k.name || '',
+    'Продано, шт': r.qty,
+    'Виручка': fmt1(r.revenue),
+    'Собівартість': fmt1(r.cost),
+    'Прибуток': fmt1(r.profit),
+    'Маржа, %': fmt1(r.margin)
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch: 10}, {wch: 26}, {wch: 10}, {wch: 12}, {wch: 14}, {wch: 12}, {wch: 10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Маржа по SKU');
+  const fromInput = document.getElementById('rep-date-from');
+  const toInput = document.getElementById('rep-date-to');
+  const period = (fromInput && toInput && fromInput.value && toInput.value) ? `${fromInput.value}_${toInput.value}` : todayStr();
+  XLSX.writeFile(wb, `marzha_po_sku_${period}.xlsx`);
+}
+
+function exportMarginReportExcel(){
+  if(lastMarginRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  const rows = lastMarginRows.map(r => ({
+    'Дата': r.order.date || '',
+    'Клієнт': r.order.customer || '',
+    'Виручка': fmt1(r.revenue),
+    'Собівартість': fmt1(r.cost),
+    'Прибуток': fmt1(r.profit),
+    'Маржа, %': fmt1(r.margin)
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch: 12}, {wch: 26}, {wch: 12}, {wch: 14}, {wch: 12}, {wch: 10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Маржа по продажах');
+  const fromInput = document.getElementById('rep-date-from');
+  const toInput = document.getElementById('rep-date-to');
+  const period = (fromInput && toInput && fromInput.value && toInput.value) ? `${fromInput.value}_${toInput.value}` : todayStr();
+  XLSX.writeFile(wb, `marzha_po_prodazham_${period}.xlsx`);
+}
 
 // згортає/розгортає блок звіту — id елемента-обгортки й відповідного заголовка (id+'-title') узгоджені за назвою
 function toggleReportBlock(id){
@@ -4901,7 +4980,8 @@ function oblastForOrder(o){
   if(o.deliveryMethod === 'Нова Пошта'){
     const key = (o.city||'').trim().toLowerCase();
     if(!key) return 'Не визначено (немає міста)';
-    return npCityOblastCache[key] || 'Ще не визначено (натисніть кнопку вище)';
+    const cached = npCityOblastCache[key];
+    return cached ? normalizeOblastName(cached) : 'Ще не визначено (натисніть кнопку вище)';
   }
   return 'Самовивіз / інше';
 }
@@ -4926,7 +5006,7 @@ async function resolveNpCityOblasts(){
       const data = await npApiCall('AddressGeneral', 'getSettlements', {FindByString: cityName, Limit: '1'});
       const first = data && data[0];
       if(first && first.AreaDescription){
-        npCityOblastCache[cityName.toLowerCase()] = first.AreaDescription;
+        npCityOblastCache[cityName.toLowerCase()] = normalizeOblastName(first.AreaDescription);
         resolved++;
       } else {
         failed++;
@@ -4965,13 +5045,47 @@ function renderReports(){
     <div class="card"><div class="label">Замовлень / середній чек</div><div class="value">${ordersCount} · ${fmt(avgCheck)} грн</div></div>
   `;
 
-  // топ наборів за виручкою
+  // ---- маржа по кожному оплаченому продажу за період ----
+  const marginTableEl = document.getElementById('reportMarginTable');
+  const marginSummaryEl = document.getElementById('reportMarginSummary');
+  if(marginTableEl){
+    const marginRows = paidOrdersInRange.map(o => {
+      const orderRevenue = calcOrder(o).total;
+      const orderCost = o.items.reduce((s2,it) => s2 + kitUnitCost(it.kitId, new Set()) * (it.qty||0), 0);
+      const orderProfit = orderRevenue - orderCost;
+      const margin = orderRevenue > 0 ? (orderProfit / orderRevenue) * 100 : 0;
+      return {order: o, revenue: orderRevenue, cost: orderCost, profit: orderProfit, margin};
+    }).sort((a,b) => a.margin - b.margin);
+    lastMarginRows = marginRows; // для експорту в Excel
+
+    if(marginSummaryEl){
+      const avgMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+      marginSummaryEl.innerHTML = `Середня маржа за період: <strong style="color:${avgMargin>=0?'var(--cardamom)':'var(--danger)'};">${fmt1(avgMargin)}%</strong>`;
+    }
+    if(marginRows.length === 0){
+      marginTableEl.innerHTML = '<div class="comp-empty">Немає оплачених продажів за цей період.</div>';
+    } else {
+      marginTableEl.innerHTML = marginRows.map(r => `
+        <div class="wh-row" style="grid-template-columns:90px 1fr 100px 100px 100px 90px;">
+          <div class="hint">${r.order.date||''}</div>
+          <div>${escapeAttr(r.order.customer||'Без імені')}</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.revenue)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.cost)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.profit>=0?'var(--cardamom)':'var(--danger)'};">${fmt(r.profit)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.margin>=0?'var(--saffron)':'var(--danger)'};">${fmt1(r.margin)}%</div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // топ наборів за виручкою (і заразом дані для маржі по SKU нижче)
   const kitTotals = {};
   paidOrdersInRange.forEach(o => {
     o.items.forEach(it => {
-      const t = kitTotals[it.kitId] || {qty:0, revenue:0};
+      const t = kitTotals[it.kitId] || {qty:0, revenue:0, cost:0};
       t.qty += it.qty||0;
       t.revenue += (it.qty||0) * (it.price||0);
+      t.cost += (it.qty||0) * kitUnitCost(it.kitId, new Set());
       kitTotals[it.kitId] = t;
     });
   });
@@ -4988,6 +5102,32 @@ function renderReports(){
       <div class="bar-val">${fmt(r.revenue)} грн · ${r.qty} шт</div>
     </div>
   `).join('');
+
+  // ---- маржа по SKU (той самий набір проданих товарів за період, з розрахунком прибутку й маржі) ----
+  const skuMarginTableEl = document.getElementById('reportSkuMarginTable');
+  if(skuMarginTableEl){
+    const skuMarginRows = kitRows.map(r => {
+      const profit = r.revenue - r.cost;
+      const margin = r.revenue > 0 ? (profit / r.revenue) * 100 : 0;
+      return {...r, profit, margin};
+    }).sort((a,b) => a.margin - b.margin);
+    lastSkuMarginRows = skuMarginRows;
+
+    if(skuMarginRows.length === 0){
+      skuMarginTableEl.innerHTML = '<div class="comp-empty">Немає продажів за цей період.</div>';
+    } else {
+      skuMarginTableEl.innerHTML = skuMarginRows.map(r => `
+        <div class="wh-row" style="grid-template-columns:1fr 90px 90px 100px 100px 90px;">
+          <div>${escapeAttr(r.k.name)}${r.k.sku ? ' <span class="hint">('+escapeAttr(r.k.sku)+')</span>' : ''}</div>
+          <div class="cv" style="text-align:right;">${r.qty}</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.revenue)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.cost)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.profit>=0?'var(--cardamom)':'var(--danger)'};">${fmt(r.profit)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.margin>=0?'var(--saffron)':'var(--danger)'};">${fmt1(r.margin)}%</div>
+        </div>
+      `).join('');
+    }
+  }
 
   // витрати за категоріями
   const catTotals = {};
