@@ -278,8 +278,6 @@
 
   <div id="section-products" class="app-section">
 
-  <div class="summary" id="summary"></div>
-
   <!-- ===== CATALOG ===== -->
   <div class="section-title" style="margin-top:0;">Довідник собівартостей</div>
   <div class="catalog-panel">
@@ -5306,10 +5304,12 @@ function deductStockForAllShipped(){
 /* ---------- summary & chart ---------- */
 
 function renderSummary(){
+  const el = document.getElementById('summary');
+  if(!el) return; // блок прибрано з інтерфейсу — плутав із реальною виручкою в «Звітах»
   let revenue=0, cost=0, profit=0;
   kits.forEach(k => { const c = calcKit(k); revenue+=c.revenue; cost+=c.totalCost; profit+=c.profit; });
   const margin = revenue > 0 ? (profit/revenue)*100 : 0;
-  document.getElementById('summary').innerHTML = `
+  el.innerHTML = `
     <div class="card"><div class="label">Виручка</div><div class="value">${fmt(revenue)} грн</div></div>
     <div class="card"><div class="label">Собівартість разом</div><div class="value">${fmt(cost)} грн</div></div>
     <div class="card ${profit>=0?'profit':'negative'}"><div class="label">Прибуток</div><div class="value">${fmt(profit)} грн</div></div>
