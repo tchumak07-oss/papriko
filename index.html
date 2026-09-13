@@ -298,6 +298,7 @@
       <button class="app-nav-btn" id="nav-products" onclick="showSection('products')"><span class="nav-icon">📦</span>Товари</button>
       <button class="app-nav-btn" id="nav-clients" onclick="showSection('clients')"><span class="nav-icon">👥</span>Клієнти</button>
       <button class="app-nav-btn" id="nav-warehouse" onclick="showSection('warehouse')"><span class="nav-icon">🏬</span>Склад</button>
+      <button class="app-nav-btn" id="nav-supplierorder" onclick="showSection('supplierorder')"><span class="nav-icon">📝</span>Замовлення постачальнику</button>
       <button class="app-nav-btn" id="nav-archive" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
       <button class="app-nav-btn" id="nav-cash" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
       <button class="app-nav-btn" id="nav-reports" onclick="showSection('reports')"><span class="nav-icon">📊</span>Звіти</button>
@@ -764,6 +765,58 @@
 
   </div><!-- /section-warehouse -->
 
+  <div id="section-supplierorder" class="app-section">
+
+  <div class="section-title" style="margin-top:0;">Замовлення постачальнику</div>
+  <p class="hint" style="margin:-8px 0 14px;">Бланк для замовлення сировини й упаковки у постачальника. Товари підтягуються з довідника «Товари» — якщо потрібного нема, можна створити прямо тут.</p>
+
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="delivery-grid">
+      <div><label>Постачальник</label><input type="text" id="so-supplier" placeholder="Назва постачальника" oninput="updateSupplierOrderField('supplier',this.value)"></div>
+      <div><label>Дата</label><input type="date" id="so-date" oninput="updateSupplierOrderField('date',this.value)"></div>
+      <div><label>Номер (для запису)</label><input type="text" id="so-number" placeholder="напр. №1" oninput="updateSupplierOrderField('number',this.value)"></div>
+    </div>
+  </div></div>
+
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="add-order-item-row">
+      <select id="so-item-select"></select>
+      <input type="number" step="0.01" placeholder="вага/к-сть" id="so-item-qty">
+      <button class="btn btn-sm" onclick="addSupplierOrderItem()">Додати</button>
+    </div>
+    <div class="fb-row" style="margin:10px 0;">
+      <button class="btn btn-sm" type="button" onclick="toggleNewCatalogItemForm()">+ Новий товар у довідник</button>
+    </div>
+    <div id="new-catalog-item-form" style="display:none;margin:0 0 14px;">
+      <div class="delivery-grid">
+        <div><label>Назва</label><input type="text" id="new-catalog-item-name" placeholder="напр. Кориця мелена"></div>
+        <div><label>Категорія</label>
+          <select id="new-catalog-item-category">
+            <option>Спеція</option>
+            <option>Упаковка</option>
+          </select>
+        </div>
+        <div><label>Одиниця</label><input type="text" id="new-catalog-item-unit" placeholder="напр. кг, шт"></div>
+        <div><label>Собівартість за одиницю</label><input type="number" step="0.01" id="new-catalog-item-cost" placeholder="0"></div>
+        <div style="display:flex;align-items:flex-end;gap:8px;">
+          <button class="btn btn-primary btn-sm" type="button" onclick="createCatalogItemFromSupplierOrder()">Створити й додати</button>
+          <button class="btn-ghost" type="button" onclick="toggleNewCatalogItemForm()" aria-label="Скасувати">×</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="wh-row-head" style="grid-template-columns:1fr 90px 100px 100px 40px;"><div>Товар</div><div>Одиниця</div><div style="text-align:right;">Кількість</div><div style="text-align:right;">Сума</div><div></div></div>
+    <div id="supplierOrderItemsList"></div>
+    <div class="order-total-row"><span class="stat-label">Разом (за собівартістю)</span><span id="supplierOrderTotal" style="color:var(--saffron);font-family:'JetBrains Mono',monospace;"></span></div>
+  </div></div>
+
+  <div class="fb-row">
+    <button class="btn btn-primary btn-sm" onclick="exportSupplierOrderExcel()">Вивести в Excel</button>
+    <button class="btn btn-sm" onclick="clearSupplierOrder()">Очистити бланк</button>
+  </div>
+
+  </div><!-- /section-supplierorder -->
+
   <div id="section-archive" class="app-section">
 
   <div class="section-title" style="margin-top:0;">
@@ -1037,7 +1090,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 
 function buildStatePayload(){
   return {
-    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, npApiKey, npSender, tgBotToken, tgChatId,
+    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, npApiKey, npSender, tgBotToken, tgChatId,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId,
     updatedAt: new Date().toISOString()
@@ -1053,6 +1106,7 @@ function applyRemoteData(data){
   stockMovements = data.stockMovements || [];
   cashTransactions = data.cashTransactions || [];
   counterparties = data.counterparties || [];
+  supplierOrder = data.supplierOrder || {supplier:'', date:'', number:'', items:[]};
   npApiKey = data.npApiKey || '';
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
   tgBotToken = data.tgBotToken || '';
@@ -1087,6 +1141,7 @@ function applyRemoteData(data){
   renderCash();
   renderCounterparties();
   renderCashCounterpartySelect();
+  renderSupplierOrder();
   renderReports();
   const npInput = document.getElementById('npApiKeyInput');
   if(npInput) npInput.value = npApiKey;
@@ -1231,6 +1286,148 @@ function catRowHtml(c){
       <button class="btn-ghost" onclick="removeCatalogItem(${c.id})" aria-label="Видалити">×</button>
     </div>
   `;
+}
+
+/* ---------- замовлення постачальнику ---------- */
+
+let supplierOrder = {supplier:'', date:'', number:'', items:[]};
+
+function updateSupplierOrderField(field, value){
+  supplierOrder[field] = value;
+  scheduleSave();
+}
+
+function catalogSelectOptionsHtml(){
+  const sorted = [...catalog].sort((a,b) => a.name.localeCompare(b.name));
+  return sorted.map(c => `<option value="${c.id}">${escapeAttr(c.name)} (${escapeAttr(c.unit)})</option>`).join('');
+}
+
+function renderSupplierOrder(){
+  document.getElementById('so-supplier').value = supplierOrder.supplier || '';
+  document.getElementById('so-date').value = supplierOrder.date || todayStr();
+  document.getElementById('so-number').value = supplierOrder.number || '';
+  document.getElementById('so-item-select').innerHTML = catalogSelectOptionsHtml();
+
+  const listEl = document.getElementById('supplierOrderItemsList');
+  const totalEl = document.getElementById('supplierOrderTotal');
+  if(supplierOrder.items.length === 0){
+    listEl.innerHTML = '<div class="comp-empty">Ще немає жодної позиції.</div>';
+    totalEl.textContent = '';
+    return;
+  }
+  let total = 0;
+  listEl.innerHTML = supplierOrder.items.map(it => {
+    const c = catalogItem(it.catalogId);
+    if(!c) return '';
+    const sum = (c.cost||0) * (it.qty||0);
+    total += sum;
+    return `
+      <div class="wh-row" style="grid-template-columns:1fr 90px 100px 100px 40px;">
+        <div>${escapeAttr(c.name)}</div>
+        <div class="hint">${escapeAttr(c.unit)}</div>
+        <div><input type="number" step="0.01" value="${it.qty}" oninput="updateSupplierOrderItemQty(${it.catalogId},this.value)" style="text-align:right;"></div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(sum)} грн</div>
+        <button class="btn-ghost" onclick="removeSupplierOrderItem(${it.catalogId})" aria-label="Видалити позицію">×</button>
+      </div>
+    `;
+  }).join('');
+  totalEl.textContent = `${fmt1(total)} грн`;
+}
+
+function addSupplierOrderItem(){
+  const select = document.getElementById('so-item-select');
+  const qtyInput = document.getElementById('so-item-qty');
+  const catalogId = parseInt(select.value, 10);
+  const qty = parseFloat(qtyInput.value) || 0;
+  if(!catalogId || qty <= 0) return;
+  const existing = supplierOrder.items.find(it => it.catalogId === catalogId);
+  if(existing) existing.qty += qty;
+  else supplierOrder.items.push({catalogId, qty});
+  qtyInput.value = '';
+  renderSupplierOrder();
+  scheduleSave();
+}
+
+function updateSupplierOrderItemQty(catalogId, value){
+  const it = supplierOrder.items.find(x => x.catalogId === catalogId);
+  if(!it) return;
+  it.qty = parseFloat(value) || 0;
+  renderSupplierOrder();
+  scheduleSave();
+}
+
+function removeSupplierOrderItem(catalogId){
+  supplierOrder.items = supplierOrder.items.filter(it => it.catalogId !== catalogId);
+  renderSupplierOrder();
+  scheduleSave();
+}
+
+function toggleNewCatalogItemForm(){
+  const form = document.getElementById('new-catalog-item-form');
+  const showing = form.style.display !== 'none';
+  form.style.display = showing ? 'none' : 'block';
+  if(!showing) document.getElementById('new-catalog-item-name').focus();
+}
+
+function createCatalogItemFromSupplierOrder(){
+  const nameInput = document.getElementById('new-catalog-item-name');
+  const categorySel = document.getElementById('new-catalog-item-category');
+  const unitInput = document.getElementById('new-catalog-item-unit');
+  const costInput = document.getElementById('new-catalog-item-cost');
+  const name = (nameInput.value || '').trim();
+  if(!name){ alert('Впишіть назву товару.'); return; }
+  const id = nextCatalogId++;
+  catalog.push({
+    id, name, category: categorySel.value,
+    unit: (unitInput.value || '').trim() || 'шт',
+    cost: parseFloat(costInput.value) || 0
+  });
+  renderCatalog();
+  nameInput.value = ''; unitInput.value = ''; costInput.value = '';
+  toggleNewCatalogItemForm();
+
+  supplierOrder.items.push({catalogId: id, qty: 1});
+  renderSupplierOrder();
+  scheduleSave();
+}
+
+function clearSupplierOrder(){
+  if(supplierOrder.items.length > 0 && !confirm('Очистити весь бланк замовлення постачальнику?')) return;
+  supplierOrder = {supplier:'', date: todayStr(), number:'', items:[]};
+  renderSupplierOrder();
+  scheduleSave();
+}
+
+function exportSupplierOrderExcel(){
+  if(supplierOrder.items.length === 0){ alert('Спочатку додайте хоча б одну позицію.'); return; }
+  const rows = supplierOrder.items.map(it => {
+    const c = catalogItem(it.catalogId);
+    return {
+      'Товар': c ? c.name : '(видалено)',
+      'Категорія': c ? c.category : '',
+      'Одиниця': c ? c.unit : '',
+      'Кількість': it.qty,
+      'Ціна за одиницю': c ? c.cost : 0,
+      'Сума': c ? fmt1((c.cost||0)*(it.qty||0)) : 0
+    };
+  });
+  const total = supplierOrder.items.reduce((s,it) => {
+    const c = catalogItem(it.catalogId);
+    return s + (c ? (c.cost||0)*(it.qty||0) : 0);
+  }, 0);
+
+  const headerRows = [
+    ['Замовлення постачальнику' + (supplierOrder.number ? ' '+supplierOrder.number : '')],
+    ['Постачальник:', supplierOrder.supplier || ''],
+    ['Дата:', supplierOrder.date || todayStr()],
+    []
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(headerRows);
+  XLSX.utils.sheet_add_json(ws, rows, {origin: -1});
+  XLSX.utils.sheet_add_aoa(ws, [[], ['', '', '', '', 'Разом:', fmt1(total)]], {origin: -1});
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Замовлення');
+  XLSX.writeFile(wb, `zamovlennya_postachalnyku_${supplierOrder.date || todayStr()}.xlsx`);
 }
 
 function addCatalogItem(category){
@@ -3363,7 +3560,6 @@ function ttnResultHtml(o){
       — <a href="https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(o.ttnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncNpStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з НП</a>
       ${!isLinked ? `· <a href="#" onclick="unlinkTtn(${o.id});return false;" style="color:var(--saffron);">відкріпити (лишити в НП)</a>` : ''}
-      ${!isLinked ? `· <a href="#" onclick="updateNpCodAmount(${o.id});return false;" style="color:var(--saffron);">оновити суму контролю оплати</a>` : ''}
       · <a href="#" onclick="${isLinked ? `unlinkTtn(${o.id})` : `cancelNpWaybill(${o.id})`};return false;" style="color:var(--danger);">${isLinked ? 'відв\'язати ТТН' : 'видалити ТТН'}</a>
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
       <span id="ttn-cod-status-${o.id}"></span>
@@ -4935,7 +5131,7 @@ function syncQtyFromOrders(){
 
 /* ---------- navigation ---------- */
 
-const SECTIONS = ['products','orders','clients','warehouse','archive','cash','reports'];
+const SECTIONS = ['products','orders','clients','warehouse','supplierorder','archive','cash','reports'];
 function showSection(name){
   SECTIONS.forEach(s => {
     document.getElementById('section-'+s).classList.toggle('active', s===name);
@@ -4943,6 +5139,7 @@ function showSection(name){
   });
   if(name === 'clients') renderClients();
   if(name === 'warehouse'){ renderBalances(); renderMovements(); renderInventory(); populateMovementItemSelect(); }
+  if(name === 'supplierorder') renderSupplierOrder();
   if(name === 'archive') renderArchive();
   if(name === 'cash') renderCash();
   if(name === 'reports') renderReports();
@@ -6018,6 +6215,8 @@ renderCounterparties();
 renderCashCounterpartySelect();
 document.getElementById('cash-date').value = todayStr();
 document.getElementById('fixFutureDateInput').value = todayStr();
+document.getElementById('so-date').value = todayStr();
+renderSupplierOrder();
 renderReports();
 autoConnectFirebase();
 </script>
