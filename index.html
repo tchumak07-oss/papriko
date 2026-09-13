@@ -1009,7 +1009,10 @@
 
   <div class="section-title">
     Статистика по областях України
-    <span class="btns"><button class="btn btn-sm" onclick="resolveNpCityOblasts()">Визначити області з міст НП</button></span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="resolveNpCityOblasts()">Визначити області з міст НП</button>
+      <button class="btn btn-sm" onclick="exportRegionStatsExcel()">Вивести в Excel</button>
+    </span>
   </div>
   <p class="hint" style="margin:-8px 0 14px;">Область визначається автоматично: для Укrpошти — з поштового індексу, для Нової Пошти — з довідника міст НП (натисніть кнопку вище, щоб підтягнути). Замовлення без визначеної області потрапляють у «Не визначено».</p>
   <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
@@ -4816,6 +4819,24 @@ function oblastFromUkrIndex(indexStr){
 
 // кеш "назва міста НП (нижній регістр) -> область", щоб не питати API повторно для того самого міста
 let npCityOblastCache = {};
+let lastRegionRows = [];
+
+function exportRegionStatsExcel(){
+  if(lastRegionRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  const fromInput = document.getElementById('rep-date-from');
+  const toInput = document.getElementById('rep-date-to');
+  const rows = lastRegionRows.map(([region, stat]) => ({
+    'Область': region,
+    'Відправлень': stat.count,
+    'Сума': fmt1(stat.total)
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch: 28}, {wch: 14}, {wch: 14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Області');
+  const period = (fromInput && toInput) ? `${fromInput.value}_${toInput.value}` : todayStr();
+  XLSX.writeFile(wb, `statystyka_oblasti_${period}.xlsx`);
+}
 
 function oblastForOrder(o){
   if(o.deliveryMethod === 'Укрпошта'){
@@ -5004,6 +5025,7 @@ function renderReports(){
       regionStats[key] = stat;
     });
     const regionRows = Object.entries(regionStats).sort((a,b) => b[1].count - a[1].count);
+    lastRegionRows = regionRows; // для експорту в Excel — той самий набір, що зараз на екрані
     if(regionRows.length === 0){
       regionsEl.innerHTML = '<div class="comp-empty">Немає відвантажень за цей період.</div>';
     } else {
