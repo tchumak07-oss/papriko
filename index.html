@@ -3358,8 +3358,10 @@ function ttnResultHtml(o){
       — <a href="https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(o.ttnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncNpStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з НП</a>
       ${!isLinked ? `· <a href="#" onclick="unlinkTtn(${o.id});return false;" style="color:var(--saffron);">відкріпити (лишити в НП)</a>` : ''}
+      ${!isLinked ? `· <a href="#" onclick="updateNpCodAmount(${o.id});return false;" style="color:var(--saffron);">оновити суму контролю оплати</a>` : ''}
       · <a href="#" onclick="${isLinked ? `unlinkTtn(${o.id})` : `cancelNpWaybill(${o.id})`};return false;" style="color:var(--danger);">${isLinked ? 'відв\'язати ТТН' : 'видалити ТТН'}</a>
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
+      <span id="ttn-cod-status-${o.id}"></span>
       ${!isLinked ? `<div style="margin-top:6px;color:var(--saffron);">⚠️ Звірте прізвище на цій накладній у кабінеті <a href="https://new.novaposhta.ua" target="_blank" style="color:var(--saffron);text-decoration:underline;">my.novaposhta.ua</a> — НП іноді підставляє старе ім'я, якщо цей телефон вже раніше десь фігурував. Замовлення: <strong>${escapeAttr(o.customer)}</strong>.</div>` : ''}
       </div>`;
   }
@@ -3384,6 +3386,54 @@ function splitFullName(fullName){
     FirstName: parts[1] || 'Клієнт',
     MiddleName: parts[2] || ''
   };
+}
+
+async function updateNpCodAmount(orderId){
+  const o = orderById(orderId);
+  if(!o || !o.ttnRef) return;
+  const input = prompt('Нова сума контролю оплати, грн (0 — прибрати контроль оплати):', o.codAmount || '');
+  if(input === null) return;
+  const newAmount = parseFloat(input);
+  if(isNaN(newAmount) || newAmount < 0){ alert('Вкажіть коректну суму.'); return; }
+
+  const statusEl = document.getElementById(`ttn-cod-status-${orderId}`);
+  if(statusEl) statusEl.textContent = 'Оновлюю...';
+  try{
+    const name = splitFullName(o.customer);
+    const fullName = `${name.LastName} ${name.FirstName} ${name.MiddleName}`.trim();
+    // update у НП вимагає ті самі поля, що й save, плюс Ref документа, який змінюємо
+    const docParams = {
+      Ref: o.ttnRef,
+      PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
+      PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
+      DateTime: npDateFormat(o.date),
+      CargoType: 'Cargo',
+      Weight: String(o.weight),
+      ServiceType: 'WarehouseWarehouse',
+      SeatsAmount: String(o.seatsAmount || 1),
+      Description: o.description || 'Товар',
+      Cost: String(o.cost || calcOrder(o).total || 100),
+      CitySender: npSender.citySenderRef,
+      Sender: npSender.senderRef,
+      SenderAddress: npSender.senderAddressRef,
+      ContactSender: npSender.contactSenderRef,
+      SendersPhone: npSender.sendersPhone,
+      CityRecipient: o.cityRef,
+      RecipientAddress: o.warehouseRef,
+      RecipientType: 'PrivatePerson',
+      RecipientName: fullName,
+      RecipientContactName: fullName,
+      RecipientsPhone: o.phone,
+      AfterpaymentOnGoodsCost: String(newAmount)
+    };
+    await npApiCall('InternetDocument', 'update', docParams);
+    o.codAmount = newAmount;
+    if(statusEl) statusEl.innerHTML = `<span style="color:var(--cardamom);">✓ Оновлено: ${fmt(newAmount)} грн</span>`;
+    renderOrders();
+    scheduleSave();
+  }catch(err){
+    if(statusEl) statusEl.innerHTML = `<span style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</span>`;
+  }
 }
 
 async function createNpWaybill(orderId){
