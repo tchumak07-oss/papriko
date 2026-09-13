@@ -205,9 +205,38 @@
       width:100%;flex-direction:row;overflow-x:auto;position:static;
       border-bottom:1px solid var(--border-soft);padding-bottom:10px;gap:6px;
     }
-    .app-nav-btn{border-left:none;border-bottom:2px solid transparent;border-radius:8px;white-space:nowrap;margin-left:0!important;}
+    .app-nav-btn{border-left:none;border-bottom:2px solid transparent;border-radius:8px;white-space:nowrap;margin-left:0!important;padding:10px 14px;}
     .app-nav-btn:hover{padding-left:14px;}
     .app-nav-btn.active{border-left:none;border-bottom:2px solid var(--saffron);padding-left:14px;}
+
+    /* ширкі таблиці (звіти, каса, склад) — горизонтальний скрол замість зламаного вигляду */
+    .catalog-panel > div{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    .wh-row-head, .wh-row{min-width:560px;}
+
+    /* шапка сайту — менше місця, без накладання на кнопку замовлення */
+    header h1{font-size:22px;}
+    header .sub{display:none;}
+    header .eyebrow{font-size:10px;}
+
+    /* плаваюча кнопка "Нове замовлення" — менша і трохи нижче, щоб не заважала заголовку */
+    .wrap > button[onclick="createOrderFromAnywhere()"]{
+      top:auto!important;bottom:16px!important;right:16px!important;
+      box-shadow:0 4px 14px rgba(0,0,0,0.5);z-index:300;
+    }
+
+    /* більші зони дотику для чекбоксів і кнопок на тач-екранах */
+    input[type="checkbox"]{width:18px;height:18px;}
+    .btn, .btn-sm{padding:9px 14px;font-size:13px;}
+    .btn-ghost{padding:6px 10px;}
+
+    /* модальні вікна (звіт по відправленнях тощо) — на всю ширину екрана */
+    #todayShipmentsModal > div{width:96%;padding:14px;}
+
+    /* картки замовлень — менше горизонтальних відступів на вузькому екрані */
+    .order-card{padding:0.9rem 0.9rem;}
+    .order-collapsed-info{flex-basis:100%;}
+
+    .summary{grid-template-columns:1fr 1fr;}
   }
   .app-section{display:none;}
   .app-section.active{display:block;}
@@ -3328,6 +3357,7 @@ function ttnResultHtml(o){
     return `<div class="hint" style="color:var(--cardamom);">✓ ТТН ${isLinked ? 'прив\'язано' : 'створено'}: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</strong>
       — <a href="https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(o.ttnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncNpStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з НП</a>
+      ${!isLinked ? `· <a href="#" onclick="unlinkTtn(${o.id});return false;" style="color:var(--saffron);">відкріпити (лишити в НП)</a>` : ''}
       · <a href="#" onclick="${isLinked ? `unlinkTtn(${o.id})` : `cancelNpWaybill(${o.id})`};return false;" style="color:var(--danger);">${isLinked ? 'відв\'язати ТТН' : 'видалити ТТН'}</a>
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
       ${!isLinked ? `<div style="margin-top:6px;color:var(--saffron);">⚠️ Звірте прізвище на цій накладній у кабінеті <a href="https://new.novaposhta.ua" target="_blank" style="color:var(--saffron);text-decoration:underline;">my.novaposhta.ua</a> — НП іноді підставляє старе ім'я, якщо цей телефон вже раніше десь фігурував. Замовлення: <strong>${escapeAttr(o.customer)}</strong>.</div>` : ''}
