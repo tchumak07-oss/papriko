@@ -772,7 +772,9 @@
 
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
     <div class="delivery-grid">
-      <div><label>Постачальник</label><input type="text" id="so-supplier" placeholder="Назва постачальника" oninput="updateSupplierOrderField('supplier',this.value)"></div>
+      <div><label>Постачальник з бази</label><select id="so-supplier-select" onchange="pickSupplierOrderCounterparty(this.value)"></select></div>
+      <div><label>Назва постачальника</label><input type="text" id="so-supplier" placeholder="Назва постачальника" oninput="supplierOrder.counterpartyId='';updateSupplierOrderField('supplier',this.value)"></div>
+      <div style="display:flex;align-items:flex-end;"><button class="btn btn-sm" type="button" onclick="saveSupplierAsCounterparty()">Зберегти як контрагента</button></div>
       <div><label>Дата</label><input type="date" id="so-date" oninput="updateSupplierOrderField('date',this.value)"></div>
       <div><label>Номер (для запису)</label><input type="text" id="so-number" placeholder="напр. №1" oninput="updateSupplierOrderField('number',this.value)"></div>
     </div>
@@ -811,9 +813,16 @@
   </div></div>
 
   <div class="fb-row">
-    <button class="btn btn-primary btn-sm" onclick="exportSupplierOrderExcel()">Вивести в Excel</button>
+    <button class="btn btn-primary btn-sm" onclick="saveSupplierOrder()">Зберегти замовлення</button>
+    <button class="btn btn-sm" onclick="exportSupplierOrderExcel()">Вивести в Excel</button>
     <button class="btn btn-sm" onclick="clearSupplierOrder()">Очистити бланк</button>
   </div>
+
+  <div class="section-title">Збережені замовлення постачальникам</div>
+  <div class="catalog-panel"><div style="padding:14px 16px;">
+    <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 100px 100px;"><div>Дата</div><div>Постачальник</div><div style="text-align:right;">Позицій</div><div style="text-align:right;">Сума</div><div></div></div>
+    <div id="supplierOrderHistoryList"></div>
+  </div></div>
 
   </div><!-- /section-supplierorder -->
 
@@ -998,8 +1007,11 @@
     <div id="reportShipmentsTable"></div>
   </div></div>
 
-  <div class="section-title">Статистика по областях України</div>
-  <p class="hint" style="margin:-8px 0 14px;">Скільки відправлень і на яку суму пішло в кожну область за обраний період. Область береться з поля «Область» у доставці — якщо не вказана, потрапляє в «Не вказано».</p>
+  <div class="section-title">
+    Статистика по областях України
+    <span class="btns"><button class="btn btn-sm" onclick="resolveNpCityOblasts()">Визначити області з міст НП</button></span>
+  </div>
+  <p class="hint" style="margin:-8px 0 14px;">Область визначається автоматично: для Укrpошти — з поштового індексу, для Нової Пошти — з довідника міст НП (натисніть кнопку вище, щоб підтягнути). Замовлення без визначеної області потрапляють у «Не визначено».</p>
   <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
     <div class="wh-row-head" style="grid-template-columns:1fr 100px 100px;"><div>Область</div><div style="text-align:right;">Відправлень</div><div style="text-align:right;">Сума</div></div>
     <div id="reportRegions"></div>
@@ -1090,9 +1102,9 @@ const HARDCODED_FIREBASE_CONFIG = {
 
 function buildStatePayload(){
   return {
-    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, npApiKey, npSender, tgBotToken, tgChatId,
+    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, npSender, tgBotToken, tgChatId,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
-    nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId,
+    nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId,
     updatedAt: new Date().toISOString()
   };
 }
@@ -1106,7 +1118,9 @@ function applyRemoteData(data){
   stockMovements = data.stockMovements || [];
   cashTransactions = data.cashTransactions || [];
   counterparties = data.counterparties || [];
-  supplierOrder = data.supplierOrder || {supplier:'', date:'', number:'', items:[]};
+  supplierOrder = data.supplierOrder || {supplier:'', counterpartyId:'', date:'', number:'', items:[]};
+  supplierOrderHistory = data.supplierOrderHistory || [];
+  npCityOblastCache = data.npCityOblastCache || {};
   npApiKey = data.npApiKey || '';
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
   tgBotToken = data.tgBotToken || '';
@@ -1127,6 +1141,7 @@ function applyRemoteData(data){
   nextMovementId = data.nextMovementId || (Math.max(0, ...stockMovements.map(m=>m.id), 0) + 1);
   nextCashId = data.nextCashId || (Math.max(0, ...cashTransactions.map(t=>t.id), 0) + 1);
   nextCounterpartyId = data.nextCounterpartyId || (Math.max(0, ...counterparties.map(c=>c.id), 0) + 1);
+  nextSupplierOrderId = data.nextSupplierOrderId || (Math.max(0, ...supplierOrderHistory.map(s=>s.id), 0) + 1);
   renderCatalog();
   renderKits();
   renderOrders();
@@ -1290,10 +1305,39 @@ function catRowHtml(c){
 
 /* ---------- замовлення постачальнику ---------- */
 
-let supplierOrder = {supplier:'', date:'', number:'', items:[]};
+let supplierOrder = {supplier:'', counterpartyId:'', date:'', number:'', items:[]};
+let supplierOrderHistory = [];
+let nextSupplierOrderId = 1;
 
 function updateSupplierOrderField(field, value){
   supplierOrder[field] = value;
+  scheduleSave();
+}
+
+function pickSupplierOrderCounterparty(id){
+  supplierOrder.counterpartyId = id || '';
+  const c = counterpartyById(id);
+  supplierOrder.supplier = c ? c.name : '';
+  document.getElementById('so-supplier').value = supplierOrder.supplier;
+  scheduleSave();
+}
+
+function saveSupplierAsCounterparty(){
+  const name = (document.getElementById('so-supplier').value || '').trim();
+  if(!name){ alert('Спочатку впишіть назву постачальника.'); return; }
+  const existing = counterparties.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if(existing){
+    supplierOrder.counterpartyId = existing.id;
+    alert(`«${name}» вже є в базі контрагентів — прив'язав до нього.`);
+  } else {
+    const id = nextCounterpartyId++;
+    counterparties.push({id, name, phone:'', notes:''});
+    supplierOrder.counterpartyId = id;
+    alert(`«${name}» додано в базу контрагентів.`);
+  }
+  renderCounterparties();
+  renderCashCounterpartySelect();
+  renderSupplierOrder();
   scheduleSave();
 }
 
@@ -1303,8 +1347,10 @@ function catalogSelectOptionsHtml(){
 }
 
 function renderSupplierOrder(){
+  document.getElementById('so-supplier-select').innerHTML = counterpartySelectOptionsHtml(supplierOrder.counterpartyId || '');
   document.getElementById('so-supplier').value = supplierOrder.supplier || '';
   document.getElementById('so-date').value = supplierOrder.date || todayStr();
+  renderSupplierOrderHistory();
   document.getElementById('so-number').value = supplierOrder.number || '';
   document.getElementById('so-item-select').innerHTML = catalogSelectOptionsHtml();
 
@@ -1393,8 +1439,75 @@ function createCatalogItemFromSupplierOrder(){
 
 function clearSupplierOrder(){
   if(supplierOrder.items.length > 0 && !confirm('Очистити весь бланк замовлення постачальнику?')) return;
-  supplierOrder = {supplier:'', date: todayStr(), number:'', items:[]};
+  supplierOrder = {supplier:'', counterpartyId:'', date: todayStr(), number:'', items:[]};
   renderSupplierOrder();
+  scheduleSave();
+}
+
+function saveSupplierOrder(){
+  if(supplierOrder.items.length === 0){ alert('Спочатку додайте хоча б одну позицію.'); return; }
+  const id = nextSupplierOrderId++;
+  supplierOrderHistory.push({
+    id,
+    supplier: supplierOrder.supplier,
+    counterpartyId: supplierOrder.counterpartyId,
+    date: supplierOrder.date || todayStr(),
+    number: supplierOrder.number,
+    items: JSON.parse(JSON.stringify(supplierOrder.items)),
+    savedAt: new Date().toISOString()
+  });
+  renderSupplierOrderHistory();
+  scheduleSave();
+  alert('Замовлення збережено в історію.');
+}
+
+function supplierOrderTotalValue(items){
+  return items.reduce((s,it) => {
+    const c = catalogItem(it.catalogId);
+    return s + (c ? (c.cost||0)*(it.qty||0) : 0);
+  }, 0);
+}
+
+function renderSupplierOrderHistory(){
+  const el = document.getElementById('supplierOrderHistoryList');
+  if(!el) return;
+  if(supplierOrderHistory.length === 0){
+    el.innerHTML = '<div class="comp-empty">Ще немає збережених замовлень.</div>';
+    return;
+  }
+  const sorted = [...supplierOrderHistory].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date) || b.id - a.id);
+  el.innerHTML = sorted.map(so => `
+    <div class="wh-row" style="grid-template-columns:90px 1fr 90px 100px 100px;">
+      <div class="hint">${so.date||''}</div>
+      <div>${escapeAttr(so.supplier||'(без назви)')}${so.number ? ' · '+escapeAttr(so.number) : ''}</div>
+      <div class="cv" style="text-align:right;">${so.items.length}</div>
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(supplierOrderTotalValue(so.items))} грн</div>
+      <div class="kit-collapsed-actions">
+        <button class="btn btn-sm" onclick="openSupplierOrderFromHistory(${so.id})">Відкрити</button>
+        <button class="btn-ghost" onclick="removeSupplierOrderFromHistory(${so.id})" aria-label="Видалити">×</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openSupplierOrderFromHistory(id){
+  const so = supplierOrderHistory.find(x => x.id === id);
+  if(!so) return;
+  if(supplierOrder.items.length > 0 && !confirm('Поточний незбережений бланк буде замінено цим замовленням. Продовжити?')) return;
+  supplierOrder = {
+    supplier: so.supplier, counterpartyId: so.counterpartyId, date: so.date, number: so.number,
+    items: JSON.parse(JSON.stringify(so.items))
+  };
+  renderSupplierOrder();
+  scheduleSave();
+}
+
+function removeSupplierOrderFromHistory(id){
+  const so = supplierOrderHistory.find(x => x.id === id);
+  if(!so) return;
+  if(!confirm(`Видалити збережене замовлення постачальнику «${so.supplier||'(без назви)'}» від ${so.date}?`)) return;
+  supplierOrderHistory = supplierOrderHistory.filter(x => x.id !== id);
+  renderSupplierOrderHistory();
   scheduleSave();
 }
 
@@ -1425,6 +1538,14 @@ function exportSupplierOrderExcel(){
   const ws = XLSX.utils.aoa_to_sheet(headerRows);
   XLSX.utils.sheet_add_json(ws, rows, {origin: -1});
   XLSX.utils.sheet_add_aoa(ws, [[], ['', '', '', '', 'Разом:', fmt1(total)]], {origin: -1});
+  ws['!cols'] = [
+    {wch: 28}, // Товар
+    {wch: 12}, // Категорія
+    {wch: 10}, // Одиниця
+    {wch: 12}, // Кількість
+    {wch: 16}, // Ціна за одиницю
+    {wch: 12}  // Сума
+  ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Замовлення');
   XLSX.writeFile(wb, `zamovlennya_postachalnyku_${supplierOrder.date || todayStr()}.xlsx`);
@@ -4672,6 +4793,76 @@ function inReportRange(dateStr){
   return true;
 }
 
+/* ---------- визначення області за індексом Укrpошти чи містом Нової Пошти ---------- */
+
+// офіційна таблиця: перші дві цифри поштового індексу України → область (Вікіпедія, "Postal codes in Ukraine")
+const UKR_POSTAL_OBLAST_RANGES = [
+  [1,6,'м. Київ'], [7,9,'Київська область'], [10,13,'Житомирська область'], [14,17,'Чернігівська область'],
+  [18,20,'Черкаська область'], [21,24,'Вінницька область'], [25,28,'Кіровоградська область'], [29,32,'Хмельницька область'],
+  [33,35,'Рівненська область'], [36,39,'Полтавська область'], [40,42,'Сумська область'], [43,45,'Волинська область'],
+  [46,49,'Тернопільська область'], [49,53,'Дніпропетровська область'], [54,57,'Миколаївська область'], [58,60,'Чернівецька область'],
+  [61,64,'Харківська область'], [65,69,'Одеська область'], [69,72,'Запорізька область'], [73,75,'Херсонська область'],
+  [76,78,'Івано-Франківська область'], [79,82,'Львівська область'], [83,87,'Донецька область'], [88,90,'Закарпатська область'],
+  [91,94,'Луганська область'], [95,98,'АР Крим'], [99,99,'м. Севастополь']
+];
+
+function oblastFromUkrIndex(indexStr){
+  const m = String(indexStr||'').match(/^(\d{2})/);
+  if(!m) return '';
+  const prefix = parseInt(m[1], 10);
+  const found = UKR_POSTAL_OBLAST_RANGES.find(([min,max]) => prefix >= min && prefix <= max);
+  return found ? found[2] : '';
+}
+
+// кеш "назва міста НП (нижній регістр) -> область", щоб не питати API повторно для того самого міста
+let npCityOblastCache = {};
+
+function oblastForOrder(o){
+  if(o.deliveryMethod === 'Укрпошта'){
+    return oblastFromUkrIndex(o.ukrIndex) || 'Не визначено (індекс)';
+  }
+  if(o.deliveryMethod === 'Нова Пошта'){
+    const key = (o.city||'').trim().toLowerCase();
+    if(!key) return 'Не визначено (немає міста)';
+    return npCityOblastCache[key] || 'Ще не визначено (натисніть кнопку вище)';
+  }
+  return 'Самовивіз / інше';
+}
+
+async function resolveNpCityOblasts(){
+  if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти в «Налаштування доставки».'); return; }
+  const uniqueCities = new Set();
+  orders.forEach(o => {
+    if(o.deliveryMethod === 'Нова Пошта' && o.city){
+      const key = o.city.trim().toLowerCase();
+      if(key && !npCityOblastCache[key]) uniqueCities.add(o.city.trim());
+    }
+  });
+  if(uniqueCities.size === 0){
+    alert('Усі міста Нової Пошти вже визначено (або немає жодного замовлення НП з вказаним містом).');
+    renderReports();
+    return;
+  }
+  let resolved = 0, failed = 0;
+  for(const cityName of uniqueCities){
+    try{
+      const data = await npApiCall('AddressGeneral', 'getSettlements', {FindByString: cityName, Limit: '1'});
+      const first = data && data[0];
+      if(first && first.AreaDescription){
+        npCityOblastCache[cityName.toLowerCase()] = first.AreaDescription;
+        resolved++;
+      } else {
+        failed++;
+      }
+    }catch(err){
+      failed++;
+    }
+  }
+  scheduleSave();
+  renderReports();
+  alert(`Визначено область для ${resolved} міст. ${failed > 0 ? 'Не вдалося визначити: '+failed+'.' : ''}`);
+}
+
 function renderReports(){
   const summaryEl = document.getElementById('reportsSummary');
   if(!summaryEl) return;
@@ -4806,7 +4997,7 @@ function renderReports(){
   if(regionsEl){
     const regionStats = {};
     shippedInRange.forEach(o => {
-      const key = (o.region||'').trim() || 'Не вказано';
+      const key = oblastForOrder(o);
       const stat = regionStats[key] || {count:0, total:0};
       stat.count += 1;
       stat.total += calcOrder(o).total;
