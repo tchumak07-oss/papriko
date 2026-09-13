@@ -3406,7 +3406,9 @@ async function updateNpCodAmount(orderId){
       Ref: o.ttnRef,
       PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
       PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
-      DateTime: npDateFormat(o.date),
+      // для update НП вимагає DateTime не раніше сьогодні — дата самого замовлення тут не підходить,
+      // якщо воно було створене раніше (саме це й спричиняло помилку "DateTime cannot be less then now").
+      DateTime: npDateFormat(todayStr()),
       CargoType: 'Cargo',
       Weight: String(o.weight),
       ServiceType: 'WarehouseWarehouse',
