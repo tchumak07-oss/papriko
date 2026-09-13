@@ -2962,13 +2962,28 @@ async function createUkrSender(){
   }
 }
 
+async function enableCheckOnDeliveryUkr(orderId){
+  const o = orderById(orderId);
+  if(!o || !o.ukrShipmentUuid) return;
+  const statusEl = document.getElementById(`ukr-check-delivery-status-${orderId}`);
+  if(statusEl) statusEl.textContent = ' Вмикаю...';
+  try{
+    await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, {checkOnDelivery: true});
+    if(statusEl) statusEl.innerHTML = ' <span style="color:var(--cardamom);">✓ Огляд при врученні увімкнено.</span>';
+  }catch(err){
+    if(statusEl) statusEl.innerHTML = ` <span style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</span>`;
+  }
+}
+
 function ukrResultHtml(o){
   if(o.ukrTtnNumber){
     return `<div class="hint" style="color:var(--cardamom);">✓ Декларацію ${o.ukrShipmentUuid ? 'створено' : 'прив\'язано'}: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ukrTtnNumber)}</strong>
       — <a href="https://track.ukrposhta.ua/tracking_UA.html?barcode=${encodeURIComponent(o.ukrTtnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncUkrStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з Укрпошти</a>
+      ${o.ukrShipmentUuid ? `· <a href="#" onclick="enableCheckOnDeliveryUkr(${o.id});return false;" style="color:var(--saffron);">увімкнути огляд при врученні</a>` : ''}
       ${o.ukrShipmentUuid ? `· <a href="#" onclick="cancelUkrShipment(${o.id});return false;" style="color:var(--danger);">видалити</a>` : `· <a href="#" onclick="unlinkUkrTtn(${o.id});return false;" style="color:var(--danger);">відв'язати</a>`}
       ${o.ukrStatusText ? `<br>Статус Укрпошти: <strong>${escapeAttr(o.ukrStatusText)}</strong>` : ''}
+      <span id="ukr-check-delivery-status-${o.id}"></span>
       </div>`;
   }
   return '';
@@ -3121,6 +3136,10 @@ async function createUkrShipment(orderId){
       type: 'STANDARD',
       paidByRecipient: o.payerType === 'Отримувач',
       description: o.description || 'Товар',
+      // Огляд при врученні дозволений за замовчуванням для ФОП/юрособи (checkOnDeliveryAllowed=true на клієнті),
+      // але сам checkOnDelivery на відправленні треба вмикати явно щоразу. Для типу STANDARD працює лише
+      // якщо вказана оголошена цінність (declaredPrice) або вага > 10кг — а в нас declaredPrice завжди заповнена нижче.
+      checkOnDelivery: true,
       parcels: [{
         weight: Math.round(Number(o.weight) * 1000),
         length: 20, width: 15, height: 15,
