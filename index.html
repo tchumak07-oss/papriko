@@ -526,6 +526,10 @@
       </div>
       <div class="catalog-group">
         <div class="catalog-group-title">Уведомлення в Telegram</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin:0 0 10px;padding:10px 12px;background:var(--surface-2);border-radius:8px;">
+          <input type="checkbox" id="telegramNotificationsToggle" checked onchange="toggleTelegramNotifications(this.checked)" style="width:auto;accent-color:var(--saffron);">
+          Автоматично надсилати сповіщення в Telegram про кожну відправку
+        </label>
         <p class="hint" style="margin:0 0 8px;">Створіть бота через <strong>@BotFather</strong> (команда /newbot, скопіюйте токен), додайте бота у вашу групу, і напишіть у групі будь-яке повідомлення. Тоді натисніть кнопку нижче — вона сама визначить ID групи.</p>
         <div class="delivery-grid">
           <div style="grid-column:span 2;"><label>Токен бота</label><input type="text" id="tgBotTokenInput" placeholder="напр. 123456:ABC-DEF..."></div>
@@ -1125,7 +1129,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 
 function buildStatePayload(){
   return {
-    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, npSender, tgBotToken, tgChatId,
+    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId,
     updatedAt: new Date().toISOString()
@@ -1148,6 +1152,7 @@ function applyRemoteData(data){
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
   tgBotToken = data.tgBotToken || '';
   tgChatId = data.tgChatId || '';
+  telegramNotificationsEnabled = data.telegramNotificationsEnabled !== false;
   ukrBearer = data.ukrBearer || '';
   ukrToken = data.ukrToken || '';
   ukrProxyUrl = data.ukrProxyUrl || '';
@@ -1187,6 +1192,8 @@ function applyRemoteData(data){
   if(tgTokenInput) tgTokenInput.value = tgBotToken;
   const tgChatInput = document.getElementById('tgChatIdInput');
   if(tgChatInput) tgChatInput.value = tgChatId;
+  const tgNotifToggle = document.getElementById('telegramNotificationsToggle');
+  if(tgNotifToggle) tgNotifToggle.checked = telegramNotificationsEnabled;
   const ukrBearerInput = document.getElementById('ukrBearerInput');
   if(ukrBearerInput) ukrBearerInput.value = ukrBearer;
   const ukrTokenInput = document.getElementById('ukrTokenInput');
@@ -2061,12 +2068,18 @@ function saveNpApiKey(){
 /* ---------- telegram notifications ---------- */
 
 let tgBotToken = '';
+let telegramNotificationsEnabled = true;
 let tgChatId = '';
 
 function saveTelegramSettings(){
   tgBotToken = document.getElementById('tgBotTokenInput').value.trim();
   tgChatId = document.getElementById('tgChatIdInput').value.trim();
   document.getElementById('tgStatus').textContent = (tgBotToken && tgChatId) ? 'Збережено.' : 'Токен і/або ID групи порожні.';
+  scheduleSave();
+}
+
+function toggleTelegramNotifications(enabled){
+  telegramNotificationsEnabled = enabled;
   scheduleSave();
 }
 
@@ -2938,7 +2951,7 @@ function saveOrder(id){
   const o = orderById(id);
   if(!o) return;
   o.collapsed = true;
-  if(!o.ttnTelegramNotified && (o.city || o.ukrCity || o.address)){
+  if(telegramNotificationsEnabled && !o.ttnTelegramNotified && (o.city || o.ukrCity || o.address)){
     o.ttnTelegramNotified = true;
     notifyTelegramShipment(o);
   }
