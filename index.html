@@ -986,68 +986,88 @@
 
   <div class="summary" id="reportsSummary" style="margin-bottom:1.5rem;"></div>
 
-  <div class="section-title">Топ наборів за виручкою</div>
-  <div id="reportTopKits" style="margin-bottom:2rem;"></div>
+  <div class="section-title"><span id="rb-topkits-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-topkits')">▸ Топ наборів за виручкою</span></div>
+  <div id="rb-topkits" style="display:none;">
+    <div id="reportTopKits" style="margin-bottom:2rem;"></div>
+  </div>
 
-  <div class="section-title">Витрати за категоріями</div>
-  <div id="reportExpenseCategories" style="margin-bottom:2rem;"></div>
+  <div class="section-title"><span id="rb-expcat-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-expcat')">▸ Витрати за категоріями</span></div>
+  <div id="rb-expcat" style="display:none;">
+    <div id="reportExpenseCategories" style="margin-bottom:2rem;"></div>
+  </div>
 
-  <div class="section-title">Топ клієнтів</div>
-  <div id="reportTopClients" style="margin-bottom:2rem;"></div>
+  <div class="section-title"><span id="rb-topclients-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-topclients')">▸ Топ клієнтів</span></div>
+  <div id="rb-topclients" style="display:none;">
+    <div id="reportTopClients" style="margin-bottom:2rem;"></div>
+  </div>
 
-  <div class="section-title">Звіт по продажах за період</div>
-  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-    <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 100px;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Позицій</div><div style="text-align:right;">Сума</div></div>
-    <div id="reportSalesTable"></div>
-  </div></div>
+  <div class="section-title"><span id="rb-sales-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-sales')">▸ Звіт по продажах за період</span></div>
+  <div id="rb-sales" style="display:none;">
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 100px;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Позицій</div><div style="text-align:right;">Сума</div></div>
+      <div id="reportSalesTable"></div>
+    </div></div>
+  </div>
 
-  <div class="section-title">Звіт по відвантаженнях за період</div>
-  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-    <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 1fr 130px 120px;"><div>Дата</div><div>Клієнт</div><div>Служба</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div></div>
-    <div id="reportShipmentsTable"></div>
-  </div></div>
+  <div class="section-title"><span id="rb-shipments-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-shipments')">▸ Звіт по відвантаженнях за період</span></div>
+  <div id="rb-shipments" style="display:none;">
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 1fr 130px 120px;"><div>Дата</div><div>Клієнт</div><div>Служба</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div></div>
+      <div id="reportShipmentsTable"></div>
+    </div></div>
+  </div>
 
   <div class="section-title">
-    Статистика по областях України
+    <span id="rb-regions-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-regions')">▸ Статистика по областях України</span>
     <span class="btns">
       <button class="btn btn-sm" onclick="resolveNpCityOblasts()">Визначити області з міст НП</button>
       <button class="btn btn-sm" onclick="exportRegionStatsExcel()">Вивести в Excel</button>
     </span>
   </div>
-  <p class="hint" style="margin:-8px 0 14px;">Область визначається автоматично: для Укrpошти — з поштового індексу, для Нової Пошти — з довідника міст НП (натисніть кнопку вище, щоб підтягнути). Замовлення без визначеної області потрапляють у «Не визначено».</p>
-  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-    <div class="wh-row-head" style="grid-template-columns:1fr 100px 100px;"><div>Область</div><div style="text-align:right;">Відправлень</div><div style="text-align:right;">Сума</div></div>
-    <div id="reportRegions"></div>
-  </div></div>
+  <div id="rb-regions" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Область визначається автоматично: для Укrpошти — з поштового індексу, для Нової Пошти — з довідника міст НП (натисніть кнопку вище, щоб підтягнути). Замовлення без визначеної області потрапляють у «Не визначено».</p>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:1fr 100px 100px;"><div>Область</div><div style="text-align:right;">Відправлень</div><div style="text-align:right;">Сума</div></div>
+      <div id="reportRegions"></div>
+    </div></div>
+  </div>
 
-  <div class="section-title">Звіт по витраті інгредієнтів</div>
-  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-    <div class="wh-row-head" style="grid-template-columns:1fr 100px 90px;"><div>Товар</div><div style="text-align:right;">Списано</div><div style="text-align:right;">Одиниця</div></div>
-    <div id="reportIngredientUsage"></div>
-  </div></div>
+  <div class="section-title"><span id="rb-usage-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-usage')">▸ Звіт по витраті інгредієнтів</span></div>
+  <div id="rb-usage" style="display:none;">
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:1fr 100px 90px;"><div>Товар</div><div style="text-align:right;">Списано</div><div style="text-align:right;">Одиниця</div></div>
+      <div id="reportIngredientUsage"></div>
+    </div></div>
+  </div>
 
-  <div class="section-title">Звіт по витратах</div>
-  <div class="catalog-panel"><div style="padding:14px 16px;">
-    <div class="wh-row-head" style="grid-template-columns:90px 1fr 1fr 100px;"><div>Дата</div><div>Категорія</div><div>Примітка</div><div style="text-align:right;">Сума</div></div>
-    <div id="reportExpensesTable"></div>
-  </div></div>
+  <div class="section-title"><span id="rb-expenses-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-expenses')">▸ Звіт по витратах</span></div>
+  <div id="rb-expenses" style="display:none;">
+    <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:90px 1fr 1fr 100px;"><div>Дата</div><div>Категорія</div><div>Примітка</div><div style="text-align:right;">Сума</div></div>
+      <div id="reportExpensesTable"></div>
+    </div></div>
+  </div>
 
   <div class="section-title">
-    Неотримані посилки (Нова Пошта)
+    <span id="rb-undelivered-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-undelivered')">▸ Неотримані посилки (Нова Пошта)</span>
     <span class="btns"><button class="btn btn-sm" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button></span>
   </div>
-  <p class="hint" style="margin:-8px 0 14px;">Список не залежить від фільтра періоду вище — тут завжди всі поточні відправлення НП, які ще не позначені як «Доставлено». Відсортовано від найдовше в дорозі.</p>
-  <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-    <div class="wh-row-head" style="grid-template-columns:90px 80px 1fr 1fr 130px 1fr 90px;"><div>Відправлено</div><div style="text-align:right;">Днів</div><div>Клієнт</div><div>Місто / відділення</div><div>ТТН</div><div>Статус НП</div><div></div></div>
-    <div id="reportUndelivered"></div>
-  </div></div>
+  <div id="rb-undelivered" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Список не залежить від фільтра періоду вище — тут завжди всі поточні відправлення НП, які ще не позначені як «Доставлено». Відсортовано від найдовше в дорозі.</p>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:90px 80px 1fr 1fr 130px 1fr 90px;"><div>Відправлено</div><div style="text-align:right;">Днів</div><div>Клієнт</div><div>Місто / відділення</div><div>ТТН</div><div>Статус НП</div><div></div></div>
+      <div id="reportUndelivered"></div>
+    </div></div>
+  </div>
 
-  <div class="section-title">Повернення (перевірити повернення коштів)</div>
-  <p class="hint" style="margin:-8px 0 14px;">Замовлення, де Нова Пошта повідомила про відмову отримувача чи повернення посилки. Не залежить від фільтра періоду. Перевірте, чи не потрібно повернути клієнту гроші (якщо була передоплата) і чи не варто зняти позначку «Оплачено».</p>
-  <div class="catalog-panel"><div style="padding:14px 16px;">
-    <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 1fr 130px 1fr;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Сума</div><div>Оплачено</div><div>ТТН</div><div>Статус НП</div></div>
-    <div id="reportReturned"></div>
-  </div></div>
+  <div class="section-title"><span id="rb-returned-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-returned')">▸ Повернення (перевірити повернення коштів)</span></div>
+  <div id="rb-returned" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Замовлення, де Нова Пошта повідомила про відмову отримувача чи повернення посилки. Не залежить від фільтра періоду. Перевірте, чи не потрібно повернути клієнту гроші (якщо була передоплата) і чи не варто зняти позначку «Оплачено».</p>
+    <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 1fr 130px 1fr;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Сума</div><div>Оплачено</div><div>ТТН</div><div>Статус НП</div></div>
+      <div id="reportReturned"></div>
+    </div></div>
+  </div>
 
   </div><!-- /section-reports -->
 
@@ -4820,6 +4840,16 @@ function oblastFromUkrIndex(indexStr){
 // кеш "назва міста НП (нижній регістр) -> область", щоб не питати API повторно для того самого міста
 let npCityOblastCache = {};
 let lastRegionRows = [];
+
+// згортає/розгортає блок звіту — id елемента-обгортки й відповідного заголовка (id+'-title') узгоджені за назвою
+function toggleReportBlock(id){
+  const body = document.getElementById(id);
+  const titleEl = document.getElementById(id+'-title');
+  if(!body) return;
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? '' : 'none';
+  if(titleEl) titleEl.textContent = titleEl.textContent.replace(/^./, isHidden ? '▾' : '▸');
+}
 
 function exportRegionStatsExcel(){
   if(lastRegionRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
