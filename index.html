@@ -457,6 +457,7 @@
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterInTransit" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> В дорозі</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterAtBranch" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> На відділенні, ще не забрали</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterDelivered" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Доставлені</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterPickedUp" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Забрав клієнт</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterPaid" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Оплачені</label>
       </div>
 
@@ -2719,6 +2720,7 @@ function onTsFilterAllChange(){
     document.getElementById('tsFilterInTransit').checked = false;
     document.getElementById('tsFilterAtBranch').checked = false;
     document.getElementById('tsFilterDelivered').checked = false;
+    document.getElementById('tsFilterPickedUp').checked = false;
     document.getElementById('tsFilterPaid').checked = false;
   }
   renderTodayShipmentsModal();
@@ -2729,6 +2731,7 @@ function onTsFilterSpecificChange(){
     || document.getElementById('tsFilterInTransit').checked
     || document.getElementById('tsFilterAtBranch').checked
     || document.getElementById('tsFilterDelivered').checked
+    || document.getElementById('tsFilterPickedUp').checked
     || document.getElementById('tsFilterPaid').checked;
   if(anyChecked) document.getElementById('tsFilterAll').checked = false;
   renderTodayShipmentsModal();
@@ -2744,6 +2747,7 @@ async function openTodayShipmentsModal(){
   document.getElementById('tsFilterInTransit').checked = false;
   document.getElementById('tsFilterAtBranch').checked = false;
   document.getElementById('tsFilterDelivered').checked = false;
+  document.getElementById('tsFilterPickedUp').checked = false;
   document.getElementById('tsFilterPaid').checked = false;
   document.getElementById('tsFilterCarrierNp').checked = false;
   document.getElementById('tsFilterCarrierUkr').checked = false;
@@ -2796,8 +2800,9 @@ function getFilteredShipments(){
   const fInTransit = document.getElementById('tsFilterInTransit').checked;
   const fAtBranch = document.getElementById('tsFilterAtBranch').checked;
   const fDelivered = document.getElementById('tsFilterDelivered').checked;
+  const fPickedUp = document.getElementById('tsFilterPickedUp').checked;
   const fPaid = document.getElementById('tsFilterPaid').checked;
-  const anyStatusChecked = fUnshipped || fShipped || fInTransit || fAtBranch || fDelivered || fPaid;
+  const anyStatusChecked = fUnshipped || fShipped || fInTransit || fAtBranch || fDelivered || fPickedUp || fPaid;
 
   const fCarrierNp = document.getElementById('tsFilterCarrierNp').checked;
   const fCarrierUkr = document.getElementById('tsFilterCarrierUkr').checked;
@@ -2818,6 +2823,14 @@ function getFilteredShipments(){
     // ігнорують період і показують геть усі такі зі списку, незалежно від дати замовлення.
     if(fInTransit && isInTransitOnly(o)) return true;
     if(fAtBranch && isAtBranchAwaitingPickup(o)) return true;
+
+    // «Забрав клієнт» — звіряє саме ДАТУ ОТРИМАННЯ (коли клієнт фактично забрав) з обраним періодом,
+    // а не дату самого замовлення — щоб бачити, хто забрав посилку саме в ці дні.
+    if(fPickedUp){
+      if(!o.delivered) return false;
+      const pickupTs = dateSortValue(o.deliveredDate || o.date);
+      return pickupTs >= fromTs && pickupTs <= toTs;
+    }
 
     const ts = dateSortValue(o.date);
     const dateOk = ts >= fromTs && ts <= toTs;
@@ -3057,6 +3070,8 @@ function toggleOrderDelivered(id, checked){
   const o = orderById(id);
   if(!o) return;
   o.delivered = checked;
+  if(checked && !o.deliveredDate) o.deliveredDate = todayStr();
+  if(!checked) o.deliveredDate = '';
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -3439,6 +3454,7 @@ function applyUkrStatus(o, statusItem){
     } else {
       o.shipped = true;
       o.delivered = true;
+      if(!o.deliveredDate) o.deliveredDate = todayStr();
     }
   } else if(event === 31200){
     o.npReturned = true;
@@ -3948,6 +3964,7 @@ function applyNpStatus(o, statusItem){
   // Фактичне отримання посилки отримувачем — лише тоді вважаємо "доставлено".
   if(statusLower.includes('отримано') || paidPhraseMatch){
     o.delivered = true;
+    if(!o.deliveredDate) o.deliveredDate = todayStr();
     // За вашим рішенням: якщо була сума післяплати/контролю оплати — вважаємо оплаченим одразу
     // після доставки (без очікування окремого підтвердження переказу, якого API все одно не дає).
     // Автоматично додається дохід у касу; звірку з реальним надходженням коштів робите самі пізніше.
