@@ -309,7 +309,10 @@
   <div id="section-products" class="app-section">
 
   <!-- ===== CATALOG ===== -->
-  <div class="section-title" style="margin-top:0;">Довідник собівартостей</div>
+  <div class="section-title" style="margin-top:0;">
+    Довідник собівартостей
+    <span class="btns"><button class="btn btn-sm" onclick="exportCatalogExcel()">Вивести в Excel</button></span>
+  </div>
   <div class="catalog-panel">
     <button class="catalog-toggle" onclick="toggleCatalog()">
       <span id="catalogToggleLabel">Показати довідник (упаковка та інгредієнти)</span>
@@ -1605,6 +1608,22 @@ function exportSupplierOrderExcel(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Замовлення');
   XLSX.writeFile(wb, `zamovlennya_postachalnyku_${supplierOrder.date || todayStr()}.xlsx`);
+}
+
+function exportCatalogExcel(){
+  if(catalog.length === 0){ alert('Довідник порожній.'); return; }
+  const sorted = [...catalog].sort((a,b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  const rows = sorted.map(c => ({
+    'Назва': c.name,
+    'Категорія': c.category,
+    'Одиниця': c.unit,
+    'Собівартість за одиницю': c.cost
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch: 30}, {wch: 14}, {wch: 10}, {wch: 20}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Інгредієнти');
+  XLSX.writeFile(wb, `dovidnyk_sobivartosti_${todayStr()}.xlsx`);
 }
 
 function addCatalogItem(category){
@@ -3404,15 +3423,40 @@ async function enableCheckOnDeliveryUkr(orderId){
   }
 }
 
+async function updateUkrCodAmount(orderId){
+  const o = orderById(orderId);
+  if(!o || !o.ukrShipmentUuid) return;
+  const input = prompt('Нова сума післяплати/контролю оплати, грн (0 — прибрати післяплату):', o.codAmount || '');
+  if(input === null) return;
+  const newAmount = parseFloat(input);
+  if(isNaN(newAmount) || newAmount < 0){ alert('Вкажіть коректну суму.'); return; }
+
+  const statusEl = document.getElementById(`ukr-cod-status-${orderId}`);
+  if(statusEl) statusEl.textContent = ' Оновлюю...';
+  try{
+    const body = { postPay: newAmount };
+    if(newAmount > 0 && ukrSender.iban) body.transferPostPayToBankAccount = true;
+    await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, body);
+    o.codAmount = newAmount;
+    if(statusEl) statusEl.innerHTML = ` <span style="color:var(--cardamom);">✓ Оновлено: ${fmt(newAmount)} грн</span>`;
+    renderOrders();
+    scheduleSave();
+  }catch(err){
+    if(statusEl) statusEl.innerHTML = ` <span style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</span>`;
+  }
+}
+
 function ukrResultHtml(o){
   if(o.ukrTtnNumber){
     return `<div class="hint" style="color:var(--cardamom);">✓ Декларацію ${o.ukrShipmentUuid ? 'створено' : 'прив\'язано'}: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ukrTtnNumber)}</strong>
       — <a href="https://track.ukrposhta.ua/tracking_UA.html?barcode=${encodeURIComponent(o.ukrTtnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncUkrStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з Укрпошти</a>
       ${o.ukrShipmentUuid ? `· <a href="#" onclick="enableCheckOnDeliveryUkr(${o.id});return false;" style="color:var(--saffron);">увімкнути огляд при врученні</a>` : ''}
+      ${o.ukrShipmentUuid ? `· <a href="#" onclick="updateUkrCodAmount(${o.id});return false;" style="color:var(--saffron);">оновити суму післяплати</a>` : ''}
       ${o.ukrShipmentUuid ? `· <a href="#" onclick="cancelUkrShipment(${o.id});return false;" style="color:var(--danger);">видалити</a>` : `· <a href="#" onclick="unlinkUkrTtn(${o.id});return false;" style="color:var(--danger);">відв'язати</a>`}
       ${o.ukrStatusText ? `<br>Статус Укрпошти: <strong>${escapeAttr(o.ukrStatusText)}</strong>` : ''}
       <span id="ukr-check-delivery-status-${o.id}"></span>
+      <span id="ukr-cod-status-${o.id}"></span>
       </div>`;
   }
   return '';
@@ -3534,10 +3578,16 @@ async function syncAllUkrStatuses(){
   alert(`Перевірено ${res.checked} активних декларацій Укрпошти (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Повернень: ${res.returned}.`);
 }
 
+let ukrShipmentInFlight = new Set();
+
 async function createUkrShipment(orderId){
   const o = orderById(orderId);
   if(!o) return;
   const resultEl = document.getElementById(`ukr-result-${orderId}`);
+  const btnEl = document.getElementById(`ukr-create-btn-${orderId}`);
+  // захист від подвійного створення (напр. подвійний клік чи повторне натискання, поки перший запит ще виконується) —
+  // саме це спричиняло появу "зайвої" декларації в Укрпошті, якої нема в програмі.
+  if(ukrShipmentInFlight.has(orderId)) return;
   if(!ukrBearer || !ukrToken){ alert('Спочатку вкажіть Bearer і token Укрпошти в «Налаштування доставки».'); return; }
   if(!ukrSender.uuid){ alert('Спочатку створіть відправника в «Налаштування доставки».'); return; }
   if(!o.ukrIndex || !o.ukrCity){ alert('Вкажіть індекс і місто отримувача.'); return; }
@@ -3545,6 +3595,8 @@ async function createUkrShipment(orderId){
   if(!o.phone){ alert('Вкажіть телефон отримувача.'); return; }
   if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг).'); return; }
 
+  ukrShipmentInFlight.add(orderId);
+  if(btnEl){ btnEl.disabled = true; btnEl.textContent = 'Створюю...'; }
   resultEl.innerHTML = '<div class="hint">Створюю декларацію...</div>';
   try{
     const recAddr = await ukrApiCall('POST', '/addresses', {
@@ -3597,6 +3649,9 @@ async function createUkrShipment(orderId){
     scheduleSave();
   }catch(err){
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
+  }finally{
+    ukrShipmentInFlight.delete(orderId);
+    if(btnEl){ btnEl.disabled = false; btnEl.textContent = 'Створити накладну (Укрпошта)'; }
   }
 }
 
@@ -3837,10 +3892,14 @@ async function updateNpCodAmount(orderId){
   }
 }
 
+let npWaybillInFlight = new Set();
+
 async function createNpWaybill(orderId){
   const o = orderById(orderId);
   if(!o) return;
   const resultEl = document.getElementById(`ttn-result-${orderId}`);
+  const btnEl = document.getElementById(`np-create-btn-${orderId}`);
+  if(npWaybillInFlight.has(orderId)) return;
 
   if(!npApiKey){ alert('Спочатку вкажіть і збережіть API-ключ Нової Пошти в «Налаштування доставки».'); return; }
   if(!npSender.senderRef || !npSender.contactSenderRef || !npSender.sendersPhone){
@@ -3853,6 +3912,9 @@ async function createNpWaybill(orderId){
   if(!o.customer){ alert('Вкажіть ПІБ отримувача.'); return; }
   if(!o.phone){ alert('Вкажіть телефон отримувача.'); return; }
   if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг).'); return; }
+
+  npWaybillInFlight.add(orderId);
+  if(btnEl){ btnEl.disabled = true; btnEl.textContent = 'Створюю...'; }
 
   resultEl.innerHTML = '<div class="hint">Створюю ТТН...</div>';
 
@@ -3915,6 +3977,9 @@ async function createNpWaybill(orderId){
     scheduleSave();
   }catch(err){
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
+  }finally{
+    npWaybillInFlight.delete(orderId);
+    if(btnEl){ btnEl.disabled = false; btnEl.textContent = 'Створити ТТН'; }
   }
 }
 
@@ -4272,7 +4337,7 @@ function deliveryBlockHtml(o){
         </div>
         <div><label>Сума контролю оплати, грн</label><input type="number" step="1" id="ship-cod-${o.id}" value="${o.codAmount}" oninput="updateOrderField(${o.id},'codAmount',this.value)" placeholder="0 = без контролю оплати"></div>
         <div style="display:flex;align-items:flex-end;">
-          <button class="btn btn-primary btn-sm" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
+          <button class="btn btn-primary btn-sm" id="np-create-btn-${o.id}" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
         </div>
       </div>
       <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі. Оскільки у вас підключено послугу «Контроль оплати» (договір з NovaPay), кошти йдуть напряму на розрахунковий рахунок ФОП, а не готівкою чи на картку — без потреби вказувати картку для кожної посилки окремо.</p>
@@ -4312,7 +4377,7 @@ function deliveryBlockHtml(o){
         <div><label>Оголошена вартість, грн</label><input type="number" step="1" value="${o.cost}" oninput="updateOrderField(${o.id},'cost',this.value)" placeholder="${fmt(calcOrder(o).total)}"></div>
         <div style="grid-column:span 2;"><label>Опис вантажу</label><input type="text" value="${escapeAttr(o.description||'')}" oninput="updateOrderField(${o.id},'description',this.value)"></div>
         <div style="display:flex;align-items:flex-end;">
-          <button class="btn btn-primary btn-sm" type="button" onclick="createUkrShipment(${o.id})">Створити накладну (Укрпошта)</button>
+          <button class="btn btn-primary btn-sm" type="button" id="ukr-create-btn-${o.id}" onclick="createUkrShipment(${o.id})">Створити накладну (Укрпошта)</button>
         </div>
       </div>
       <p class="hint" id="ukr-index-status-${o.id}" style="margin-top:4px;">${o.ukrOfficeDesc ? `Відділення за цим індексом: <strong>${escapeAttr(o.ukrOfficeDesc)}</strong>` : ''}</p>
@@ -5438,6 +5503,10 @@ function orderExpandedHtml(o){
             <input type="checkbox" ${o.delivered?'checked':''} onchange="toggleOrderDelivered(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
             Доставлено
           </label>
+          ${o.delivered ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+            дата отримання
+            <input type="date" value="${o.deliveredDate||''}" onchange="updateOrderField(${o.id},'deliveredDate',this.value)" style="width:auto;">
+          </label>` : ''}
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.manualArchive?'checked':''} onchange="toggleManualArchive(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
             В архів
