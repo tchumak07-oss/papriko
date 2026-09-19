@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.11.09.26</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.19.09.26e</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -398,6 +398,8 @@
     </span>
     <span class="btns">
       <button class="btn btn-sm" onclick="openTodayShipmentsModal()">Звіт по відправленнях</button>
+      <button class="btn btn-sm" onclick="openTrackLookupModal()">Перевірити трек-номер</button>
+      <button class="btn btn-sm" onclick="openNpImportModal()">Синхронізувати кабінет НП</button>
       <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Відправити в Telegram відправлення за сьогодні</button>
       <button class="btn btn-sm" onclick="sendSmsToTodayClients()">Відправити повідомлення клієнтам за сьогодні</button>
       <button class="btn btn-sm" onclick="document.getElementById('orderScreenshotInput').click()">Розпізнати замовлення зі скріншота</button>
@@ -485,6 +487,43 @@
     </div>
   </div>
 
+  <div id="npImportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:720px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;">Синхронізувати кабінет Нової Пошти</h3>
+        <button class="btn-ghost" onclick="closeNpImportModal()" aria-label="Закрити">×</button>
+      </div>
+      <p class="hint" style="margin:0 0 14px;">Перевіряє, які накладні за обраний період зареєстровані у вашому кабінеті Нової Пошти, але яких немає в цій програмі — і дозволяє створити їх тут автоматично (ім'я, телефон, місто, відділення, ТТН, статус). Товари в імпортованому замовленні будуть порожні — їх треба буде дозаповнити вручну, оскільки НП не зберігає склад замовлення.</p>
+      <div class="delivery-grid" style="margin-bottom:10px;">
+        <div><label>Період з</label><input type="date" id="npImportFrom"></div>
+        <div><label>Період по</label><input type="date" id="npImportTo"></div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-primary btn-sm" onclick="scanNpImport()">Знайти нестворені</button>
+        </div>
+      </div>
+      <p class="hint" id="npImportStatus" style="margin:0 0 10px;"></p>
+      <div id="npImportList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
+      <div class="fb-row" style="margin-top:14px;">
+        <button class="btn btn-primary btn-sm" onclick="importSelectedNpOrders()">Імпортувати позначені</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="trackLookupModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;">Перевірити трек-номер</h3>
+        <button class="btn-ghost" onclick="closeTrackLookupModal()" aria-label="Закрити">×</button>
+      </div>
+      <p class="hint" style="margin:0 0 14px;">Впишіть номер ТТН (Нова Пошта, 14 цифр) або штрихкод Укрпошти (13 цифр) — спершу перевіримо, чи є таке замовлення у вашій базі, потім запитаємо актуальний статус у службі доставки.</p>
+      <div class="fb-row">
+        <input type="text" id="trackLookupInput" placeholder="напр. 8801700324020" style="max-width:280px;" onkeydown="if(event.key==='Enter') runTrackLookup();">
+        <button class="btn btn-primary btn-sm" onclick="runTrackLookup()">Перевірити</button>
+      </div>
+      <div id="trackLookupResult" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
   <div class="catalog-panel" id="deliverySettingsPanel" style="margin-bottom:14px;">
     <button class="catalog-toggle" onclick="toggleDeliverySettings()">
       <span id="deliveryToggleLabel">Налаштування доставки (Нова Пошта / Укрпошта)</span>
@@ -567,6 +606,8 @@
         </div>
         <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!</textarea>
         <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН) та <code>{name}</code> (ім'я клієнта).</p>
+        <textarea class="order-notes" id="smsBranchReminderTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон нагадування про відділення">Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}</textarea>
+        <p class="hint" style="margin:4px 0 0;">Шаблон нагадування «довго у відділенні» (вкладка Звіти). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{days}</code> (днів очікування).</p>
         <div class="fb-row" style="margin-top:10px;">
           <input type="text" id="smsTestPhoneInput" placeholder="Ваш номер для тесту, напр. 0671231234" style="max-width:220px;">
           <button class="btn btn-sm" onclick="saveSmsSettings()">Зберегти</button>
@@ -1093,6 +1134,26 @@
     </div></div>
   </div>
 
+  <div class="section-title">
+    <span id="rb-branchwait-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-branchwait')">▸ Довго очікують у відділенні</span>
+    <span class="btns"><button class="btn btn-sm" onclick="sendBranchReminderSmsToAll()">Надіслати нагадування всім (SMS)</button></span>
+  </div>
+  <div id="rb-branchwait" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Посилки (Нова Пошта й Укрпошта), які вже прибули на відділення й чекають, поки клієнт їх забере. Не залежить від фільтра періоду. День рахується від моменту, коли статус вперше зафіксовано як «прибуло/очікує» (оновлюється при синхронізації статусів).</p>
+    <div class="fb-row" style="margin:0 0 12px;align-items:center;">
+      <input type="text" id="branchWaitSearch" placeholder="Пошук за клієнтом або телефоном..." oninput="renderReports()" style="max-width:280px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);white-space:nowrap;">
+        нагадувати від
+        <input type="number" id="branchReminderThreshold" value="3" min="0" style="width:60px;" oninput="renderReports()">
+        днів
+      </label>
+    </div>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:80px 1fr 1fr 1fr 130px 1fr 160px;"><div>Днів</div><div>Клієнт</div><div>Телефон</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div><div></div></div>
+      <div id="reportBranchWait"></div>
+    </div></div>
+  </div>
+
   <div class="section-title"><span id="rb-returned-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-returned')">▸ Повернення (перевірити повернення коштів)</span></div>
   <div id="rb-returned" style="display:none;">
     <p class="hint" style="margin:-8px 0 14px;">Замовлення, де Нова Пошта повідомила про відмову отримувача чи повернення посилки. Не залежить від фільтра періоду. Перевірте, чи не потрібно повернути клієнту гроші (якщо була передоплата) і чи не варто зняти позначку «Оплачено».</p>
@@ -1159,7 +1220,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 function buildStatePayload(){
   return {
     catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
-    ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, anthropicApiKey,
+    ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId,
     updatedAt: new Date().toISOString()
   };
@@ -1189,6 +1250,7 @@ function applyRemoteData(data){
   smsToken = data.smsToken || '';
   smsSender = data.smsSender || '';
   smsTemplate = data.smsTemplate || smsTemplate;
+  smsBranchReminderTemplate = data.smsBranchReminderTemplate || smsBranchReminderTemplate;
   anthropicApiKey = data.anthropicApiKey || '';
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
@@ -1250,6 +1312,8 @@ function applyRemoteData(data){
   if(smsSenderInput) smsSenderInput.value = smsSender;
   const smsTemplateInput = document.getElementById('smsTemplateInput');
   if(smsTemplateInput) smsTemplateInput.value = smsTemplate;
+  const smsBranchReminderTemplateInput = document.getElementById('smsBranchReminderTemplateInput');
+  if(smsBranchReminderTemplateInput) smsBranchReminderTemplateInput.value = smsBranchReminderTemplate;
   const anthropicKeyInput = document.getElementById('anthropicKeyInput');
   if(anthropicKeyInput) anthropicKeyInput.value = anthropicApiKey;
   const senderCityInput = document.getElementById('sender-city-input');
@@ -2259,11 +2323,13 @@ function saveAnthropicKey(){
 let smsToken = '';
 let smsSender = '';
 let smsTemplate = 'Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!';
+let smsBranchReminderTemplate = 'Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}';
 
 function saveSmsSettings(){
   smsToken = document.getElementById('smsTokenInput').value.trim();
   smsSender = document.getElementById('smsSenderInput').value.trim();
   smsTemplate = document.getElementById('smsTemplateInput').value.trim() || smsTemplate;
+  smsBranchReminderTemplate = document.getElementById('smsBranchReminderTemplateInput').value.trim() || smsBranchReminderTemplate;
   document.getElementById('smsStatus').textContent = (smsToken && smsSender) ? 'Збережено.' : 'Токен і/або ім\'я відправника порожні.';
   scheduleSave();
 }
@@ -2315,6 +2381,52 @@ function fillSmsTemplate(o){
 async function notifyCustomerSms(o){
   if(!o.phone) return {ok:false, error:'У клієнта немає телефону'};
   return sendSms(o.phone, fillSmsTemplate(o));
+}
+
+function fillBranchReminderTemplate(o, days){
+  const ttn = o.ttnNumber || o.ukrTtnNumber || '';
+  return smsBranchReminderTemplate.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '').replace(/\{days\}/g, String(days));
+}
+
+async function sendBranchReminderSms(orderId, days){
+  const o = orderById(orderId);
+  if(!o) return;
+  const resultEl = document.getElementById(`branch-reminder-result-${orderId}`);
+  if(!o.phone){
+    if(resultEl) resultEl.textContent = 'У клієнта немає телефону.';
+    return;
+  }
+  if(resultEl) resultEl.textContent = 'Надсилаю...';
+  const res = await sendSms(o.phone, fillBranchReminderTemplate(o, days));
+  if(res.ok){
+    o.branchReminderSentDate = todayStr();
+    scheduleSave();
+    renderReports();
+  } else if(resultEl){
+    resultEl.textContent = 'Помилка: ' + res.error;
+  }
+}
+
+async function sendBranchReminderSmsToAll(){
+  const threshold = Number(document.getElementById('branchReminderThreshold')?.value) || 3;
+  const today = todayStr();
+  const list = orders.filter(o => !isArchived(o) && isAtBranchAwaitingPickup(o) && o.atBranchSince);
+  const due = list.map(o => ({o, days: daysBetween(o.atBranchSince, today)}))
+    .filter(({o, days}) => days >= threshold && o.branchReminderSentDate !== today && o.phone);
+  if(due.length === 0){ alert('Немає кому надсилати (або всім уже надіслано сьогодні, або немає телефонів).'); return; }
+  if(!confirm(`Надіслати SMS-нагадування ${due.length} клієнт(ам), чиї посилки ${threshold}+ днів у відділенні?`)) return;
+  let sent = 0, failed = 0;
+  const errors = [];
+  for(const {o, days} of due){
+    const res = await sendSms(o.phone, fillBranchReminderTemplate(o, days));
+    if(res.ok){ sent++; o.branchReminderSentDate = today; }
+    else { failed++; errors.push(`${o.customer||'?'}: ${res.error}`); }
+  }
+  scheduleSave();
+  renderReports();
+  let msg = `Надіслано: ${sent}. Помилок: ${failed}.`;
+  if(errors.length > 0) msg += `\n\n${errors.slice(0,5).join('\n')}${errors.length>5?'\n…':''}`;
+  alert(msg);
 }
 
 async function sendSmsToTodayClients(){
@@ -2616,8 +2728,15 @@ function statusTextColor(status){
 function orderById(id){ return orders.find(o => o.id === id); }
 
 function calcOrder(o){
-  const total = o.items.reduce((sum, it) => sum + (it.qty||0) * (it.price||0), 0);
-  return {total};
+  const subtotal = o.items.reduce((sum, it) => sum + (it.qty||0) * (it.price||0), 0);
+  let discount = 0;
+  const dVal = Number(o.discountValue) || 0;
+  if(dVal > 0){
+    if(o.discountType === 'percent') discount = subtotal * Math.min(dVal, 100) / 100;
+    else if(o.discountType === 'amount') discount = Math.min(dVal, subtotal);
+  }
+  const total = Math.max(0, subtotal - discount);
+  return {subtotal, discount, total};
 }
 
 function todayStr(){
@@ -2643,6 +2762,15 @@ function dateSortValue(dateStr){
   return isNaN(t) ? -Infinity : t;
 }
 
+// кількість повних днів між двома датами у форматі РРРР-ММ-ДД (або сумісному) — з опівночі до опівночі,
+// щоб не залежати від часу доби виконання
+function daysBetween(fromStr, toStr){
+  const from = new Date((fromStr||'').slice(0,10) + 'T00:00:00');
+  const to = new Date((toStr||'').slice(0,10) + 'T00:00:00');
+  if(isNaN(from) || isNaN(to)) return 0;
+  return Math.max(0, Math.round((to - from) / 86400000));
+}
+
 function newOrderDefaults(id){
   return {
     id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, delivered:false, items:[], notes:'', collapsed:false,
@@ -2652,6 +2780,9 @@ function newOrderDefaults(id){
     ukrIndex:'', address:'', ukrCity:'', ukrOfficeDesc:'', ukrStreet:'', ukrHouse:'', ukrApartment:'', ukrTtnNumber:'', ukrShipmentUuid:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
     codAmount:'',
+    discountType:'none', discountValue:'',
+    atBranchSince:'', branchReminderSentDate:'',
+    importedFromNp:false,
     ttnNumber:'', ttnRef:''
   };
 }
@@ -3466,6 +3597,117 @@ async function ukrTrackingApiCall(path, method, body){
   return ukrApiCall(method || 'GET', path, body, 'tracking', ukrTrackingBearer || ukrBearer);
 }
 
+/* ---------- перевірка довільного трек-номера (не обов'язково зі своєї бази) ---------- */
+
+function openTrackLookupModal(){
+  document.getElementById('trackLookupModal').style.display = 'flex';
+  document.getElementById('trackLookupResult').innerHTML = '';
+  const input = document.getElementById('trackLookupInput');
+  input.value = '';
+  setTimeout(() => input.focus(), 50);
+}
+function closeTrackLookupModal(){
+  document.getElementById('trackLookupModal').style.display = 'none';
+}
+
+async function runTrackLookup(){
+  const raw = document.getElementById('trackLookupInput').value.trim();
+  const resultEl = document.getElementById('trackLookupResult');
+  const digits = raw.replace(/\D/g, '');
+  if(!digits){ resultEl.innerHTML = '<p class="hint">Впишіть номер.</p>'; return; }
+  resultEl.innerHTML = '<p class="hint">Шукаю...</p>';
+
+  // 1. чи є таке замовлення у вашій базі (за будь-яким з двох полів ТТН)
+  const order = orders.find(o => o.ttnNumber === digits || o.ukrTtnNumber === digits || o.ttnNumber === raw || o.ukrTtnNumber === raw);
+  let ownHtml = '';
+  if(order){
+    const c = calcOrder(order);
+    ownHtml = `
+      <div style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">
+        <strong>Є у вашій базі:</strong> ${escapeAttr(order.customer||'Без імені')}${order.phone ? ' · '+escapeAttr(order.phone) : ''}<br>
+        <span class="hint">Замовлення від ${order.date||'—'} на ${fmt(c.total)} грн${isArchived(order)?' · в архіві':''}${order.notes ? ' · 💬 '+escapeAttr(order.notes) : ''}</span>
+      </div>`;
+  } else {
+    ownHtml = `<p class="hint" style="margin:0 0 12px;">У вашій базі замовлень з таким номером не знайдено.</p>`;
+  }
+
+  // 2. запит статусу у службі доставки — за довжиною номера вгадуємо перевізника
+  let carrierHtml = '';
+  if(digits.length === 13){
+    // спершу пробуємо повну картку відправлення через ecom-додаток (GET /shipments/{barcode}) —
+    // на відміну від публічного статус-трекінгу вона повертає ім'я й телефон відправника/отримувача,
+    // бо запитується вашим власним token+bearer (тобто це ВАШЕ відправлення, не чуже).
+    let fullShipment = null, fullErr = null;
+    if(ukrToken && ukrBearer){
+      try{
+        fullShipment = await ukrApiCall('GET', `/shipments/${encodeURIComponent(digits)}`, null, 'ecom');
+      }catch(e){ fullErr = e.message; }
+    }
+    if(fullShipment && (fullShipment.recipient || fullShipment.sender || fullShipment.status)){
+      const rec = fullShipment.recipient || {};
+      const send = fullShipment.sender || {};
+      const addr = (rec.addresses && rec.addresses[0] && rec.addresses[0].address) || {};
+      carrierHtml = `
+        <div style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+          <strong>Укрпошта — картка відправлення (з вашого кабінету):</strong><br>
+          ${rec.name || rec.lastName ? `Отримувач: ${escapeAttr(rec.name || [rec.lastName,rec.firstName,rec.middleName].filter(Boolean).join(' '))}${rec.phoneNumber ? ' · '+escapeAttr(rec.phoneNumber) : ''}<br>` : ''}
+          ${send.name || send.lastName ? `Відправник: ${escapeAttr(send.name || [send.lastName,send.firstName,send.middleName].filter(Boolean).join(' '))}<br>` : ''}
+          ${addr.city ? `Адреса: ${escapeAttr([addr.postcode, addr.city, addr.street, addr.houseNumber].filter(Boolean).join(', '))}<br>` : ''}
+          ${fullShipment.status ? `Статус: ${escapeAttr(fullShipment.status)}<br>` : ''}
+          ${fullShipment.postPay ? `Післяплата: ${escapeAttr(String(fullShipment.postPay))} грн<br>` : ''}
+        </div>`;
+    } else if(!ukrTrackingBearer && !ukrBearer){
+      carrierHtml = '<p class="hint" style="color:var(--danger);">Це схоже на номер Укрпошти (13 цифр), але не вказано Bearer для статус-трекінгу в «Налаштування доставки».</p>';
+    } else {
+      try{
+        const data = await ukrTrackingApiCall(`/statuses/last?barcode=${encodeURIComponent(digits)}`);
+        const item = Array.isArray(data) ? data[0] : data;
+        if(item && (item.eventName || item.event)){
+          carrierHtml = `
+            <div style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+              <strong>Укрпошта — останній статус:</strong><br>
+              ${escapeAttr(item.eventName || ('код події '+item.event))}${item.eventDate ? ' · '+escapeAttr(item.eventDate) : ''}
+            </div>
+            <p class="hint" style="margin-top:8px;">${fullErr ? `Повну картку (з іменами) отримати не вдалось: ${escapeAttr(fullErr)}. ` : ''}Публічний статус-трекінг Укрпошти не повертає ім'я відправника/отримувача (лише подію й дату).</p>`;
+        } else {
+          carrierHtml = '<p class="hint">Укрпошта: дані по цьому номеру не знайдено (або ще не в мережі).</p>';
+        }
+      }catch(err){
+        carrierHtml = `<p class="hint" style="color:var(--danger);">Помилка запиту до Укрпошти: ${escapeAttr(err.message)}</p>`;
+      }
+    }
+  } else if(digits.length === 14){
+    if(!npApiKey){
+      carrierHtml = '<p class="hint" style="color:var(--danger);">Це схоже на номер Нової Пошти (14 цифр), але не вказано API-ключ НП в «Налаштування доставки».</p>';
+    } else {
+      try{
+        const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {Documents: [{DocumentNumber: digits, Phone: order ? (order.phone||'') : ''}]});
+        const item = data && data[0];
+        if(item && item.Status){
+          const recipient = item.RecipientFullName || '';
+          const recipientAddr = item.WarehouseRecipient || item.RecipientAddress || '';
+          const senderCity = item.CitySender || '';
+          carrierHtml = `
+            <div style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+              <strong>Нова Пошта — статус:</strong> ${escapeAttr(item.Status)}<br>
+              ${recipient ? `<span class="hint">Отримувач: ${escapeAttr(recipient)}</span><br>` : ''}
+              ${recipientAddr ? `<span class="hint">${escapeAttr(recipientAddr)}</span><br>` : ''}
+              ${senderCity ? `<span class="hint">Місто відправника: ${escapeAttr(senderCity)}</span>` : ''}
+            </div>`;
+        } else {
+          carrierHtml = '<p class="hint">Нова Пошта: дані по цьому номеру не знайдено.</p>';
+        }
+      }catch(err){
+        carrierHtml = `<p class="hint" style="color:var(--danger);">Помилка запиту до Нової Пошти: ${escapeAttr(err.message)}</p>`;
+      }
+    }
+  } else {
+    carrierHtml = `<p class="hint" style="color:var(--danger);">Невідомий формат номера (${digits.length} цифр) — очікується 13 (Укрпошта) або 14 (Нова Пошта).</p>`;
+  }
+
+  resultEl.innerHTML = ownHtml + carrierHtml;
+}
+
 // відображає внутрішні прапорці (shipped/delivered/returned) відповідно до коду події зі статус-трекінгу Укрпошти
 // Офіційна таблиця кодів подій Укrpошти (Annex B, Status Tracking API), згрупована за "Ecom API status":
 //   REGISTERED   10100                                — лише створено/зареєстровано, ЩЕ НЕ відправлено фізично
@@ -3508,6 +3750,15 @@ function applyUkrStatus(o, statusItem){
     }
   } else if(event === 31200){
     o.npReturned = true;
+  }
+
+  // відмітка "з якого дня посилка чекає у відділенні" — для нагадувань про довге очікування;
+  // ставиться один раз при першому виявленні статусу "прибуло/очікує", і знімається,
+  // якщо посилка більше не в цьому стані (видано, повернено тощо)
+  if(isAtBranchAwaitingPickup(o)){
+    if(!o.atBranchSince) o.atBranchSince = todayStr();
+  } else {
+    o.atBranchSince = '';
   }
 
   // текстове визначення оплати (контроль оплати/післяплата) — точних кодів події для цього
@@ -3704,6 +3955,136 @@ async function npApiCall(modelName, calledMethod, methodProperties){
     throw new Error((data.errors && data.errors[0]) || (data.warnings && data.warnings[0]) || 'Помилка Нової Пошти API');
   }
   return data.data;
+}
+
+/* ---------- синхронізація з кабінетом НП: імпорт накладних, яких немає в програмі ---------- */
+
+let npImportCandidates = [];
+
+function openNpImportModal(){
+  document.getElementById('npImportModal').style.display = 'flex';
+  document.getElementById('npImportStatus').textContent = '';
+  document.getElementById('npImportList').innerHTML = '';
+  npImportCandidates = [];
+  const fromInput = document.getElementById('npImportFrom');
+  const toInput = document.getElementById('npImportTo');
+  if(!toInput.value) toInput.value = todayStr();
+  if(!fromInput.value){
+    const d = new Date();
+    d.setDate(d.getDate() - 14);
+    fromInput.value = d.toISOString().slice(0,10);
+  }
+}
+function closeNpImportModal(){
+  document.getElementById('npImportModal').style.display = 'none';
+}
+
+async function scanNpImport(){
+  if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти в «Налаштування доставки».'); return; }
+  const fromVal = document.getElementById('npImportFrom').value;
+  const toVal = document.getElementById('npImportTo').value;
+  if(!fromVal || !toVal){ alert('Вкажіть період.'); return; }
+  const statusEl = document.getElementById('npImportStatus');
+  const listEl = document.getElementById('npImportList');
+  statusEl.textContent = 'Отримую список ваших накладних з кабінету НП...';
+  listEl.innerHTML = '';
+  npImportCandidates = [];
+  try{
+    // InternetDocumentGeneral.getDocumentList — список усіх накладних відправника за період
+    // (НП повертає сторінками по 500 записів; проходимо сторінки, поки не отримаємо неповну/порожню)
+    let page = 1;
+    const allDocs = [];
+    while(true){
+      const data = await npApiCall('InternetDocumentGeneral', 'getDocumentList', {
+        DateTimeFrom: npDateFormat(fromVal),
+        DateTimeTo: npDateFormat(toVal),
+        GetFullList: '1',
+        Page: String(page)
+      });
+      if(!data || data.length === 0) break;
+      allDocs.push(...data);
+      if(data.length < 500) break;
+      page++;
+      if(page > 20) break; // запобіжник від нескінченного циклу
+    }
+    if(allDocs.length === 0){
+      statusEl.textContent = 'За цей період у кабінеті НП немає жодної накладної.';
+      return;
+    }
+    const existingTtns = new Set(orders.map(o => o.ttnNumber).filter(Boolean));
+    const missing = allDocs.filter(d => d.IntDocNumber && !existingTtns.has(d.IntDocNumber));
+    if(missing.length === 0){
+      statusEl.textContent = `Перевірено ${allDocs.length} накладних за період — усі вже є в програмі.`;
+      return;
+    }
+    statusEl.textContent = `Знайдено ${missing.length} накладних, яких немає в програмі (з ${allDocs.length} за період). Отримую деталі...`;
+
+    // деталі (ім'я/телефон отримувача, місто, відділення, сума, статус) — пакетами по 100, як і в основній синхронізації статусів
+    const details = [];
+    for(let i=0; i<missing.length; i+=100){
+      const chunk = missing.slice(i, i+100);
+      const statusData = await npApiCall('TrackingDocument', 'getStatusDocuments', {
+        Documents: chunk.map(d => ({DocumentNumber: d.IntDocNumber, Phone: ''}))
+      });
+      if(statusData) details.push(...statusData);
+    }
+    npImportCandidates = details.filter(d => d.Number).map(d => ({ttn: d.Number, detail: d, selected: true}));
+
+    if(npImportCandidates.length === 0){
+      statusEl.textContent = 'Не вдалося отримати деталі знайдених накладних.';
+      return;
+    }
+    statusEl.textContent = `Знайдено ${npImportCandidates.length} накладних для імпорту. Перевірте список і натисніть «Імпортувати позначені».`;
+    renderNpImportList();
+  }catch(err){
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+function renderNpImportList(){
+  const listEl = document.getElementById('npImportList');
+  if(npImportCandidates.length === 0){ listEl.innerHTML = ''; return; }
+  listEl.innerHTML = npImportCandidates.map((c,idx) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;">
+      <input type="checkbox" ${c.selected?'checked':''} onchange="npImportCandidates[${idx}].selected=this.checked" style="width:auto;accent-color:var(--saffron);">
+      <span style="flex:1;">
+        <strong>${escapeAttr(c.detail.RecipientFullName || 'Без імені')}</strong>${c.detail.PhoneRecipient ? ' · '+escapeAttr(c.detail.PhoneRecipient) : ''}
+        <br><span class="hint">${escapeAttr(c.detail.CityRecipient||'')}${c.detail.WarehouseRecipient ? ', '+escapeAttr(c.detail.WarehouseRecipient) : ''} · ТТН ${escapeAttr(c.ttn)} · ${escapeAttr(c.detail.Status||'')}</span>
+      </span>
+    </label>
+  `).join('');
+}
+
+function importSelectedNpOrders(){
+  const selected = npImportCandidates.filter(c => c.selected);
+  if(selected.length === 0){ alert('Нічого не позначено (або спершу натисніть «Знайти нестворені»).'); return; }
+  if(!confirm(`Створити ${selected.length} нових замовлень у програмі на основі цих накладних НП? Товари в них будуть порожні — дозаповните вручну за потреби.`)) return;
+  selected.forEach(c => {
+    const d = c.detail;
+    const id = nextOrderId++;
+    const o = newOrderDefaults(id);
+    o.customer = d.RecipientFullName || '';
+    o.phone = d.PhoneRecipient || '';
+    o.deliveryMethod = 'Нова Пошта';
+    o.city = d.CityRecipient || '';
+    o.warehouseDesc = d.WarehouseRecipient || '';
+    o.ttnNumber = c.ttn;
+    o.weight = d.DocumentWeight || '';
+    o.seatsAmount = Number(d.SeatsAmount) || 1;
+    o.cost = d.AnnouncedPrice || d.DocumentCost || '';
+    o.date = npDateToIso(d.DateCreated) || todayStr();
+    o.collapsed = true;
+    o.importedFromNp = true;
+    o.notes = 'Імпортовано автоматично з кабінету Нової Пошти — товари не вказані, заповніть вручну за потреби.';
+    applyNpStatus(o, d); // виставляє shipped/delivered/paid/статус так само, як робить звичайна синхронізація статусів
+    orders.push(o);
+  });
+  npImportCandidates = [];
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+  closeNpImportModal();
+  alert(`Імпортовано ${selected.length} замовлень. Знайдете їх у списку «Замовлення» — перевірте й дозаповніть товари за потреби.`);
 }
 
 async function searchNpCity(orderId){
@@ -4067,6 +4448,16 @@ function applyNpStatus(o, statusItem){
   } else if(statusLower.includes('отримано') || statusLower.includes('видано')){
     o.npReturned = false; // якщо посилку зрештою таки отримали — знімаємо позначку повернення
   }
+
+  // відмітка "з якого дня посилка чекає у відділенні" — для нагадувань про довге очікування;
+  // ставиться один раз при першому виявленні статусу "прибуло/очікує", і знімається,
+  // якщо посилка більше не в цьому стані (видано, повернено тощо)
+  if(isAtBranchAwaitingPickup(o)){
+    if(!o.atBranchSince) o.atBranchSince = todayStr();
+  } else {
+    o.atBranchSince = '';
+  }
+
   return {
     shipped: o.shipped && !wasShipped,
     delivered: o.delivered && !wasDelivered,
@@ -4572,7 +4963,7 @@ function archiveExpandedHtml(o){
       </div>
 
       <div class="comp-list" style="margin-bottom:10px;">${orderItemsReadOnlyHtml(o)}</div>
-      <div class="hint" style="margin-bottom:10px;">Сума замовлення: <strong style="color:var(--saffron);">${fmt(c.total)} грн</strong></div>
+      <div class="hint" style="margin-bottom:10px;">${c.discount>0 ? `Сума без знижки: ${fmt(c.subtotal)} грн · Знижка: −${fmt(c.discount)} грн · ` : ''}Сума замовлення: <strong style="color:var(--saffron);">${fmt(c.total)} грн</strong></div>
 
       <textarea class="order-notes" rows="2" placeholder="Примітки" oninput="updateOrderField(${o.id},'notes',this.value)" style="margin-bottom:10px;">${escapeAttr(o.notes||'')}</textarea>
 
@@ -5413,6 +5804,46 @@ function renderReports(){
     }
   }
 
+  // ---- довго очікують у відділенні (НП + Укрпошта, не залежить від фільтра періоду) ----
+  const branchWaitEl = document.getElementById('reportBranchWait');
+  if(branchWaitEl){
+    const searchVal = (document.getElementById('branchWaitSearch')?.value || '').trim().toLowerCase();
+    const threshold = Number(document.getElementById('branchReminderThreshold')?.value) || 0;
+    const today = todayStr();
+    let waiting = orders.filter(o => !isArchived(o) && isAtBranchAwaitingPickup(o));
+    if(searchVal){
+      waiting = waiting.filter(o => (o.customer||'').toLowerCase().includes(searchVal) || (o.phone||'').toLowerCase().includes(searchVal));
+    }
+    const withDays = waiting.map(o => ({o, days: o.atBranchSince ? daysBetween(o.atBranchSince, today) : 0}))
+      .sort((a,b) => b.days - a.days);
+
+    if(withDays.length === 0){
+      branchWaitEl.innerHTML = `<div class="comp-empty">${searchVal ? 'Нічого не знайдено за пошуком.' : 'Немає посилок, що очікують у відділенні.'}</div>`;
+    } else {
+      branchWaitEl.innerHTML = withDays.map(({o, days}) => {
+        const office = o.deliveryMethod === 'Укрпошта' ? (o.ukrOfficeDesc || o.ukrCity || '') : ((o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : ''));
+        const statusText = o.deliveryMethod === 'Укрпошта' ? (o.ukrStatusText || '—') : (o.npStatusText || '—');
+        const ttn = o.ttnNumber || o.ukrTtnNumber || '—';
+        const remindedToday = o.branchReminderSentDate === today;
+        const dueColor = days>=threshold && threshold>0 ? 'var(--danger)' : (days>=2?'var(--saffron)':'var(--text-muted)');
+        return `
+          <div class="wh-row" style="grid-template-columns:80px 1fr 1fr 1fr 130px 1fr 160px;">
+            <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${dueColor};">${days}</div>
+            <div>${escapeAttr(o.customer||'Без імені')}</div>
+            <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.phone||'—')}</div>
+            <div class="hint">${escapeAttr(office||'—')}</div>
+            <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(ttn)}</div>
+            <div class="hint">${escapeAttr(statusText)}${carrierBadgeHtml(o)}</div>
+            <div>
+              <button class="btn btn-sm" onclick="sendBranchReminderSms(${o.id}, ${days})" ${o.phone ? '' : 'disabled title="У клієнта немає телефону"'}>${remindedToday ? 'Нагадано сьогодні ↻' : 'Нагадати (SMS)'}</button>
+              <div class="hint" id="branch-reminder-result-${o.id}" style="margin-top:2px;"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
   // ---- повернення (для контролю повернення коштів) ----
   const returnedEl = document.getElementById('reportReturned');
   if(returnedEl){
@@ -5449,6 +5880,8 @@ function orderCollapsedHtml(o){
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
           ${o.npReturned ? '<span class="status-badge" style="background:var(--danger);color:#fff;">⟲ Повернення</span>' : ''}
           ${(o.delivered && !o.paid && Number(o.codAmount) > 0) ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);" title="НП API не передає підтвердження переказу по «Контролю оплати» — перевірте виписку банку">💰 Перевірте оплату</span>' : ''}
+          ${c.discount > 0 ? `<span class="status-badge" style="background:var(--danger);color:#fff;" title="Знижка клієнту">🏷 −${fmt(c.discount)} грн</span>` : ''}
+          ${o.importedFromNp && o.items.length===0 ? '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);" title="Створено автоматично з кабінету НП — товари не вказані">⬇ з кабінету НП</span>' : ''}
           ${carrierBadgeHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
@@ -5471,6 +5904,7 @@ function clientOptionsHtml(selectedId){
 }
 
 function orderExpandedHtml(o){
+  const c = calcOrder(o);
   return `
     <div class="order-card${o.shipped?' shipped-card':''}" data-order="${o.id}">
       <div class="order-head">
@@ -5549,6 +5983,17 @@ function orderExpandedHtml(o){
 
       <textarea class="order-notes" rows="2" placeholder="Примітки" oninput="updateOrderField(${o.id},'notes',this.value)">${escapeAttr(o.notes||'')}</textarea>
 
+      <div class="delivery-grid" style="margin-top:10px;">
+        <div><label>Знижка клієнту</label><select onchange="updateOrderField(${o.id},'discountType',this.value)">
+          <option value="none" ${(!o.discountType||o.discountType==='none')?'selected':''}>Без знижки</option>
+          <option value="percent" ${o.discountType==='percent'?'selected':''}>Відсоток, %</option>
+          <option value="amount" ${o.discountType==='amount'?'selected':''}>Сума, грн</option>
+        </select></div>
+        <div><label>Розмір знижки</label><input type="number" step="0.1" min="0" value="${o.discountValue||''}" oninput="updateOrderField(${o.id},'discountValue',this.value)" placeholder="0"></div>
+      </div>
+
+      <div class="order-total-row" id="order-subtotal-row-${o.id}" style="${c.discount>0?'':'display:none;'}"><span class="stat-label">Сума без знижки</span><span id="order-subtotal-val-${o.id}">${fmt(c.subtotal)} грн</span></div>
+      <div class="order-total-row" id="order-discount-row-${o.id}" style="${c.discount>0?'':'display:none;'}"><span class="stat-label">Знижка</span><span id="order-discount-val-${o.id}" style="color:var(--danger);">−${fmt(c.discount)} грн</span></div>
       <div class="order-total-row"><span class="stat-label">Сума замовлення</span><span id="order-total-${o.id}"></span></div>
 
       ${deliveryBlockHtml(o)}
@@ -5612,6 +6057,14 @@ function renderOrderTotal(orderId){
   document.querySelectorAll(`[id="order-total-${orderId}"]`).forEach(el => {
     el.textContent = fmt(c.total) + ' грн';
   });
+  const subRow = document.getElementById(`order-subtotal-row-${orderId}`);
+  const subVal = document.getElementById(`order-subtotal-val-${orderId}`);
+  const discRow = document.getElementById(`order-discount-row-${orderId}`);
+  const discVal = document.getElementById(`order-discount-val-${orderId}`);
+  if(subRow) subRow.style.display = c.discount > 0 ? '' : 'none';
+  if(discRow) discRow.style.display = c.discount > 0 ? '' : 'none';
+  if(subVal) subVal.textContent = fmt(c.subtotal) + ' грн';
+  if(discVal) discVal.textContent = '−' + fmt(c.discount) + ' грн';
 }
 
 function renderOrdersSummary(){
