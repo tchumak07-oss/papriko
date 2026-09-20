@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.19.09.26e</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3618,7 +3618,7 @@ async function runTrackLookup(){
   resultEl.innerHTML = '<p class="hint">Шукаю...</p>';
 
   // 1. чи є таке замовлення у вашій базі (за будь-яким з двох полів ТТН)
-  const order = orders.find(o => o.ttnNumber === digits || o.ukrTtnNumber === digits || o.ttnNumber === raw || o.ukrTtnNumber === raw);
+  const order = orders.find(o => (o.ttnNumber||'').replace(/\D/g,'') === digits || (o.ukrTtnNumber||'').replace(/\D/g,'') === digits);
   let ownHtml = '';
   if(order){
     const c = calcOrder(order);
@@ -4011,13 +4011,28 @@ async function scanNpImport(){
       statusEl.textContent = 'За цей період у кабінеті НП немає жодної накладної.';
       return;
     }
-    const existingTtns = new Set(orders.map(o => o.ttnNumber).filter(Boolean));
-    const missing = allDocs.filter(d => d.IntDocNumber && !existingTtns.has(d.IntDocNumber));
+    // порівнюємо лише за цифрами номера (без пробілів/дефісів тощо) — про всяк випадок,
+    // якщо десь номер зберігся не в "чистому" вигляді
+    const digitsOnly = s => String(s||'').replace(/\D/g,'');
+    const existingByDigits = new Map();
+    orders.forEach(o => {
+      if(o.ttnNumber) existingByDigits.set(digitsOnly(o.ttnNumber), o);
+    });
+    const missing = [], matched = [];
+    allDocs.forEach(d => {
+      if(!d.IntDocNumber) return;
+      const key = digitsOnly(d.IntDocNumber);
+      const foundOrder = existingByDigits.get(key);
+      if(foundOrder) matched.push({doc: d, order: foundOrder});
+      else missing.push(d);
+    });
+
     if(missing.length === 0){
-      statusEl.textContent = `Перевірено ${allDocs.length} накладних за період — усі вже є в програмі.`;
+      statusEl.innerHTML = `Перевірено ${allDocs.length} накладних за період — за номером ТТН усі вже знайдено в програмі. `+
+        `<a href="#" onclick="npShowMatchedDebug(${JSON.stringify(matched.slice(0,30)).replace(/"/g,'&quot;')});return false;" style="color:var(--saffron);">Показати, з чим саме зіставлено</a>`;
       return;
     }
-    statusEl.textContent = `Знайдено ${missing.length} накладних, яких немає в програмі (з ${allDocs.length} за період). Отримую деталі...`;
+    statusEl.textContent = `Знайдено ${missing.length} накладних, яких немає в програмі (з ${allDocs.length} за період, ${matched.length} вже зіставлено). Отримую деталі...`;
 
     // деталі (ім'я/телефон отримувача, місто, відділення, сума, статус) — пакетами по 100, як і в основній синхронізації статусів
     const details = [];
@@ -4034,11 +4049,23 @@ async function scanNpImport(){
       statusEl.textContent = 'Не вдалося отримати деталі знайдених накладних.';
       return;
     }
-    statusEl.textContent = `Знайдено ${npImportCandidates.length} накладних для імпорту. Перевірте список і натисніть «Імпортувати позначені».`;
+    statusEl.textContent = `Знайдено ${npImportCandidates.length} накладних для імпорту (з ${allDocs.length} за період, ${matched.length} вже було в програмі). Перевірте список і натисніть «Імпортувати позначені».`;
     renderNpImportList();
   }catch(err){
     statusEl.textContent = 'Помилка: ' + err.message;
   }
+}
+
+// показує, з якими саме замовленнями програми зіставились номери НП — для діагностики,
+// коли здається, що звірка помилково вважає накладну "вже наявною"
+function npShowMatchedDebug(matched){
+  const listEl = document.getElementById('npImportList');
+  listEl.innerHTML = `<p class="hint" style="padding:8px 10px;margin:0;">Показано перші ${matched.length} зіставлень (ТТН з кабінету НП → замовлення в програмі з таким самим номером):</p>` +
+    matched.map(m => `
+      <div style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;">
+        ТТН <strong>${escapeAttr(m.doc.IntDocNumber)}</strong> → замовлення «${escapeAttr(m.order.customer||'Без імені')}» (ТТН у програмі: ${escapeAttr(m.order.ttnNumber)}, дата ${m.order.date||'—'}${isArchived(m.order)?', в архіві':''})
+      </div>
+    `).join('');
 }
 
 function renderNpImportList(){
