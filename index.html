@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26b</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3991,21 +3991,22 @@ async function scanNpImport(){
   npImportCandidates = [];
   try{
     // InternetDocumentGeneral.getDocumentList — список усіх накладних відправника за період
-    // (НП повертає сторінками по 500 записів; проходимо сторінки, поки не отримаємо неповну/порожню)
+    // НП повертає максимум 100 записів на сторінку (не 500!) — і GetFullList разом з Page
+    // поводиться непередбачувано, тож пагінуємо вручну сторінками по 100, без GetFullList,
+    // поки не отримаємо неповну (менше 100) або порожню сторінку.
     let page = 1;
     const allDocs = [];
     while(true){
       const data = await npApiCall('InternetDocumentGeneral', 'getDocumentList', {
         DateTimeFrom: npDateFormat(fromVal),
         DateTimeTo: npDateFormat(toVal),
-        GetFullList: '1',
         Page: String(page)
       });
       if(!data || data.length === 0) break;
       allDocs.push(...data);
-      if(data.length < 500) break;
+      if(data.length < 100) break;
       page++;
-      if(page > 20) break; // запобіжник від нескінченного циклу
+      if(page > 200) break; // запобіжник від нескінченного циклу (200×100 = 20000 накладних)
     }
     if(allDocs.length === 0){
       statusEl.textContent = 'За цей період у кабінеті НП немає жодної накладної.';
