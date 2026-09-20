@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26b</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26c</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -502,6 +502,11 @@
         </div>
       </div>
       <p class="hint" id="npImportStatus" style="margin:0 0 10px;"></p>
+      <div class="fb-row" style="margin:0 0 10px;">
+        <input type="text" id="npImportDebugTtn" placeholder="Перевірити конкретний ТТН у цьому скані" style="max-width:260px;">
+        <button class="btn btn-sm" type="button" onclick="npDebugCheckTtn()">Перевірити</button>
+      </div>
+      <div id="npImportDebugResult" style="margin:0 0 10px;"></div>
       <div id="npImportList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
       <div class="fb-row" style="margin-top:14px;">
         <button class="btn btn-primary btn-sm" onclick="importSelectedNpOrders()">Імпортувати позначені</button>
@@ -3960,12 +3965,18 @@ async function npApiCall(modelName, calledMethod, methodProperties){
 /* ---------- синхронізація з кабінетом НП: імпорт накладних, яких немає в програмі ---------- */
 
 let npImportCandidates = [];
+let npImportLastAllDocs = [];
+let npImportLastMatched = [];
 
 function openNpImportModal(){
   document.getElementById('npImportModal').style.display = 'flex';
   document.getElementById('npImportStatus').textContent = '';
   document.getElementById('npImportList').innerHTML = '';
+  document.getElementById('npImportDebugResult').innerHTML = '';
+  document.getElementById('npImportDebugTtn').value = '';
   npImportCandidates = [];
+  npImportLastAllDocs = [];
+  npImportLastMatched = [];
   const fromInput = document.getElementById('npImportFrom');
   const toInput = document.getElementById('npImportTo');
   if(!toInput.value) toInput.value = todayStr();
@@ -4027,6 +4038,8 @@ async function scanNpImport(){
       if(foundOrder) matched.push({doc: d, order: foundOrder});
       else missing.push(d);
     });
+    npImportLastAllDocs = allDocs;
+    npImportLastMatched = matched;
 
     if(missing.length === 0){
       statusEl.innerHTML = `Перевірено ${allDocs.length} накладних за період — за номером ТТН усі вже знайдено в програмі. `+
@@ -4054,6 +4067,30 @@ async function scanNpImport(){
     renderNpImportList();
   }catch(err){
     statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+// перевіряє один конкретний номер ТТН у результатах останнього скану (без повторного запиту до НП) —
+// показує, чи НП взагалі повернула цю накладну за вказаний період, і якщо так — з чим її зіставлено
+function npDebugCheckTtn(){
+  const resultEl = document.getElementById('npImportDebugResult');
+  if(npImportLastAllDocs.length === 0){
+    resultEl.innerHTML = '<p class="hint">Спершу натисніть «Знайти нестворені».</p>';
+    return;
+  }
+  const raw = document.getElementById('npImportDebugTtn').value.trim();
+  const digits = raw.replace(/\D/g,'');
+  if(!digits){ resultEl.innerHTML = '<p class="hint">Впишіть номер.</p>'; return; }
+  const doc = npImportLastAllDocs.find(d => (d.IntDocNumber||'').replace(/\D/g,'') === digits);
+  if(!doc){
+    resultEl.innerHTML = `<p class="hint" style="color:var(--danger);">Цього номера немає серед ${npImportLastAllDocs.length} накладних, які НП повернула за вказаний період. Тобто проблема не в зіставленні — НП взагалі не віддала цю накладну на цей запит (перевірте період, або це вже не перший раз — можливо, обмеження/пагінація на боці НП).</p>`;
+    return;
+  }
+  const m = npImportLastMatched.find(x => x.doc === doc);
+  if(m){
+    resultEl.innerHTML = `<p class="hint">Знайдено серед отриманих з НП (дата ${escapeAttr(doc.DateTime||'—')}). Зіставлено із замовленням у програмі: «${escapeAttr(m.order.customer||'Без імені')}», ТТН у програмі: <strong>${escapeAttr(m.order.ttnNumber)}</strong>, дата ${m.order.date||'—'}${isArchived(m.order)?', в архіві':''}.</p>`;
+  } else {
+    resultEl.innerHTML = `<p class="hint">Знайдено серед отриманих з НП (дата ${escapeAttr(doc.DateTime||'—')}) і НЕ зіставлено з жодним замовленням — має бути у списку кандидатів на імпорт нижче.</p>`;
   }
 }
 
