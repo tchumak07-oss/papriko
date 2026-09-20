@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26d</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26e</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -424,7 +424,17 @@
 
   <input type="file" id="deliveryReportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleDeliveryReportFile(this.files[0])">
   <div id="deliveryReportStatus" class="scan-status"></div>
-  <p class="hint" style="margin:-8px 0 14px;">«Звірити звіт доставки з НП» — це звичайний «Звіт по клієнту за період», який можна вивантажити з кабінету Нової Пошти. Програма зіставить номери ЕН з вашими відправками (за номером ТТН, а якщо ТТН ще не записана — за телефоном отримувача) і сама проставить «Відправлено» / «Доставлено» за статусом у звіті.</p>
+  <p class="hint" style="margin:-8px 0 14px;">«Звірити звіт доставки з НП» — це звичайний «Звіт по клієнту за період», який можна вивантажити з кабінету Нової Пошти. Програма зіставить номери ЕН з вашими відправками (за номером ТТН, а якщо ТТН ще не записана — за телефоном отримувача) і сама проставить «Відправлено» / «Доставлено» за статусом у звіті. Накладні, яких немає в програмі (створені на відділенні, у кабінеті чи мобільному додатку — не через цю програму), можна одразу створити зі списку нижче.</p>
+
+  <div id="deliveryReportUnmatchedWrap" style="display:none;margin-bottom:14px;">
+    <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">Накладні зі звіту, яких немає в програмі</div>
+      <div id="deliveryReportUnmatchedList" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
+      <div class="fb-row" style="margin-top:10px;">
+        <button class="btn btn-primary btn-sm" type="button" onclick="createOrdersFromDeliveryReportUnmatched()">Створити позначені</button>
+      </div>
+    </div></div>
+  </div>
 
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
     <div class="catalog-group-title">Виправити замовлення з датою в майбутньому</div>
@@ -4623,6 +4633,66 @@ function setDeliveryReportStatus(text, kind){
   el.textContent = text || '';
 }
 
+let deliveryReportUnmatched = [];
+
+function renderDeliveryReportUnmatched(){
+  const listEl = document.getElementById('deliveryReportUnmatchedList');
+  const wrapEl = document.getElementById('deliveryReportUnmatchedWrap');
+  if(!listEl || !wrapEl) return;
+  if(deliveryReportUnmatched.length === 0){
+    wrapEl.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+  wrapEl.style.display = '';
+  listEl.innerHTML = deliveryReportUnmatched.map((r,idx) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;">
+      <input type="checkbox" ${r.selected?'checked':''} onchange="deliveryReportUnmatched[${idx}].selected=this.checked" style="width:auto;accent-color:var(--saffron);">
+      <span style="flex:1;">
+        <strong>${escapeAttr(r.customer||'Без імені')}</strong>${r.phone ? ' · '+escapeAttr(r.phone) : ''}
+        <br><span class="hint">${escapeAttr(r.city||'')}${r.address ? ', '+escapeAttr(r.address) : ''} · ТТН ${escapeAttr(r.ttn)} · ${escapeAttr(r.statusText||'')} · ${r.date}</span>
+      </span>
+    </label>
+  `).join('');
+}
+
+function createOrdersFromDeliveryReportUnmatched(){
+  const selected = deliveryReportUnmatched.filter(r => r.selected);
+  if(selected.length === 0){ alert('Нічого не позначено.'); return; }
+  if(!confirm(`Створити ${selected.length} нових замовлень у програмі на основі цих рядків звіту? Товари в них будуть порожні — дозаповните вручну за потреби.`)) return;
+  selected.forEach(r => {
+    const id = nextOrderId++;
+    const o = newOrderDefaults(id);
+    o.customer = r.customer || '';
+    o.phone = r.phone || '';
+    o.deliveryMethod = 'Нова Пошта';
+    const split = splitDestination(r.city);
+    o.city = split.city || r.city || '';
+    o.warehouseDesc = split.warehouse || r.address || '';
+    o.ttnNumber = r.ttn;
+    o.weight = r.weight || '';
+    o.cost = r.cost || '';
+    o.codAmount = r.codAmount || '';
+    o.date = r.date || todayStr();
+    o.npStatusText = r.statusText || '';
+    o.collapsed = true;
+    o.importedFromNp = true;
+    o.notes = 'Імпортовано автоматично зі звіту доставки НП (Excel) — товари не вказані, заповніть вручну за потреби.';
+    if(r.statusText){
+      if(r.statusText.includes('Поверн') || r.statusText.includes('Відмова')) o.npReturned = true;
+      else if(r.statusText.includes('Отримано')){ o.shipped = true; o.delivered = true; }
+      else if(r.statusText.includes('дорозі') || r.statusText.includes('Прибув') || r.statusText.includes('відділенн')) o.shipped = true;
+    }
+    orders.push(o);
+  });
+  deliveryReportUnmatched = deliveryReportUnmatched.filter(r => !r.selected);
+  renderDeliveryReportUnmatched();
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+  alert(`Імпортовано ${selected.length} замовлень. Перевірте їх у списку «Замовлення» — товари порожні, дозаповніть за потреби.`);
+}
+
 async function handleDeliveryReportFile(file){
   if(!file) return;
   setDeliveryReportStatus('Читаю файл...', 'loading');
@@ -4637,13 +4707,20 @@ async function handleDeliveryReportFile(file){
     const ttnKey = findKey(rowKeys, ['номерен','номерент','ttn']);
     const statusKey = findKey(rowKeys, ['статусенанадатуформуванн','статусен','статус']);
     const contactKey = findKey(rowKeys, ['контактотримувача']);
+    const dateKey = findKey(rowKeys, ['датаен','дата']);
+    const recipientKey = findKey(rowKeys, ['отримувач']);
+    const cityKey = findKey(rowKeys, ['містоодержувач','містоотримувача']);
+    const addressKey = findKey(rowKeys, ['адресаодержувача','адресаотримувача']);
+    const weightKey = findKey(rowKeys, ['вага']);
+    const costKey = findKey(rowKeys, ['вартістьвантажу']);
+    const codKey = findKey(rowKeys, ['контрольоплатисумагрн','контрольоплатисума']);
 
     if(!ttnKey){
       throw new Error('Не знайшов колонку «Номер Е/Н» у файлі — переконайтесь, що це звіт «по клієнту за період» з кабінету Нової Пошти');
     }
 
-    let matchedByTtn = 0, matchedByPhone = 0, statusUpdates = 0, archivedNow = 0, returnedNow = 0, unmatched = 0;
-    const unmatchedList = [];
+    let matchedByTtn = 0, matchedByPhone = 0, statusUpdates = 0, archivedNow = 0, returnedNow = 0;
+    const unmatchedRows = [];
 
     rows.forEach(row => {
       const ttn = normalizeTtnNumber(row[ttnKey]);
@@ -4667,8 +4744,19 @@ async function handleDeliveryReportFile(file){
       }
 
       if(!order){
-        unmatched++;
-        if(!unmatchedList.includes(contactName)) unmatchedList.push(contactName || ttn);
+        unmatchedRows.push({
+          ttn,
+          statusText,
+          customer: (recipientKey ? String(row[recipientKey]||'').trim() : '') || contactName,
+          phone: contactPhone,
+          city: cityKey ? String(row[cityKey]||'').trim() : '',
+          address: addressKey ? String(row[addressKey]||'').trim() : '',
+          weight: weightKey ? row[weightKey] : '',
+          cost: costKey ? row[costKey] : '',
+          codAmount: codKey ? row[codKey] : '',
+          date: dateKey ? excelDateToStr(row[dateKey]) : todayStr(),
+          selected: true
+        });
         return;
       }
 
@@ -4695,12 +4783,15 @@ async function handleDeliveryReportFile(file){
     renderOrders();
     scheduleSave();
 
+    deliveryReportUnmatched = unmatchedRows;
+
     let msg = `Звірено ${matchedByTtn + matchedByPhone} відправлень (за ТТН: ${matchedByTtn}, за телефоном: ${matchedByPhone}). Оновлено статус у ${statusUpdates}. Перенесено в архів: ${archivedNow}.`;
     if(returnedNow > 0) msg += ` ⚠ Повернень (потрібно перевірити повернення коштів): ${returnedNow}.`;
-    if(unmatched > 0){
-      msg += ` Не знайдено відповідного замовлення для ${unmatched}: ${unmatchedList.slice(0,6).join(', ')}${unmatchedList.length>6?'…':''}.`;
+    if(unmatchedRows.length > 0){
+      msg += ` Не знайдено відповідного замовлення для ${unmatchedRows.length} накладних — перевірте список нижче й натисніть «Створити», щоб додати їх автоматично.`;
     }
-    setDeliveryReportStatus(msg, unmatched > 0 ? 'error' : 'ok');
+    setDeliveryReportStatus(msg, unmatchedRows.length > 0 ? 'error' : 'ok');
+    renderDeliveryReportUnmatched();
   }catch(err){
     setDeliveryReportStatus('Помилка: ' + err.message, 'error');
   }finally{
