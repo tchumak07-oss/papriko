@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26c</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26d</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -4011,6 +4011,7 @@ async function scanNpImport(){
       const data = await npApiCall('InternetDocumentGeneral', 'getDocumentList', {
         DateTimeFrom: npDateFormat(fromVal),
         DateTimeTo: npDateFormat(toVal),
+        GetFullList: '0',
         Page: String(page)
       });
       if(!data || data.length === 0) break;
