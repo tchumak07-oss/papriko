@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.25 · 22.09.2026 08:03</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.26 · 22.09.2026 08:34</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3090,6 +3090,21 @@ function exportTodayShipmentsExcel(){
   });
 
   const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    {wch:11}, // Дата
+    {wch:24}, // Клієнт
+    {wch:14}, // Телефон
+    {wch:36}, // Товари
+    {wch:10}, // Сума
+    {wch:14}, // Служба доставки
+    {wch:18}, // Місто
+    {wch:24}, // Відділення
+    {wch:16}, // ТТН
+    {wch:10}, // Оплачено
+    {wch:12}, // Відправлено
+    {wch:12}, // Доставлено
+    {wch:32}  // Примітка
+  ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Відправлення');
   XLSX.writeFile(wb, `vidpravlennya_${from}_${to}.xlsx`);
