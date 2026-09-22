@@ -285,7 +285,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.28 · 22.09.2026 09:26</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.29 · 22.09.2026 21:00</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -447,6 +447,11 @@
     <div class="hint" id="fixFutureStatus" style="margin-top:6px;"></div>
   </div></div>
 
+  <div class="fb-row" style="align-items:flex-end;margin-bottom:8px;">
+    <div><label style="font-size:12px;color:var(--text-muted);">Період з</label><input type="date" id="ordersSummaryFrom" onchange="renderOrdersSummary()" style="width:auto;"></div>
+    <div><label style="font-size:12px;color:var(--text-muted);">по</label><input type="date" id="ordersSummaryTo" onchange="renderOrdersSummary()" style="width:auto;"></div>
+    <button class="btn btn-sm" type="button" onclick="resetOrdersSummaryPeriod()">Весь час</button>
+  </div>
   <div class="summary" id="ordersSummary" style="margin-top:0;margin-bottom:1rem;"></div>
 
   <div id="todayShipmentsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center;">
@@ -6373,13 +6378,38 @@ function renderOrderTotal(orderId){
   if(discVal) discVal.textContent = '−' + fmt(c.discount) + ' грн';
 }
 
+function resetOrdersSummaryPeriod(){
+  const fromEl = document.getElementById('ordersSummaryFrom');
+  const toEl = document.getElementById('ordersSummaryTo');
+  if(fromEl) fromEl.value = '';
+  if(toEl) toEl.value = '';
+  renderOrdersSummary();
+}
+
 function renderOrdersSummary(){
-  const total = orders.reduce((s,o) => s + calcOrder(o).total, 0);
-  const paid = orders.filter(o => o.paid).reduce((s,o) => s + calcOrder(o).total, 0);
-  const shippedCount = orders.filter(o => o.shipped).length;
-  const active = orders.filter(o => o.status!=='Скасовано').length;
+  const fromEl = document.getElementById('ordersSummaryFrom');
+  const toEl = document.getElementById('ordersSummaryTo');
+  const fromVal = fromEl ? fromEl.value : '';
+  const toVal = toEl ? toEl.value : '';
+  const fromTs = fromVal ? dateSortValue(fromVal) : null;
+  const toTs = toVal ? dateSortValue(toVal) : null;
+
+  const inPeriod = o => {
+    if(!fromTs && !toTs) return true;
+    const ts = dateSortValue(o.date || '');
+    if(fromTs !== null && ts < fromTs) return false;
+    if(toTs !== null && ts > toTs) return false;
+    return true;
+  };
+  const list = orders.filter(inPeriod);
+
+  const total = list.reduce((s,o) => s + calcOrder(o).total, 0);
+  const paid = list.filter(o => o.paid).reduce((s,o) => s + calcOrder(o).total, 0);
+  const shippedCount = list.filter(o => o.shipped).length;
+  const active = list.filter(o => o.status!=='Скасовано').length;
+  const periodLabel = (fromTs || toTs) ? ` (за період${fromVal?' з '+fromVal:''}${toVal?' по '+toVal:''})` : '';
   document.getElementById('ordersSummary').innerHTML = `
-    <div class="card"><div class="label">Всього замовлень</div><div class="value">${orders.length}</div></div>
+    <div class="card"><div class="label">Всього замовлень${periodLabel ? ' <span class="hint">'+periodLabel+'</span>' : ''}</div><div class="value">${list.length}</div></div>
     <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
     <div class="card"><div class="label">Відправлено</div><div class="value">${shippedCount}</div></div>
     <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
