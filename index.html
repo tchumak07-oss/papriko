@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.22.09.26</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.25 · 22.09.2026 08:03</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -2808,6 +2808,7 @@ function newOrderDefaults(id){
     discountType:'none', discountValue:'',
     atBranchSince:'', branchReminderSentDate:'',
     importedFromNp:false,
+    sendToTelegram:false,
     ttnNumber:'', ttnRef:''
   };
 }
@@ -3165,8 +3166,9 @@ function saveOrder(id){
   const o = orderById(id);
   if(!o) return;
   o.collapsed = true;
-  if(telegramNotificationsEnabled && !o.ttnTelegramNotified && (o.city || o.ukrCity || o.address)){
+  if(telegramNotificationsEnabled && o.sendToTelegram && (o.city || o.ukrCity || o.address)){
     o.ttnTelegramNotified = true;
+    o.sendToTelegram = false;
     notifyTelegramShipment(o);
   }
   if(!o.customerSmsSent && (o.city || o.ukrCity || o.address)){
@@ -4196,35 +4198,45 @@ function renderNpImportList(){
 }
 
 function importSelectedNpOrders(){
-  const selected = npImportCandidates.filter(c => c.selected);
-  if(selected.length === 0){ alert('Нічого не позначено (або спершу натисніть «Знайти нестворені»).'); return; }
-  if(!confirm(`Створити ${selected.length} нових замовлень у програмі на основі цих накладних НП? Товари в них будуть порожні — дозаповните вручну за потреби.`)) return;
-  selected.forEach(c => {
-    const d = c.detail;
-    const id = nextOrderId++;
-    const o = newOrderDefaults(id);
-    o.customer = (!isPlaceholderRecipientName(d.RecipientFullName) && d.RecipientFullName) || (d.PhoneRecipient ? 'Клієнт '+d.PhoneRecipient : '');
-    o.phone = d.PhoneRecipient || '';
-    o.deliveryMethod = 'Нова Пошта';
-    o.city = d.CityRecipient || '';
-    o.warehouseDesc = d.WarehouseRecipient || '';
-    o.ttnNumber = c.ttn;
-    o.weight = d.DocumentWeight || '';
-    o.seatsAmount = Number(d.SeatsAmount) || 1;
-    o.cost = d.AnnouncedPrice || d.DocumentCost || '';
-    o.date = npDateToIso(d.DateCreated) || todayStr();
-    o.collapsed = true;
-    o.importedFromNp = true;
-    o.notes = 'Імпортовано автоматично з кабінету Нової Пошти — товари не вказані, заповніть вручну за потреби.';
-    applyNpStatus(o, d); // виставляє shipped/delivered/paid/статус так само, як робить звичайна синхронізація статусів
-    orders.push(o);
-  });
-  npImportCandidates = [];
-  renderOrders();
-  renderOrdersSummary();
-  scheduleSave();
-  closeNpImportModal();
-  alert(`Імпортовано ${selected.length} замовлень. Знайдете їх у списку «Замовлення» — перевірте й дозаповніть товари за потреби.`);
+  const statusEl = document.getElementById('npImportStatus');
+  try{
+    const selected = npImportCandidates.filter(c => c.selected);
+    if(selected.length === 0){
+      if(statusEl) statusEl.textContent = 'Нічого не позначено (або спершу натисніть «Знайти нестворені»).';
+      return;
+    }
+    let created = 0;
+    selected.forEach(c => {
+      const d = c.detail;
+      const id = nextOrderId++;
+      const o = newOrderDefaults(id);
+      o.customer = (!isPlaceholderRecipientName(d.RecipientFullName) && d.RecipientFullName) || (d.PhoneRecipient ? 'Клієнт '+d.PhoneRecipient : '');
+      o.phone = d.PhoneRecipient || '';
+      o.deliveryMethod = 'Нова Пошта';
+      o.city = d.CityRecipient || '';
+      o.warehouseDesc = d.WarehouseRecipient || '';
+      o.ttnNumber = c.ttn;
+      o.weight = d.DocumentWeight || '';
+      o.seatsAmount = Number(d.SeatsAmount) || 1;
+      o.cost = d.AnnouncedPrice || d.DocumentCost || '';
+      o.date = npDateToIso(d.DateCreated) || todayStr();
+      o.collapsed = true;
+      o.importedFromNp = true;
+      o.notes = 'Імпортовано автоматично з кабінету Нової Пошти — товари не вказані, заповніть вручну за потреби.';
+      applyNpStatus(o, d); // виставляє shipped/delivered/paid/статус так само, як робить звичайна синхронізація статусів
+      orders.push(o);
+      created++;
+    });
+    npImportCandidates = [];
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+    closeNpImportModal();
+    alert(`Імпортовано ${created} замовлень. Знайдете їх у списку «Замовлення» — перевірте й дозаповніть товари за потреби.`);
+  }catch(err){
+    const msg = 'Помилка при створенні замовлень: ' + (err && err.message ? err.message : err);
+    if(statusEl) statusEl.textContent = msg; else alert(msg);
+  }
 }
 
 async function searchNpCity(orderId){
@@ -4728,40 +4740,45 @@ function renderDeliveryReportUnmatched(){
 }
 
 function createOrdersFromDeliveryReportUnmatched(){
-  const selected = deliveryReportUnmatched.filter(r => r.selected);
-  if(selected.length === 0){ alert('Нічого не позначено.'); return; }
-  if(!confirm(`Створити ${selected.length} нових замовлень у програмі на основі цих рядків звіту? Товари в них будуть порожні — дозаповните вручну за потреби.`)) return;
-  selected.forEach(r => {
-    const id = nextOrderId++;
-    const o = newOrderDefaults(id);
-    o.customer = r.customer || '';
-    o.phone = r.phone || '';
-    o.deliveryMethod = 'Нова Пошта';
-    const split = splitDestination(r.city);
-    o.city = split.city || r.city || '';
-    o.warehouseDesc = split.warehouse || r.address || '';
-    o.ttnNumber = r.ttn;
-    o.weight = r.weight || '';
-    o.cost = r.cost || '';
-    o.codAmount = r.codAmount || '';
-    o.date = r.date || todayStr();
-    o.npStatusText = r.statusText || '';
-    o.collapsed = true;
-    o.importedFromNp = true;
-    o.notes = 'Імпортовано автоматично зі звіту доставки НП (Excel) — товари не вказані, заповніть вручну за потреби.';
-    if(r.statusText){
-      if(r.statusText.includes('Поверн') || r.statusText.includes('Відмова')) o.npReturned = true;
-      else if(r.statusText.includes('Отримано')){ o.shipped = true; o.delivered = true; }
-      else if(r.statusText.includes('дорозі') || r.statusText.includes('Прибув') || r.statusText.includes('відділенн')) o.shipped = true;
-    }
-    orders.push(o);
-  });
-  deliveryReportUnmatched = deliveryReportUnmatched.filter(r => !r.selected);
-  renderDeliveryReportUnmatched();
-  renderOrders();
-  renderOrdersSummary();
-  scheduleSave();
-  alert(`Імпортовано ${selected.length} замовлень. Перевірте їх у списку «Замовлення» — товари порожні, дозаповніть за потреби.`);
+  try{
+    const selected = deliveryReportUnmatched.filter(r => r.selected);
+    if(selected.length === 0){ setDeliveryReportStatus('Нічого не позначено — поставте галочки біля потрібних рядків.', 'error'); return; }
+    let created = 0;
+    selected.forEach(r => {
+      const id = nextOrderId++;
+      const o = newOrderDefaults(id);
+      o.customer = r.customer || '';
+      o.phone = r.phone || '';
+      o.deliveryMethod = 'Нова Пошта';
+      const split = splitDestination(r.city);
+      o.city = split.city || r.city || '';
+      o.warehouseDesc = split.warehouse || r.address || '';
+      o.ttnNumber = r.ttn;
+      o.weight = r.weight || '';
+      o.cost = r.cost || '';
+      o.codAmount = r.codAmount || '';
+      o.date = r.date || todayStr();
+      o.npStatusText = r.statusText || '';
+      o.collapsed = true;
+      o.importedFromNp = true;
+      o.notes = 'Імпортовано автоматично зі звіту доставки НП (Excel) — товари не вказані, заповніть вручну за потреби.';
+      if(r.statusText){
+        if(r.statusText.includes('Поверн') || r.statusText.includes('Відмова')) o.npReturned = true;
+        else if(r.statusText.includes('Отримано')){ o.shipped = true; o.delivered = true; }
+        else if(r.statusText.includes('дорозі') || r.statusText.includes('Прибув') || r.statusText.includes('відділенн')) o.shipped = true;
+      }
+      orders.push(o);
+      created++;
+    });
+    deliveryReportUnmatched = deliveryReportUnmatched.filter(r => !r.selected);
+    renderDeliveryReportUnmatched();
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+    setDeliveryReportStatus(`Створено ${created} замовлень. Перевірте їх у списку «Замовлення» — товари порожні, дозаповніть за потреби.`, 'ok');
+  }catch(err){
+    setDeliveryReportStatus('Помилка при створенні замовлень: ' + (err && err.message ? err.message : err), 'error');
+  }
 }
 
 async function handleDeliveryReportFile(file){
@@ -6172,6 +6189,10 @@ function orderExpandedHtml(o){
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.manualArchive?'checked':''} onchange="toggleManualArchive(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
             В архів
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="Якщо позначено — при натисканні «Зберегти» надішле сповіщення про це замовлення в Telegram-групу">
+            <input type="checkbox" ${o.sendToTelegram?'checked':''} onchange="updateOrderField(${o.id},'sendToTelegram',this.checked)" style="width:auto;accent-color:var(--saffron);">
+            Відправити в Telegram
           </label>
         </div>
       </div>
