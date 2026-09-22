@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-app-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
 <style>
@@ -284,7 +285,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.26 · 22.09.2026 08:34</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.28 · 22.09.2026 09:26</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3062,52 +3063,93 @@ function closeTodayShipmentsModal(){
   document.getElementById('todayShipmentsModal').style.display = 'none';
 }
 
-function exportTodayShipmentsExcel(){
+async function exportTodayShipmentsExcel(){
   const {orders: list, from, to} = getFilteredShipments();
   if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
 
-  const rows = list.map(o => {
+  const columns = [
+    {header:'Дата', key:'date', width:11},
+    {header:'Клієнт', key:'customer', width:24},
+    {header:'Телефон', key:'phone', width:14},
+    {header:'Товари', key:'items', width:36},
+    {header:'Сума', key:'total', width:10},
+    {header:'Служба доставки', key:'method', width:14},
+    {header:'Місто', key:'city', width:18},
+    {header:'Відділення', key:'warehouse', width:24},
+    {header:'ТТН', key:'ttn', width:16},
+    {header:'Оплачено', key:'paid', width:10},
+    {header:'Відправлено', key:'shipped', width:12},
+    {header:'Доставлено', key:'delivered', width:12},
+    {header:'Примітка', key:'notes', width:32}
+  ];
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Відправлення');
+  ws.columns = columns;
+
+  const THIN_BORDER = {
+    top: {style:'thin', color:{argb:'FFB0A08C'}},
+    left: {style:'thin', color:{argb:'FFB0A08C'}},
+    bottom: {style:'thin', color:{argb:'FFB0A08C'}},
+    right: {style:'thin', color:{argb:'FFB0A08C'}}
+  };
+  const BROWN = {type:'pattern', pattern:'solid', fgColor:{argb:'FFD9B896'}};
+  const GREEN = {type:'pattern', pattern:'solid', fgColor:{argb:'FFC6E8C6'}};
+  const RED = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF3C6C0'}};
+  const YELLOW = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF5E3A8'}};
+
+  const headerRow = ws.getRow(1);
+  headerRow.font = {bold:true};
+  headerRow.eachCell(cell => {
+    cell.fill = BROWN;
+    cell.border = THIN_BORDER;
+  });
+
+  list.forEach(o => {
     const c = calcOrder(o);
     const itemsText = o.items.map(it => {
       const k = kitById(it.kitId);
       return `${k ? k.name : '(товар)'} x${it.qty}`;
     }).join('; ');
-    return {
-      'Дата': o.date || '',
-      'Клієнт': o.customer || '',
-      'Телефон': o.phone || '',
-      'Товари': itemsText,
-      'Сума': c.total,
-      'Служба доставки': o.deliveryMethod || '',
-      'Місто': o.city || o.ukrCity || o.address || '',
-      'Відділення': o.warehouseDesc || '',
-      'ТТН': o.ttnNumber || o.ukrTtnNumber || '',
-      'Оплачено': o.paid ? 'так' : 'ні',
-      'Відправлено': o.shipped ? 'так' : 'ні',
-      'Доставлено': o.delivered ? 'так' : 'ні',
-      'Примітка': o.notes || ''
-    };
+    const row = ws.addRow({
+      date: o.date || '',
+      customer: o.customer || '',
+      phone: o.phone || '',
+      items: itemsText,
+      total: c.total,
+      method: o.deliveryMethod || '',
+      city: o.city || o.ukrCity || o.address || '',
+      warehouse: o.warehouseDesc || '',
+      ttn: o.ttnNumber || o.ukrTtnNumber || '',
+      paid: o.paid ? 'так' : 'ні',
+      shipped: o.shipped ? 'так' : 'ні',
+      delivered: o.delivered ? 'так' : 'ні',
+      notes: o.notes || ''
+    });
+    // Промальовуємо межі клітинок, щоб вийшла справжня таблиця
+    row.eachCell({includeEmpty:true}, cell => { cell.border = THIN_BORDER; });
+    // Підсвічуємо статусні колонки: зелений — виконано, червоний — ще ні
+    row.getCell('paid').fill = o.paid ? GREEN : RED;
+    row.getCell('shipped').fill = o.shipped ? GREEN : RED;
+    row.getCell('delivered').fill = o.delivered ? GREEN : RED;
+    // Прострочені по контролю оплати (доставлено, гроші ще не підтверджені) — жовтим
+    if(o.delivered && !o.paid && Number(o.codAmount) > 0){
+      row.getCell('paid').fill = YELLOW;
+    }
   });
 
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [
-    {wch:11}, // Дата
-    {wch:24}, // Клієнт
-    {wch:14}, // Телефон
-    {wch:36}, // Товари
-    {wch:10}, // Сума
-    {wch:14}, // Служба доставки
-    {wch:18}, // Місто
-    {wch:24}, // Відділення
-    {wch:16}, // ТТН
-    {wch:10}, // Оплачено
-    {wch:12}, // Відправлено
-    {wch:12}, // Доставлено
-    {wch:32}  // Примітка
-  ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Відправлення');
-  XLSX.writeFile(wb, `vidpravlennya_${from}_${to}.xlsx`);
+  ws.views = [{state:'frozen', ySplit:1}];
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `vidpravlennya_${from}_${to}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 async function sendFilteredShipmentsToTelegram(){
