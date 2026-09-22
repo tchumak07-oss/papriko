@@ -284,7 +284,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.20.09.26e</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.22.09.26</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -512,6 +512,16 @@
         </div>
       </div>
       <p class="hint" id="npImportStatus" style="margin:0 0 10px;"></p>
+
+      <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+        <div class="catalog-group-title">Або: вставити номери ТТН вручну</div>
+        <p class="hint" style="margin:0 0 8px;">Якщо звіт зі списком «висить» у черзі НП — не чекайте. Впишіть номери ТТН по одному в рядку (з чека, накладної на відділенні, SMS тощо) — програма перевірить кожен окремо (це швидко, не залежить від черги звітів) і одразу створить ті, яких немає в програмі.</p>
+        <textarea class="order-notes" id="npImportManualTtns" rows="4" placeholder="20450123456789&#10;20450987654321"></textarea>
+        <div class="fb-row" style="margin-top:8px;">
+          <button class="btn btn-primary btn-sm" type="button" onclick="scanNpImportManual()">Перевірити ці номери</button>
+        </div>
+      </div></div>
+
       <div class="fb-row" style="margin:0 0 10px;">
         <input type="text" id="npImportDebugTtn" placeholder="Перевірити конкретний ТТН у цьому скані" style="max-width:260px;">
         <button class="btn btn-sm" type="button" onclick="npDebugCheckTtn()">Перевірити</button>
@@ -3984,6 +3994,7 @@ function openNpImportModal(){
   document.getElementById('npImportList').innerHTML = '';
   document.getElementById('npImportDebugResult').innerHTML = '';
   document.getElementById('npImportDebugTtn').value = '';
+  document.getElementById('npImportManualTtns').value = '';
   npImportCandidates = [];
   npImportLastAllDocs = [];
   npImportLastMatched = [];
@@ -4081,6 +4092,54 @@ async function scanNpImport(){
   }
 }
 
+// перевіряє вручну вставлений список номерів ТТН по одному (TrackingDocument.getStatusDocuments) —
+// на відміну від getDocumentList, цей метод бачить ЛЮБУ накладну незалежно від того, як і де її
+// створили (на відділенні, в кабінеті, мобільному додатку), і не залежить від черги формування звітів
+async function scanNpImportManual(){
+  if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти в «Налаштування доставки».'); return; }
+  const raw = document.getElementById('npImportManualTtns').value;
+  const digitsOnly = s => String(s||'').replace(/\D/g,'');
+  const numbers = [...new Set(raw.split(/\r?\n/).map(digitsOnly).filter(s => s.length >= 8))];
+  if(numbers.length === 0){ alert('Впишіть хоча б один номер ТТН (по одному в рядку).'); return; }
+  const statusEl = document.getElementById('npImportStatus');
+  const listEl = document.getElementById('npImportList');
+  statusEl.textContent = `Перевіряю ${numbers.length} номер(и)...`;
+  listEl.innerHTML = '';
+  npImportCandidates = [];
+  try{
+    const existingByDigits = new Map();
+    orders.forEach(o => { if(o.ttnNumber) existingByDigits.set(digitsOnly(o.ttnNumber), o); });
+    const missing = numbers.filter(n => !existingByDigits.has(n));
+    const alreadyCount = numbers.length - missing.length;
+    if(missing.length === 0){
+      statusEl.textContent = `Усі ${numbers.length} вписані номери вже є в програмі.`;
+      return;
+    }
+    const details = [];
+    for(let i=0; i<missing.length; i+=100){
+      const chunk = missing.slice(i, i+100);
+      const statusData = await npApiCall('TrackingDocument', 'getStatusDocuments', {
+        Documents: chunk.map(n => ({DocumentNumber: n, Phone: ''}))
+      });
+      if(statusData) details.push(...statusData);
+    }
+    const notFound = missing.filter(n => !details.some(d => digitsOnly(d.Number) === n));
+    npImportCandidates = details.filter(d => d.Number).map(d => ({ttn: d.Number, detail: d, selected: true}));
+
+    if(npImportCandidates.length === 0){
+      statusEl.textContent = 'Жодного з вписаних номерів НП не впізнала (перевірте, чи правильно скопійовані).';
+      return;
+    }
+    let msg = `Знайдено ${npImportCandidates.length} накладних для імпорту.`;
+    if(alreadyCount > 0) msg += ` Вже було в програмі: ${alreadyCount}.`;
+    if(notFound.length > 0) msg += ` НП не впізнала номер(и): ${notFound.join(', ')}.`;
+    statusEl.textContent = msg;
+    renderNpImportList();
+  }catch(err){
+    statusEl.textContent = 'Помилка: ' + err.message;
+  }
+}
+
 // перевіряє один конкретний номер ТТН у результатах останнього скану (без повторного запиту до НП) —
 // показує, чи НП взагалі повернула цю накладну за вказаний період, і якщо так — з чим її зіставлено
 function npDebugCheckTtn(){
@@ -4120,15 +4179,20 @@ function npShowMatchedDebug(matched){
 function renderNpImportList(){
   const listEl = document.getElementById('npImportList');
   if(npImportCandidates.length === 0){ listEl.innerHTML = ''; return; }
-  listEl.innerHTML = npImportCandidates.map((c,idx) => `
+  listEl.innerHTML = npImportCandidates.map((c,idx) => {
+      const rawName = c.detail.RecipientFullName || '';
+      const namePlaceholder = isPlaceholderRecipientName(rawName);
+      const displayName = (!namePlaceholder && rawName) ? rawName : (c.detail.PhoneRecipient ? 'Клієнт '+c.detail.PhoneRecipient : 'Без імені');
+      return `
     <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;">
       <input type="checkbox" ${c.selected?'checked':''} onchange="npImportCandidates[${idx}].selected=this.checked" style="width:auto;accent-color:var(--saffron);">
       <span style="flex:1;">
-        <strong>${escapeAttr(c.detail.RecipientFullName || 'Без імені')}</strong>${c.detail.PhoneRecipient ? ' · '+escapeAttr(c.detail.PhoneRecipient) : ''}
+        <strong>${escapeAttr(displayName)}</strong>${c.detail.PhoneRecipient ? ' · '+escapeAttr(c.detail.PhoneRecipient) : ''}${namePlaceholder && rawName ? ' <span class="hint">(НП не передає ім\'я для цієї накладної, лише тип «'+escapeAttr(rawName)+'»)</span>' : ''}
         <br><span class="hint">${escapeAttr(c.detail.CityRecipient||'')}${c.detail.WarehouseRecipient ? ', '+escapeAttr(c.detail.WarehouseRecipient) : ''} · ТТН ${escapeAttr(c.ttn)} · ${escapeAttr(c.detail.Status||'')}</span>
       </span>
     </label>
-  `).join('');
+  `;
+    }).join('');
 }
 
 function importSelectedNpOrders(){
@@ -4139,7 +4203,7 @@ function importSelectedNpOrders(){
     const d = c.detail;
     const id = nextOrderId++;
     const o = newOrderDefaults(id);
-    o.customer = d.RecipientFullName || '';
+    o.customer = (!isPlaceholderRecipientName(d.RecipientFullName) && d.RecipientFullName) || (d.PhoneRecipient ? 'Клієнт '+d.PhoneRecipient : '');
     o.phone = d.PhoneRecipient || '';
     o.deliveryMethod = 'Нова Пошта';
     o.city = d.CityRecipient || '';
@@ -4619,6 +4683,13 @@ function normalizeTtnNumber(v){
   return String(v).replace(/[^\d]/g, '');
 }
 
+// НП іноді повертає замість реального імені отримувача службовий ярлик типу форми одержувача
+// ("Приватна особа" / "Юридична особа") — і в API (RecipientFullName), і в Excel-звіті (колонка "Отримувач").
+// Це не ім'я, а тип контрагента — таке значення треба відкидати й шукати ім'я в іншому полі.
+function isPlaceholderRecipientName(v){
+  return /^(приватна|юридична)\s+особа$/i.test(String(v||'').trim());
+}
+
 // порівнює телефони за останніми 9 цифрами — нейтралізує різницю в форматах (0XXXXXXXXX, 380XXXXXXXXX, +380...)
 function phonesMatch(a, b){
   const da = String(a||'').replace(/[^\d]/g,'').slice(-9);
@@ -4747,7 +4818,7 @@ async function handleDeliveryReportFile(file){
         unmatchedRows.push({
           ttn,
           statusText,
-          customer: (recipientKey ? String(row[recipientKey]||'').trim() : '') || contactName,
+          customer: (!isPlaceholderRecipientName(contactName) && contactName) || (recipientKey && !isPlaceholderRecipientName(row[recipientKey]) ? String(row[recipientKey]||'').trim() : ''),
           phone: contactPhone,
           city: cityKey ? String(row[cityKey]||'').trim() : '',
           address: addressKey ? String(row[addressKey]||'').trim() : '',
