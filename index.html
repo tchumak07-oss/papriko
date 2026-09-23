@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.4 · 23.09.2026 15:26</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.5 · 23.09.2026 15:53</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -1370,6 +1370,7 @@ let fbDb = null;
 let fbDocRef = null;
 let fbConnected = false;
 let fbSaveTimer = null;
+let fbSaveInFlight = false;
 let fbStorage = null;
 // updatedAt останньої версії, яку ми точно бачили з сервера (щойно завантажили або щойно самі записали) —
 // потрібно, щоб виявити ситуацію, коли ІНША вкладка/пристрій зберегли зміни, поки ця вкладка "спала"
@@ -1521,6 +1522,8 @@ function scheduleSave(){
   if(!fbConnected || !fbDocRef) return;
   clearTimeout(fbSaveTimer);
   fbSaveTimer = setTimeout(() => {
+    fbSaveTimer = null;
+    fbSaveInFlight = true;
     // читаємо поточний стан на сервері прямо перед записом: якщо він новіший за той, що ми
     // востаннє бачили (значить, інша вкладка/пристрій зберегли зміни, поки ця вкладка не оновлювалась),
     // НЕ перезаписуємо його наосліп — інакше саме так губляться ТТН та інші зміни, зроблені деінде.
@@ -1536,6 +1539,8 @@ function scheduleSave(){
       return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; });
     }).catch(err => {
       setSyncBadge('err', 'Помилка збереження: ' + err.message);
+    }).finally(() => {
+      fbSaveInFlight = false;
     });
   }, 600);
 }
@@ -1561,6 +1566,11 @@ function doConnect(config){
         setSyncBadge('on', 'Синхронізовано');
         fbDocRef.onSnapshot(snap => {
           if(!snap.exists || snap.metadata.hasPendingWrites) return;
+          // якщо зараз є незбережені локальні зміни (запланований дебаунс-запис або запис уже в польоті) —
+          // не застосовуємо цей знімок: він може бути лише підтвердженням СТАРІШОГО запису і затре щойно
+          // зроблені локальні зміни (напр. вибір відділення НП відразу після вибору міста).
+          // Коли поточний локальний запис таки виконається, він сам звірить свіжість даних перед записом.
+          if(fbSaveTimer || fbSaveInFlight) return;
           applyRemoteData(snap.data());
           lastKnownRemoteUpdatedAt = snap.data().updatedAt || null;
         }, err => {
