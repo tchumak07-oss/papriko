@@ -286,7 +286,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.4 · 23.09.2026 09:18</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.6 · 23.09.2026 09:27</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -2929,6 +2929,10 @@ function newOrderDefaults(id){
 }
 
 function addOrder(){
+  // якщо активний фільтр (напр. «Статус: Повернено») — щойно створене замовлення («Нове»)
+  // йому не відповідає і просто не показується в списку, тому спершу скидаємо фільтри,
+  // щоб нове замовлення одразу було видно.
+  resetOrderFilters();
   const id = nextOrderId++;
   orders.push(newOrderDefaults(id));
   renderOrders();
@@ -5306,19 +5310,35 @@ function resetOrderFilters(){
   renderOrders();
 }
 
+// чи звужує щось список крім "усі" — якщо так, шукаємо по ВСІХ замовленнях (включно з архівом),
+// бо коли людина явно щось шукає (статус, ТТН, ім'я), вона очікує знайти це незалежно від того,
+// що замовлення вже потрапило в архів.
+function hasActiveOrderFilter(){
+  const ids = ['of-status','shf-paid','shf-shipped','shf-delivered','shf-method','shf-deducted'];
+  if(ids.some(id => { const el = document.getElementById(id); return el && el.value !== 'all'; })) return true;
+  const searchEl = document.getElementById('shf-search');
+  return !!(searchEl && searchEl.value.trim());
+}
+
 function renderOrders(){
   const list = document.getElementById('orderList');
   const active = orders.filter(o => !isArchived(o));
+  const searching = hasActiveOrderFilter();
+  const base = searching ? orders : active;
   if(orders.length === 0){
     list.innerHTML = '<div class="comp-empty">Ще немає жодного замовлення. Натисніть «+ Нове замовлення».</div>';
-  } else if(active.length === 0){
+  } else if(base.length === 0){
     list.innerHTML = '<div class="comp-empty">Усі замовлення оплачені й доставлені — дивіться їх у «Архіві».</div>';
   } else {
-    const filtered = applyOrderFilters(active);
+    const filtered = applyOrderFilters(base);
     if(filtered.length === 0){
-      list.innerHTML = '<div class="comp-empty">Нічого не знайдено за цими фільтрами.</div>';
+      list.innerHTML = '<div class="comp-empty">Нічого не знайдено за цими фільтрами (шукали і в архіві теж).</div>';
     } else {
-      list.innerHTML = filtered.map(o => o.collapsed ? orderCollapsedHtml(o) : orderExpandedHtml(o)).join('');
+      list.innerHTML = filtered.map(o => {
+        const html = o.collapsed ? orderCollapsedHtml(o) : orderExpandedHtml(o);
+        // коли показуємо архівні замовлення разом з активними (бо шукаємо по всіх) — позначаємо, де воно лежить
+        return (searching && isArchived(o)) ? html.replace('<strong>', '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);">🗄️ В архіві</span> <strong>') : html;
+      }).join('');
       filtered.forEach(o => { if(!o.collapsed) renderOrderItems(o.id); renderOrderTotal(o.id); });
     }
   }
