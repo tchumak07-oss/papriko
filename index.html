@@ -286,7 +286,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.3 · 23.09.2026 09:17</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.4 · 23.09.2026 09:18</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -922,6 +922,18 @@
 
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
     <div class="delivery-grid">
+      <div>
+        <label>Статус</label>
+        <select id="af-status" onchange="renderArchive()">
+          <option value="all">Усі</option>
+          <option>Нове</option>
+          <option>В обробці</option>
+          <option>Відправлено</option>
+          <option>Оплачено</option>
+          <option>Повернено</option>
+          <option>Скасовано</option>
+        </select>
+      </div>
       <div>
         <label>Сортувати за</label>
         <select id="af-sort" onchange="renderArchive()">
@@ -5393,6 +5405,7 @@ function archiveExpandedHtml(o){
 }
 
 function resetArchiveFilters(){
+  document.getElementById('af-status').value = 'all';
   document.getElementById('af-sort').value = 'date-desc';
   document.getElementById('af-search').value = '';
   renderArchive();
@@ -5473,12 +5486,15 @@ function renderArchive(){
   const el = document.getElementById('archiveList');
   if(!el) return;
 
+  const statusSel = document.getElementById('af-status');
   const sortSel = document.getElementById('af-sort');
   const searchInput = document.getElementById('af-search');
+  const statusVal = statusSel ? statusSel.value : 'all';
   const sortVal = sortSel ? sortSel.value : 'date-desc';
   const search = searchInput ? (searchInput.value || '').trim().toLowerCase() : '';
 
   let archived = orders.filter(isArchived);
+  if(statusVal !== 'all') archived = archived.filter(o => o.status === statusVal);
   if(search){
     const searchDigits = search.replace(/\D/g,'');
     archived = archived.filter(o => {
