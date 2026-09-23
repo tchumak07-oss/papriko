@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.12 · 23.09.2026 17:42</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.13 · 23.09.2026 21:07</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3508,10 +3508,11 @@ async function exportBranchWaitExcel(){
   if(searchVal){
     waiting = waiting.filter(o => (o.customer||'').toLowerCase().includes(searchVal) || (o.phone||'').toLowerCase().includes(searchVal));
   }
-  const withDays = waiting.map(o => ({o, days: o.atBranchSince ? daysBetween(o.atBranchSince, today) : 0}))
+  let withDays = waiting.map(o => ({o, days: o.atBranchSince ? daysBetween(o.atBranchSince, today) : 0}))
     .sort((a,b) => b.days - a.days);
+  if(threshold > 0) withDays = withDays.filter(({days}) => days >= threshold);
 
-  if(withDays.length === 0){ alert('Немає посилок, що очікують у відділенні.'); return; }
+  if(withDays.length === 0){ alert('Немає посилок, що досягли порогу «нагадувати від N днів».'); return; }
 
   const columns = [
     {header:'Днів', key:'days', width:8},
@@ -7269,8 +7270,11 @@ function renderReports(){
     if(searchVal){
       waiting = waiting.filter(o => (o.customer||'').toLowerCase().includes(searchVal) || (o.phone||'').toLowerCase().includes(searchVal));
     }
-    const withDays = waiting.map(o => ({o, days: o.atBranchSince ? daysBetween(o.atBranchSince, today) : 0}))
+    let withDays = waiting.map(o => ({o, days: o.atBranchSince ? daysBetween(o.atBranchSince, today) : 0}))
       .sort((a,b) => b.days - a.days);
+    // сам список — це саме "довго очікують", тож показуємо лише те, що вже досягло порогу
+    // (поле «нагадувати від N днів» раніше лише підсвічувало рядки, а не фільтрувало список)
+    if(threshold > 0) withDays = withDays.filter(({days}) => days >= threshold);
 
     if(withDays.length === 0){
       branchWaitEl.innerHTML = `<div class="comp-empty">${searchVal ? 'Нічого не знайдено за пошуком.' : 'Немає посилок, що очікують у відділенні.'}</div>`;
