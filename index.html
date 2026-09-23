@@ -286,7 +286,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.2 · 23.09.2026 09:08</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.3 · 23.09.2026 09:17</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -1334,6 +1334,9 @@ function applyRemoteData(data){
   catalog = data.catalog || [];
   kits = data.kits || [];
   orders = data.orders || [];
+  // старі замовлення, позначені прапорцем повернення ще до появи статусу «Повернено» в списку —
+  // підтягуємо їм статус заднім числом, інакше фільтр за статусом їх не знаходить.
+  orders.forEach(o => { if(o.npReturned && o.status !== 'Скасовано' && o.status !== 'Повернено') o.status = 'Повернено'; });
   clients = data.clients || [];
   stockMovements = data.stockMovements || [];
   cashTransactions = data.cashTransactions || [];
