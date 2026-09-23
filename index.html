@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.2 · 23.09.2026 15:17</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.3 · 23.09.2026 15:23</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -639,8 +639,8 @@
           <div style="grid-column:span 2;"><label>API-ключ SMS Fly</label><input type="text" id="smsTokenInput" placeholder="ключ з розділу «API» кабінету sms-fly.ua"></div>
           <div><label>Ім'я відправника</label><input type="text" id="smsSenderInput" placeholder="напр. Papriko"></div>
         </div>
-        <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!</textarea>
-        <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН) та <code>{name}</code> (ім'я клієнта).</p>
+        <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Сума замовлення: {sum} грн. Дякуємо за покупку!</textarea>
+        <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН), <code>{name}</code> (ім'я клієнта) та <code>{sum}</code> (сума замовлення).</p>
         <textarea class="order-notes" id="smsBranchReminderTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон нагадування про відділення">Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}</textarea>
         <p class="hint" style="margin:4px 0 0;">Шаблон нагадування «довго у відділенні» (вкладка Звіти). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{days}</code> (днів очікування).</p>
         <div class="fb-row" style="margin-top:10px;">
@@ -2559,7 +2559,7 @@ function saveAnthropicKey(){
 
 let smsToken = '';
 let smsSender = 'Papriko';
-let smsTemplate = 'Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!';
+let smsTemplate = 'Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Сума замовлення: {sum} грн. Дякуємо за покупку!';
 let smsBranchReminderTemplate = 'Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}';
 
 function saveSmsSettings(){
@@ -2629,7 +2629,8 @@ async function sendTestSms(){
 
 function fillSmsTemplate(o){
   const ttn = o.ttnNumber || o.ukrTtnNumber || '';
-  return smsTemplate.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '');
+  const sum = fmt(calcOrder(o).total);
+  return smsTemplate.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '').replace(/\{sum\}/g, sum);
 }
 
 async function notifyCustomerSms(o){
