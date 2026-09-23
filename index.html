@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.8 · 23.09.2026 16:33</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.9 · 23.09.2026 16:39</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -2584,7 +2584,7 @@ function saveSmsSettings(){
   smsSender = document.getElementById('smsSenderInput').value.trim();
   smsTemplate = document.getElementById('smsTemplateInput').value.trim() || smsTemplate;
   smsBranchReminderTemplate = document.getElementById('smsBranchReminderTemplateInput').value.trim() || smsBranchReminderTemplate;
-  document.getElementById('smsStatus').textContent = (smsToken && smsSender) ? 'Збережено.' : 'Токен і/або ім\'я відправника порожні.';
+  document.getElementById('smsStatus').textContent = smsToken ? 'Збережено.' + (smsSender ? '' : ' (без імені відправника — буде дефолтне від SMS Fly)') : 'Ключ порожній.';
   scheduleSave();
 }
 
@@ -2598,10 +2598,14 @@ function toIntlPhone(phone){
 }
 
 async function sendSms(phone, text){
-  if(!smsToken || !smsSender) return {ok:false, error:'SMS не налаштовано (вкажіть ключ і ім\'я відправника)'};
+  if(!smsToken) return {ok:false, error:'SMS не налаштовано (вкажіть ключ)'};
   const intlPhone = toIntlPhone(phone);
   if(intlPhone.length !== 12) return {ok:false, error:'Невірний формат телефону: '+phone};
   try{
+    // ім'я відправника (source) необов'язкове: поки власне (напр. Papriko) не підтверджене
+    // модератором SMS Fly — не передаємо його зовсім, і сервіс підставляє свій дефолтний sender
+    const smsPayload = {ttl: 1440, text};
+    if(smsSender) smsPayload.source = smsSender;
     const res = await fetch('https://sms-fly.ua/api/v2/api.php', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -2611,7 +2615,7 @@ async function sendSms(phone, text){
         data: {
           recipient: intlPhone,
           channels: ['sms'],
-          sms: {source: smsSender, ttl: 1440, text}
+          sms: smsPayload
         }
       })
     });
@@ -2704,7 +2708,7 @@ async function sendBranchReminderSmsToAll(){
 }
 
 async function sendSmsToTodayClients(){
-  if(!smsToken || !smsSender){ alert('Спочатку налаштуйте SMS (токен і ім\'я відправника) в «Налаштування доставки».'); return; }
+  if(!smsToken){ alert('Спочатку налаштуйте SMS (API-ключ) в «Налаштування доставки».'); return; }
   const today = todayStr();
   const todays = orders.filter(o => o.date === today && !isArchived(o) && o.phone && (o.ttnNumber || o.ukrTtnNumber));
   if(todays.length === 0){ alert('Сьогодні немає відправлень з ТТН і телефоном клієнта.'); return; }
