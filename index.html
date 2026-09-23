@@ -11,6 +11,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-app-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-storage-compat.js"></script>
 <style>
   :root{
     --bg:#1B1512;
@@ -285,7 +286,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.9.29 · 22.09.2026 21:00</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.1 · 23.09.2026 09:03</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -302,6 +303,7 @@
       <button class="app-nav-btn" id="nav-supplierorder" onclick="showSection('supplierorder')"><span class="nav-icon">📝</span>Замовлення постачальнику</button>
       <button class="app-nav-btn" id="nav-archive" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
       <button class="app-nav-btn" id="nav-cash" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
+      <button class="app-nav-btn" id="nav-invoices" onclick="showSection('invoices')"><span class="nav-icon">🧮</span>Рахунки</button>
       <button class="app-nav-btn" id="nav-reports" onclick="showSection('reports')"><span class="nav-icon">📊</span>Звіти</button>
     </nav>
 
@@ -755,7 +757,7 @@
       </div>
       <div style="grid-column:span 2;">
         <label>Пошук за клієнтом</label>
-        <input type="text" id="shf-search" placeholder="Ім'я клієнта…" oninput="renderOrders()">
+        <input type="text" id="shf-search" placeholder="Ім'я клієнта або номер ТТН/декларації…" oninput="renderOrders()">
       </div>
       <div style="display:flex;align-items:flex-end;">
         <button class="btn btn-sm" onclick="resetOrderFilters()">Скинути фільтри</button>
@@ -931,7 +933,7 @@
       </div>
       <div style="grid-column:span 2;">
         <label>Пошук за клієнтом</label>
-        <input type="text" id="af-search" placeholder="Ім'я клієнта…" oninput="renderArchive()">
+        <input type="text" id="af-search" placeholder="Ім'я клієнта або номер ТТН/декларації…" oninput="renderArchive()">
       </div>
       <div style="display:flex;align-items:flex-end;">
         <button class="btn btn-sm" onclick="resetArchiveFilters()">Скинути</button>
@@ -1048,6 +1050,73 @@
   </div></div>
 
   </div><!-- /section-cash -->
+
+  <div id="section-invoices" class="app-section">
+
+  <div class="section-title" style="margin-top:0;">Рахунки</div>
+
+  <div class="catalog-panel" style="margin-bottom:14px;">
+    <button class="catalog-toggle" onclick="toggleSellerSettingsPanel()">
+      <span id="sellerSettingsToggleLabel">Реквізити продавця (ваша компанія)</span>
+      <span id="sellerSettingsToggleIcon">▸</span>
+    </button>
+    <div class="catalog-body" id="sellerSettingsBody">
+      <div style="padding:14px 16px;">
+        <p class="hint" style="margin:0 0 10px;">Ці дані підставляються як «Продавець» у кожен рахунок. Заповніть один раз.</p>
+        <div class="delivery-grid">
+          <div><label>Назва (ФОП / ТОВ)</label><input type="text" id="sellerNameInput" placeholder="ФОП Іванов Іван Іванович"></div>
+          <div><label>ЄДРПОУ</label><input type="text" id="sellerEdrpouInput" placeholder="8 цифр (якщо ТОВ)"></div>
+          <div><label>ІПН</label><input type="text" id="sellerIpnInput" placeholder="10 цифр (якщо ФОП)"></div>
+          <div><label>Телефон</label><input type="text" id="sellerPhoneInput" placeholder="+380..."></div>
+          <div style="grid-column:span 2;"><label>Адреса</label><input type="text" id="sellerAddressInput" placeholder="Місто, вулиця, будинок"></div>
+          <div><label>Банк</label><input type="text" id="sellerBankNameInput" placeholder='напр. АТ КБ "Приватбанк"'></div>
+          <div><label>IBAN</label><input type="text" id="sellerIbanInput" placeholder="UA..."></div>
+        </div>
+        <button class="btn btn-sm" style="margin-top:10px;" onclick="saveSellerSettings()">Зберегти реквізити</button>
+        <span class="hint" id="sellerSettingsStatus" style="margin-left:8px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="catalog-group-title">Новий рахунок</div>
+    <div class="delivery-grid">
+      <div>
+        <label>Контрагент (покупець)</label>
+        <select id="invoiceCounterparty"></select>
+      </div>
+      <div><label>Дата рахунку</label><input type="date" id="invoiceDate"></div>
+      <div><label>Дійсний до (необов'язково)</label><input type="date" id="invoiceDueDate"></div>
+    </div>
+    <p class="hint" style="margin:8px 0;">Немає потрібного контрагента з повними реквізитами? Додайте картку в «Каса» → «База контрагентів» (ЄДРПОУ/ІПН, адреса, контактна особа, документи).</p>
+
+    <div class="add-order-item-row">
+      <select id="invoice-item-select"></select>
+      <input type="number" step="1" placeholder="к-сть" id="invoice-item-qty">
+      <button class="btn btn-sm" onclick="addInvoiceItem()">Додати</button>
+    </div>
+    <div class="fb-row" style="margin:-8px 0 10px;">
+      <button class="btn btn-sm" type="button" onclick="addInvoiceCustomItem()">+ Довільний рядок (напр. послуга)</button>
+    </div>
+
+    <div id="invoiceItemsList"></div>
+    <div class="fb-row" style="justify-content:flex-end;margin-top:10px;">
+      <strong id="invoiceTotalLabel">Разом: 0 грн</strong>
+    </div>
+    <div style="margin-top:10px;"><label>Примітка в рахунку</label><input type="text" id="invoiceNotes" placeholder="напр. Оплата протягом 3 банківських днів"></div>
+
+    <div class="fb-row" style="margin-top:14px;">
+      <button class="btn btn-primary btn-sm" onclick="generateInvoice()">Сформувати рахунок (друк / PDF)</button>
+      <button class="btn btn-sm" onclick="clearInvoiceDraft()">Очистити</button>
+    </div>
+  </div></div>
+
+  <div class="catalog-panel"><div style="padding:14px 16px;">
+    <div class="catalog-group-title">Виставлені рахунки</div>
+    <div id="invoicesHistoryList"></div>
+  </div></div>
+
+  </div><!-- /section-invoices -->
 
   <div id="section-reports" class="app-section">
 
@@ -1236,6 +1305,7 @@ let fbDb = null;
 let fbDocRef = null;
 let fbConnected = false;
 let fbSaveTimer = null;
+let fbStorage = null;
 
 // Ваша конфігурація Firebase — програма підключається до неї автоматично при відкритті.
 const HARDCODED_FIREBASE_CONFIG = {
@@ -1252,7 +1322,8 @@ function buildStatePayload(){
   return {
     catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
-    nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId,
+    invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
+    nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
     updatedAt: new Date().toISOString()
   };
 }
@@ -1284,6 +1355,27 @@ function applyRemoteData(data){
   smsBranchReminderTemplate = data.smsBranchReminderTemplate || smsBranchReminderTemplate;
   anthropicApiKey = data.anthropicApiKey || '';
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
+  invoices = data.invoices || [];
+  sellerName = data.sellerName || '';
+  sellerEdrpou = data.sellerEdrpou || '';
+  sellerIpn = data.sellerIpn || '';
+  sellerAddress = data.sellerAddress || '';
+  sellerBankName = data.sellerBankName || '';
+  sellerIban = data.sellerIban || '';
+  sellerMfo = data.sellerMfo || '';
+  sellerPhone = data.sellerPhone || '';
+  nextInvoiceId = data.nextInvoiceId || (Math.max(0, ...invoices.map(i=>i.id), 0) + 1);
+  nextInvoiceNumber = data.nextInvoiceNumber || (Math.max(0, ...invoices.map(i=>i.number), 0) + 1);
+  // старі контрагенти, збережені до появи повної картки, доповнюємо відсутніми полями
+  counterparties.forEach(c => {
+    if(c.docs === undefined) c.docs = [];
+    if(c.edrpou === undefined) c.edrpou = '';
+    if(c.ipn === undefined) c.ipn = '';
+    if(c.address === undefined) c.address = '';
+    if(c.contactPerson === undefined) c.contactPerson = '';
+    if(c.contactPhone === undefined) c.contactPhone = '';
+    if(c.collapsed === undefined) c.collapsed = true;
+  });
   nextCatalogId = data.nextCatalogId || (Math.max(0, ...catalog.map(c=>c.id), 0) + 1);
   nextKitId = data.nextKitId || (Math.max(0, ...kits.map(k=>k.id), 0) + 1);
   nextOrderId = data.nextOrderId || (Math.max(0, ...orders.map(o=>o.id), 0) + 1);
@@ -1368,6 +1460,7 @@ function doConnect(config){
     try{
       const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(config);
       fbDb = firebase.firestore();
+      try{ fbStorage = firebase.storage(); }catch(e){ fbStorage = null; } // не критично, якщо Storage не увімкнено в проєкті
       fbDocRef = fbDb.collection('spice-app').doc('data');
       fbDocRef.get().then(snap => {
         if(snap.exists){
@@ -1485,7 +1578,7 @@ function saveSupplierAsCounterparty(){
     alert(`«${name}» вже є в базі контрагентів — прив'язав до нього.`);
   } else {
     const id = nextCounterpartyId++;
-    counterparties.push({id, name, phone:'', notes:''});
+    counterparties.push(newCounterpartyDefaults(id, name, ''));
     supplierOrder.counterpartyId = id;
     alert(`«${name}» додано в базу контрагентів.`);
   }
@@ -5157,7 +5250,16 @@ function applyOrderFilters(list){
     if(deductedVal === 'yes' && !o.stockDeducted) return false;
     if(deductedVal === 'no' && o.stockDeducted) return false;
     if(methodVal !== 'all' && o.deliveryMethod !== methodVal) return false;
-    if(search && !(o.customer||'').toLowerCase().includes(search)) return false;
+    if(search){
+      const searchDigits = search.replace(/\D/g,'');
+      const nameMatch = (o.customer||'').toLowerCase().includes(search);
+      const phoneMatch = (o.phone||'').replace(/\D/g,'').includes(searchDigits) && searchDigits.length >= 3;
+      const ttnMatch = searchDigits.length >= 3 && (
+        (o.ttnNumber||'').replace(/\D/g,'').includes(searchDigits) ||
+        (o.ukrTtnNumber||'').replace(/\D/g,'').includes(searchDigits)
+      );
+      if(!nameMatch && !phoneMatch && !ttnMatch) return false;
+    }
     return true;
   });
 
@@ -5368,7 +5470,18 @@ function renderArchive(){
   const search = searchInput ? (searchInput.value || '').trim().toLowerCase() : '';
 
   let archived = orders.filter(isArchived);
-  if(search) archived = archived.filter(o => (o.customer||'').toLowerCase().includes(search));
+  if(search){
+    const searchDigits = search.replace(/\D/g,'');
+    archived = archived.filter(o => {
+      const nameMatch = (o.customer||'').toLowerCase().includes(search);
+      const phoneMatch = (o.phone||'').replace(/\D/g,'').includes(searchDigits) && searchDigits.length >= 3;
+      const ttnMatch = searchDigits.length >= 3 && (
+        (o.ttnNumber||'').replace(/\D/g,'').includes(searchDigits) ||
+        (o.ukrTtnNumber||'').replace(/\D/g,'').includes(searchDigits)
+      );
+      return nameMatch || phoneMatch || ttnMatch;
+    });
+  }
 
   archived = archived.sort((a,b) => {
     if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
@@ -5400,13 +5513,22 @@ let counterparties = [];
 
 function counterpartyById(id){ return counterparties.find(c => String(c.id) === String(id)); }
 
+function newCounterpartyDefaults(id, name, phone){
+  return {
+    id, name, phone: phone||'', notes:'',
+    edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'',
+    docs: [], // [{name, url, uploadedAt}] — фото/PDF установчих документів (у Firebase Storage)
+    collapsed: true
+  };
+}
+
 function addCounterparty(){
   const nameInput = document.getElementById('newCounterpartyName');
   const phoneInput = document.getElementById('newCounterpartyPhone');
   const name = (nameInput.value || '').trim();
   if(!name){ alert('Впишіть назву/ім\'я контрагента.'); return; }
   const id = nextCounterpartyId++;
-  counterparties.push({id, name, phone: (phoneInput.value||'').trim(), notes:''});
+  counterparties.push(newCounterpartyDefaults(id, name, (phoneInput.value||'').trim()));
   nameInput.value = '';
   phoneInput.value = '';
   renderCounterparties();
@@ -5423,6 +5545,13 @@ function updateCounterpartyField(id, field, value){
   scheduleSave();
 }
 
+function toggleCounterpartyCard(id){
+  const c = counterpartyById(id);
+  if(!c) return;
+  c.collapsed = !c.collapsed;
+  renderCounterparties();
+}
+
 function removeCounterparty(id){
   const c = counterpartyById(id);
   if(!c) return;
@@ -5436,6 +5565,49 @@ function removeCounterparty(id){
   scheduleSave();
 }
 
+async function uploadCounterpartyDoc(id, fileInput){
+  const c = counterpartyById(id);
+  if(!c || !fileInput.files || fileInput.files.length === 0) return;
+  if(!fbStorage){
+    alert('Firebase Storage не підключено в цьому проєкті — завантаження файлів недоступне. Зверніться до розробника, щоб увімкнути Storage в консолі Firebase.');
+    fileInput.value = '';
+    return;
+  }
+  const statusEl = document.getElementById(`cp-doc-status-${id}`);
+  const files = [...fileInput.files];
+  for(const file of files){
+    if(statusEl) statusEl.textContent = `Завантажую «${file.name}»...`;
+    try{
+      const safeName = `${Date.now()}_${file.name}`.replace(/[^\w.\-]+/g, '_');
+      const ref = fbStorage.ref().child(`counterparties/${id}/${safeName}`);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      c.docs = c.docs || [];
+      c.docs.push({name: file.name, url, uploadedAt: new Date().toISOString()});
+    }catch(err){
+      if(statusEl) statusEl.textContent = `Помилка завантаження «${file.name}»: ${err.message}`;
+      alert(`Не вдалося завантажити «${file.name}»: ${err.message}`);
+      fileInput.value = '';
+      return;
+    }
+  }
+  if(statusEl) statusEl.textContent = '';
+  fileInput.value = '';
+  renderCounterparties();
+  scheduleSave();
+}
+
+function removeCounterpartyDoc(id, idx){
+  const c = counterpartyById(id);
+  if(!c || !c.docs || !c.docs[idx]) return;
+  const doc = c.docs[idx];
+  if(!confirm(`Видалити файл «${doc.name}»?`)) return;
+  // прибираємо з картки одразу; сам файл у Storage не видаляємо (не критично, місце дешеве)
+  c.docs.splice(idx, 1);
+  renderCounterparties();
+  scheduleSave();
+}
+
 function renderCounterparties(){
   const el = document.getElementById('counterpartiesList');
   if(!el) return;
@@ -5444,13 +5616,57 @@ function renderCounterparties(){
     return;
   }
   const sorted = [...counterparties].sort((a,b) => a.name.localeCompare(b.name));
-  el.innerHTML = sorted.map(c => `
-    <div class="wh-row" style="grid-template-columns:1fr 160px 40px;">
-      <input type="text" value="${escapeAttr(c.name)}" oninput="updateCounterpartyField(${c.id},'name',this.value)">
-      <input type="text" value="${escapeAttr(c.phone||'')}" placeholder="телефон" oninput="updateCounterpartyField(${c.id},'phone',this.value)">
-      <button class="btn-ghost" onclick="removeCounterparty(${c.id})" aria-label="Видалити контрагента">×</button>
-    </div>
-  `).join('');
+  el.innerHTML = sorted.map(c => {
+    if(c.collapsed !== false){
+      // згорнутий вигляд — короткий рядок для швидкого перегляду
+      return `
+        <div class="wh-row" style="grid-template-columns:1fr 160px 90px 40px;align-items:center;">
+          <div style="cursor:pointer;" onclick="toggleCounterpartyCard(${c.id})">
+            <strong>${escapeAttr(c.name)}</strong>
+            ${c.edrpou ? `<span class="hint"> · ЄДРПОУ/ІПН ${escapeAttr(c.edrpou)}</span>` : (c.ipn ? `<span class="hint"> · ІПН ${escapeAttr(c.ipn)}</span>` : '')}
+            ${c.docs && c.docs.length ? `<span class="hint"> · 📎 ${c.docs.length}</span>` : ''}
+          </div>
+          <div class="hint">${escapeAttr(c.phone||'')}</div>
+          <button class="btn btn-sm" type="button" onclick="toggleCounterpartyCard(${c.id})">Картка</button>
+          <button class="btn-ghost" onclick="removeCounterparty(${c.id})" aria-label="Видалити контрагента">×</button>
+        </div>
+      `;
+    }
+    return `
+      <div class="catalog-panel" style="margin-bottom:10px;"><div style="padding:12px 14px;">
+        <div class="fb-row" style="justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <strong>${escapeAttr(c.name)}</strong>
+          <div class="fb-row">
+            <button class="btn btn-sm" type="button" onclick="toggleCounterpartyCard(${c.id})">Згорнути</button>
+            <button class="btn-ghost" onclick="removeCounterparty(${c.id})" aria-label="Видалити контрагента">×</button>
+          </div>
+        </div>
+        <div class="delivery-grid">
+          <div><label>Назва / ПІБ</label><input type="text" value="${escapeAttr(c.name)}" oninput="updateCounterpartyField(${c.id},'name',this.value)"></div>
+          <div><label>Телефон</label><input type="text" value="${escapeAttr(c.phone||'')}" oninput="updateCounterpartyField(${c.id},'phone',this.value)" placeholder="+380..."></div>
+          <div><label>Контактна особа</label><input type="text" value="${escapeAttr(c.contactPerson||'')}" oninput="updateCounterpartyField(${c.id},'contactPerson',this.value)" placeholder="ПІБ представника"></div>
+          <div><label>Телефон контактної особи</label><input type="text" value="${escapeAttr(c.contactPhone||'')}" oninput="updateCounterpartyField(${c.id},'contactPhone',this.value)" placeholder="+380..."></div>
+          <div><label>ЄДРПОУ</label><input type="text" value="${escapeAttr(c.edrpou||'')}" oninput="updateCounterpartyField(${c.id},'edrpou',this.value)" placeholder="8 цифр (юр. особа)"></div>
+          <div><label>ІПН</label><input type="text" value="${escapeAttr(c.ipn||'')}" oninput="updateCounterpartyField(${c.id},'ipn',this.value)" placeholder="10 цифр (ФОП/фізособа)"></div>
+          <div style="grid-column:span 2;"><label>Юридична адреса</label><input type="text" value="${escapeAttr(c.address||'')}" oninput="updateCounterpartyField(${c.id},'address',this.value)" placeholder="Місто, вулиця, будинок"></div>
+          <div style="grid-column:span 2;"><label>Примітка</label><input type="text" value="${escapeAttr(c.notes||'')}" oninput="updateCounterpartyField(${c.id},'notes',this.value)"></div>
+        </div>
+        <div style="margin-top:10px;">
+          <label class="hint" style="display:block;margin-bottom:6px;">Установчі документи (фото / PDF)</label>
+          <input type="file" accept="application/pdf,image/*" multiple onchange="uploadCounterpartyDoc(${c.id}, this)">
+          <div id="cp-doc-status-${c.id}" class="hint" style="margin-top:4px;"></div>
+          ${(c.docs && c.docs.length) ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
+            ${c.docs.map((d,idx) => `
+              <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;">
+                <a href="${escapeAttr(d.url)}" target="_blank" rel="noopener">📎 ${escapeAttr(d.name)}</a>
+                <button class="btn-ghost" style="padding:0 4px;" onclick="removeCounterpartyDoc(${c.id}, ${idx})" aria-label="Видалити файл">×</button>
+              </span>
+            `).join('')}
+          </div>` : ''}
+        </div>
+      </div></div>
+    `;
+  }).join('');
 }
 
 function counterpartySelectOptionsHtml(selectedId){
@@ -5471,6 +5687,263 @@ function renderCashCounterpartySelect(){
       sorted.map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('');
     if([...filterSel.options].some(o => o.value === prevValue)) filterSel.value = prevValue;
   }
+}
+
+/* ---------- рахунки (виставлення рахунків контрагентам) ---------- */
+
+let sellerName = '', sellerEdrpou = '', sellerIpn = '', sellerAddress = '', sellerBankName = '', sellerIban = '', sellerMfo = '', sellerPhone = '';
+let invoices = []; // історія сформованих рахунків
+let nextInvoiceId = 1;
+let nextInvoiceNumber = 1; // наскрізний номер рахунку, показується як "№"
+let invoiceDraftItems = []; // [{name, unit, qty, price}] — поточний рахунок, що формується
+
+function toggleSellerSettingsPanel(){
+  const body = document.getElementById('sellerSettingsBody');
+  const open = body.classList.toggle('open');
+  document.getElementById('sellerSettingsToggleIcon').textContent = open ? '▾' : '▸';
+  document.getElementById('sellerSettingsToggleLabel').textContent = open ? 'Сховати реквізити продавця' : 'Реквізити продавця (ваша компанія)';
+}
+
+function fillSellerSettingsForm(){
+  const map = {
+    sellerNameInput: sellerName, sellerEdrpouInput: sellerEdrpou, sellerIpnInput: sellerIpn,
+    sellerAddressInput: sellerAddress, sellerBankNameInput: sellerBankName, sellerIbanInput: sellerIban,
+    sellerPhoneInput: sellerPhone
+  };
+  Object.keys(map).forEach(id => { const el = document.getElementById(id); if(el) el.value = map[id] || ''; });
+}
+
+function saveSellerSettings(){
+  sellerName = (document.getElementById('sellerNameInput').value||'').trim();
+  sellerEdrpou = (document.getElementById('sellerEdrpouInput').value||'').trim();
+  sellerIpn = (document.getElementById('sellerIpnInput').value||'').trim();
+  sellerAddress = (document.getElementById('sellerAddressInput').value||'').trim();
+  sellerBankName = (document.getElementById('sellerBankNameInput').value||'').trim();
+  sellerIban = (document.getElementById('sellerIbanInput').value||'').trim();
+  sellerPhone = (document.getElementById('sellerPhoneInput').value||'').trim();
+  document.getElementById('sellerSettingsStatus').textContent = 'Збережено.';
+  scheduleSave();
+}
+
+function initInvoicesSection(){
+  fillSellerSettingsForm();
+  const cpSel = document.getElementById('invoiceCounterparty');
+  if(cpSel) cpSel.innerHTML = counterpartySelectOptionsHtml('');
+  const itemSel = document.getElementById('invoice-item-select');
+  if(itemSel) itemSel.innerHTML = orderKitOptionsHtml();
+  const dateEl = document.getElementById('invoiceDate');
+  if(dateEl && !dateEl.value) dateEl.value = todayStr();
+  renderInvoiceItemsList();
+  renderInvoicesHistory();
+}
+
+function addInvoiceItem(){
+  const sel = document.getElementById('invoice-item-select');
+  const qtyInput = document.getElementById('invoice-item-qty');
+  const kitId = Number(sel.value);
+  const qty = Number(qtyInput.value) || 1;
+  if(!kitId){ alert('Оберіть товар/набір.'); return; }
+  const k = kitById(kitId);
+  if(!k){ alert('Товар не знайдено.'); return; }
+  invoiceDraftItems.push({name: (k.sku ? `[${k.sku}] ` : '') + k.name, unit:'шт', qty, price: k.price||0});
+  sel.value = '';
+  qtyInput.value = '';
+  renderInvoiceItemsList();
+}
+
+function addInvoiceCustomItem(){
+  invoiceDraftItems.push({name:'', unit:'шт', qty:1, price:0});
+  renderInvoiceItemsList();
+}
+
+function updateInvoiceItemField(idx, field, value){
+  const it = invoiceDraftItems[idx];
+  if(!it) return;
+  it[field] = (field === 'qty' || field === 'price') ? Number(value)||0 : value;
+  renderInvoiceItemsList();
+}
+
+function removeInvoiceItem(idx){
+  invoiceDraftItems.splice(idx, 1);
+  renderInvoiceItemsList();
+}
+
+function renderInvoiceItemsList(){
+  const el = document.getElementById('invoiceItemsList');
+  const totalEl = document.getElementById('invoiceTotalLabel');
+  if(!el) return;
+  if(invoiceDraftItems.length === 0){
+    el.innerHTML = '<div class="comp-empty">Ще немає позицій — додайте товар вище.</div>';
+    if(totalEl) totalEl.textContent = 'Разом: 0 грн';
+    return;
+  }
+  let total = 0;
+  el.innerHTML = invoiceDraftItems.map((it,idx) => {
+    const sum = (it.qty||0) * (it.price||0);
+    total += sum;
+    return `
+      <div class="wh-row" style="grid-template-columns:1fr 70px 70px 100px 90px 32px;align-items:center;gap:6px;">
+        <input type="text" value="${escapeAttr(it.name)}" placeholder="Назва товару/послуги" oninput="updateInvoiceItemField(${idx},'name',this.value)">
+        <input type="number" step="1" value="${it.qty}" oninput="updateInvoiceItemField(${idx},'qty',this.value)">
+        <input type="text" value="${escapeAttr(it.unit||'шт')}" oninput="updateInvoiceItemField(${idx},'unit',this.value)">
+        <input type="number" step="1" value="${it.price}" oninput="updateInvoiceItemField(${idx},'price',this.value)">
+        <div class="hint" style="text-align:right;">${fmt1(sum)} грн</div>
+        <button class="btn-ghost" onclick="removeInvoiceItem(${idx})" aria-label="Видалити рядок">×</button>
+      </div>
+    `;
+  }).join('');
+  if(totalEl) totalEl.textContent = `Разом: ${fmt1(total)} грн`;
+}
+
+function clearInvoiceDraft(){
+  invoiceDraftItems = [];
+  document.getElementById('invoiceCounterparty').value = '';
+  document.getElementById('invoiceDueDate').value = '';
+  document.getElementById('invoiceNotes').value = '';
+  document.getElementById('invoiceDate').value = todayStr();
+  renderInvoiceItemsList();
+}
+
+function numberToUaWords(n){
+  // спрощено: повертає число як текст із копійками — повноцінна "сума прописом" тут не критична
+  const uah = Math.floor(n);
+  const kop = Math.round((n - uah) * 100);
+  return `${uah} грн ${String(kop).padStart(2,'0')} коп.`;
+}
+
+function buildInvoiceHtml(inv){
+  const itemsRows = inv.items.map((it,idx) => `
+    <tr>
+      <td style="text-align:center;">${idx+1}</td>
+      <td>${escapeHtml(it.name||'')}</td>
+      <td style="text-align:center;">${escapeHtml(it.unit||'шт')}</td>
+      <td style="text-align:center;">${it.qty}</td>
+      <td style="text-align:right;">${fmt1(it.price)}</td>
+      <td style="text-align:right;">${fmt1(it.qty*it.price)}</td>
+    </tr>
+  `).join('');
+  const sellerBlock = [
+    inv.seller.name && `<strong>${escapeHtml(inv.seller.name)}</strong>`,
+    inv.seller.edrpou && `ЄДРПОУ: ${escapeHtml(inv.seller.edrpou)}`,
+    inv.seller.ipn && `ІПН: ${escapeHtml(inv.seller.ipn)}`,
+    inv.seller.address && `Адреса: ${escapeHtml(inv.seller.address)}`,
+    inv.seller.bankName && `Банк: ${escapeHtml(inv.seller.bankName)}`,
+    inv.seller.iban && `IBAN: ${escapeHtml(inv.seller.iban)}`,
+    inv.seller.phone && `Тел.: ${escapeHtml(inv.seller.phone)}`
+  ].filter(Boolean).join('<br>');
+  const buyerBlock = [
+    inv.buyer.name && `<strong>${escapeHtml(inv.buyer.name)}</strong>`,
+    inv.buyer.edrpou && `ЄДРПОУ: ${escapeHtml(inv.buyer.edrpou)}`,
+    inv.buyer.ipn && `ІПН: ${escapeHtml(inv.buyer.ipn)}`,
+    inv.buyer.address && `Адреса: ${escapeHtml(inv.buyer.address)}`,
+    inv.buyer.contactPerson && `Контактна особа: ${escapeHtml(inv.buyer.contactPerson)}`,
+    (inv.buyer.contactPhone||inv.buyer.phone) && `Тел.: ${escapeHtml(inv.buyer.contactPhone||inv.buyer.phone)}`
+  ].filter(Boolean).join('<br>');
+
+  return `<!DOCTYPE html>
+<html lang="uk"><head><meta charset="UTF-8"><title>Рахунок №${escapeHtml(String(inv.number))}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:32px;max-width:820px;margin:0 auto;}
+  h1{font-size:20px;margin:0 0 4px;}
+  .sub{color:#555;margin:0 0 20px;font-size:13px;}
+  .parties{display:flex;gap:24px;margin-bottom:20px;}
+  .party{flex:1;border:1px solid #ccc;border-radius:6px;padding:10px 12px;font-size:13px;line-height:1.5;}
+  .party-title{font-size:11px;text-transform:uppercase;color:#888;margin-bottom:4px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
+  th,td{border:1px solid #ccc;padding:6px 8px;}
+  th{background:#f2ece2;text-align:left;}
+  .total-row td{font-weight:bold;background:#faf6ee;}
+  .notes{margin-top:16px;font-size:13px;color:#333;}
+  .print-btn{margin-bottom:20px;}
+  @media print{ .print-btn{display:none;} body{padding:0;} }
+</style></head>
+<body>
+  <button class="print-btn" onclick="window.print()">🖨 Друк / Зберегти як PDF</button>
+  <h1>Рахунок на оплату № ${escapeHtml(String(inv.number))}</h1>
+  <p class="sub">від ${escapeHtml(inv.date)}${inv.dueDate ? ' · дійсний до '+escapeHtml(inv.dueDate) : ''}</p>
+  <div class="parties">
+    <div class="party"><div class="party-title">Продавець</div>${sellerBlock || '<span style="color:#999;">не заповнено — див. «Реквізити продавця»</span>'}</div>
+    <div class="party"><div class="party-title">Покупець</div>${buyerBlock || '<span style="color:#999;">не заповнено</span>'}</div>
+  </div>
+  <table>
+    <thead><tr><th>№</th><th>Найменування</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr></thead>
+    <tbody>${itemsRows}</tbody>
+    <tfoot><tr class="total-row"><td colspan="5" style="text-align:right;">Разом до сплати:</td><td style="text-align:right;">${fmt1(inv.total)} грн</td></tr></tfoot>
+  </table>
+  <p class="notes">Сума прописом: ${escapeHtml(numberToUaWords(inv.total))}</p>
+  ${inv.notes ? `<p class="notes">${escapeHtml(inv.notes)}</p>` : ''}
+</body></html>`;
+}
+
+function generateInvoice(){
+  if(invoiceDraftItems.length === 0){ alert('Додайте хоча б одну позицію в рахунок.'); return; }
+  if(invoiceDraftItems.some(it => !it.name.trim())){ alert('Заповніть назву в кожному рядку.'); return; }
+
+  const cpId = document.getElementById('invoiceCounterparty').value;
+  const cp = cpId ? counterpartyById(cpId) : null;
+  const date = document.getElementById('invoiceDate').value || todayStr();
+  const dueDate = document.getElementById('invoiceDueDate').value || '';
+  const notes = (document.getElementById('invoiceNotes').value || '').trim();
+  const total = invoiceDraftItems.reduce((s,it) => s + (it.qty||0)*(it.price||0), 0);
+
+  const inv = {
+    id: nextInvoiceId++,
+    number: nextInvoiceNumber++,
+    date, dueDate, notes, total,
+    counterpartyId: cp ? cp.id : null,
+    seller: {name:sellerName, edrpou:sellerEdrpou, ipn:sellerIpn, address:sellerAddress, bankName:sellerBankName, iban:sellerIban, phone:sellerPhone},
+    buyer: cp ? {name:cp.name, edrpou:cp.edrpou, ipn:cp.ipn, address:cp.address, contactPerson:cp.contactPerson, contactPhone:cp.contactPhone, phone:cp.phone} : {name:'', edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'', phone:''},
+    items: invoiceDraftItems.map(it => ({...it})),
+    createdAt: new Date().toISOString()
+  };
+  invoices.push(inv);
+  invoiceDraftItems = [];
+  clearInvoiceDraft();
+  renderInvoicesHistory();
+  scheduleSave();
+  openInvoiceWindow(inv);
+}
+
+function openInvoiceWindow(inv){
+  const w = window.open('', '_blank');
+  if(!w){ alert('Браузер заблокував спливаюче вікно — дозвольте спливаючі вікна для цього сайту й спробуйте ще раз (рахунок вже збережено в історії нижче).'); return; }
+  w.document.write(buildInvoiceHtml(inv));
+  w.document.close();
+}
+
+function reopenInvoice(id){
+  const inv = invoices.find(i => i.id === id);
+  if(!inv) return;
+  openInvoiceWindow(inv);
+}
+
+function removeInvoice(id){
+  const inv = invoices.find(i => i.id === id);
+  if(!inv) return;
+  if(!confirm(`Видалити рахунок № ${inv.number}?`)) return;
+  invoices = invoices.filter(i => i.id !== id);
+  renderInvoicesHistory();
+  scheduleSave();
+}
+
+function renderInvoicesHistory(){
+  const el = document.getElementById('invoicesHistoryList');
+  if(!el) return;
+  if(invoices.length === 0){
+    el.innerHTML = '<div class="comp-empty">Ще немає виставлених рахунків.</div>';
+    return;
+  }
+  const sorted = [...invoices].sort((a,b) => b.number - a.number);
+  el.innerHTML = sorted.map(inv => `
+    <div class="wh-row" style="grid-template-columns:60px 1fr 120px 110px 70px 70px;align-items:center;">
+      <div>№ ${inv.number}</div>
+      <div>${escapeHtml(inv.buyer.name || '(без контрагента)')}</div>
+      <div class="hint">${escapeHtml(inv.date)}</div>
+      <div style="text-align:right;">${fmt1(inv.total)} грн</div>
+      <button class="btn btn-sm" type="button" onclick="reopenInvoice(${inv.id})">Відкрити</button>
+      <button class="btn-ghost" onclick="removeInvoice(${inv.id})" aria-label="Видалити рахунок">×</button>
+    </div>
+  `).join('');
 }
 
 // проходить по всіх замовленнях в архіві й позначає «Оплачено» ті, де це забули зробити
@@ -6440,7 +6913,7 @@ function syncQtyFromOrders(){
 
 /* ---------- navigation ---------- */
 
-const SECTIONS = ['products','orders','clients','warehouse','supplierorder','archive','cash','reports'];
+const SECTIONS = ['products','orders','clients','warehouse','supplierorder','archive','cash','invoices','reports'];
 function showSection(name){
   SECTIONS.forEach(s => {
     document.getElementById('section-'+s).classList.toggle('active', s===name);
@@ -6451,6 +6924,7 @@ function showSection(name){
   if(name === 'supplierorder') renderSupplierOrder();
   if(name === 'archive') renderArchive();
   if(name === 'cash') renderCash();
+  if(name === 'invoices') initInvoicesSection();
   if(name === 'reports') renderReports();
   if(name === 'orders') startTelegramPolling(); else stopTelegramPolling();
 }
