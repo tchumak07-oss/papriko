@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.6 · 23.09.2026 16:04</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.7 · 23.09.2026 16:17</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -1526,14 +1526,21 @@ function scheduleSave(){
     fbSaveInFlight = true;
     // читаємо поточний стан на сервері прямо перед записом: якщо він новіший за той, що ми
     // востаннє бачили (значить, інша вкладка/пристрій зберегли зміни, поки ця вкладка не оновлювалась),
-    // НЕ перезаписуємо його наосліп — інакше саме так губляться ТТН та інші зміни, зроблені деінде.
+    // НЕ відкидаємо свої щойно зроблені локальні зміни наосліп (саме так губилось вибране відділення НП,
+    // додані товари тощо — правка була гірша за проблему) — натомість підтягуємо з серверної версії лише
+    // "чужі" критичні поля, яких у нас ще немає (номери ТТН/статуси, створені деінде, чи нові замовлення),
+    // і записуємо поверх це вже об'єднане, актуальне локальне повідомлення.
     fbDocRef.get().then(snap => {
       const remote = snap.exists ? snap.data() : null;
       if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
-        applyRemoteData(remote);
-        lastKnownRemoteUpdatedAt = remote.updatedAt;
-        setSyncBadge('warn', 'На сервері з\'явились свіжіші дані з іншої вкладки/пристрою — підхопив їх замість запису застарілих. Якщо ваша щойно зроблена зміна пропала — повторіть її.');
-        return null;
+        const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
+        remoteOrders.forEach(ro => {
+          const lo = orders.find(o => o.id === ro.id);
+          if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
+          ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate']
+            .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
+        });
+        setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
       }
       const payload = buildStatePayload();
       return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; });
