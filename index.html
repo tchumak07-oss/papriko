@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.5 · 23.09.2026 15:53</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.6 · 23.09.2026 16:04</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -4713,24 +4713,35 @@ function selectNpCity(orderId, index){
   o.cityRef = c.ref;
   o.warehouseRef = '';
   o.warehouseDesc = '';
-  document.getElementById(`np-city-suggestions-${orderId}`).style.display = 'none';
-  renderOrders();
+  // Оновлюємо лише конкретні елементи цієї картки замовлення напряму, БЕЗ повного renderOrders():
+  // якщо десь у застосунку (а таких місць багато) список замовлень перемалюється, поки ми чекаємо
+  // відповідь НП нижче (loadNpWarehouses), повний renderOrders() тут замінив би DOM-елемент
+  // <select> відділення на новий — а асинхронна відповідь потім писала б у вже видалений старий елемент.
+  const cityInput = document.getElementById(`np-city-input-${orderId}`);
+  if(cityInput) cityInput.value = c.name;
+  const suggBox = document.getElementById(`np-city-suggestions-${orderId}`);
+  if(suggBox) suggBox.style.display = 'none';
   scheduleSave();
   loadNpWarehouses(orderId, c.ref);
 }
 
 async function loadNpWarehouses(orderId, cityRef){
-  const select = document.getElementById(`np-warehouse-select-${orderId}`);
-  if(!select) return;
-  select.innerHTML = '<option>Завантаження...</option>';
+  const selectNow = document.getElementById(`np-warehouse-select-${orderId}`);
+  if(!selectNow) return;
+  selectNow.innerHTML = '<option>Завантаження...</option>';
   try{
     const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
     const list = data || [];
     const o = orderById(orderId);
+    // ПОВТОРНО шукаємо елемент після await: якщо список замовлень встиг перемалюватись, поки чекали
+    // відповідь від НП, старий DOM-вузол вже видалено зі сторінки — писати треба в актуальний.
+    const select = document.getElementById(`np-warehouse-select-${orderId}`);
+    if(!select || !o) return;
     select.innerHTML = '<option value="">Оберіть відділення/поштомат…</option>' +
       list.map(w => `<option value="${escapeAttr(w.Ref)}" ${o.warehouseRef===w.Ref?'selected':''}>${escapeAttr(w.Description)}</option>`).join('');
   }catch(err){
-    select.innerHTML = `<option>Помилка: ${escapeAttr(err.message)}</option>`;
+    const select = document.getElementById(`np-warehouse-select-${orderId}`);
+    if(select) select.innerHTML = `<option>Помилка: ${escapeAttr(err.message)}</option>`;
   }
 }
 
@@ -5385,7 +5396,7 @@ function deliveryBlockHtml(o){
         <div>
           <label>Відділення / поштомат</label>
           <select id="np-warehouse-select-${o.id}" onchange="selectNpWarehouse(${o.id}, this.value, this.options[this.selectedIndex].text)">
-            <option value="">${o.warehouseDesc ? escapeAttr(o.warehouseDesc) : 'Спершу оберіть місто'}</option>
+            <option value="${escapeAttr(o.warehouseRef||'')}">${o.warehouseDesc ? escapeAttr(o.warehouseDesc) : 'Спершу оберіть місто'}</option>
           </select>
         </div>
       </div>
