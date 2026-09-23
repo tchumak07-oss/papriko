@@ -286,7 +286,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.1 · 23.09.2026 09:03</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.2 · 23.09.2026 09:08</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -701,6 +701,7 @@
           <option>В обробці</option>
           <option>Відправлено</option>
           <option>Оплачено</option>
+          <option>Повернено</option>
           <option>Скасовано</option>
         </select>
       </div>
@@ -2829,7 +2830,7 @@ function selectSenderWarehouse(ref, desc){
   scheduleSave();
 }
 
-const ORDER_STATUSES = ['Нове', 'В обробці', 'Відправлено', 'Оплачено', 'Скасовано'];
+const ORDER_STATUSES = ['Нове', 'В обробці', 'Відправлено', 'Оплачено', 'Повернено', 'Скасовано'];
 function statusColor(status){
   switch(status){
     case 'В обробці': return 'var(--saffron)';
@@ -3951,6 +3952,8 @@ function applyUkrStatus(o, statusItem){
     o.paid = true;
   }
 
+  if(o.npReturned && o.status !== 'Скасовано') o.status = 'Повернено';
+
   return {shipped: o.shipped && !wasShipped, delivered: o.delivered && !wasDelivered, returned: o.npReturned && !wasReturned, paid: o.paid && !wasPaid};
 }
 
@@ -4755,6 +4758,7 @@ function applyNpStatus(o, statusItem){
   } else if(statusLower.includes('отримано') || statusLower.includes('видано')){
     o.npReturned = false; // якщо посилку зрештою таки отримали — знімаємо позначку повернення
   }
+  if(o.npReturned && o.status !== 'Скасовано') o.status = 'Повернено';
 
   // відмітка "з якого дня посилка чекає у відділенні" — для нагадувань про довге очікування;
   // ставиться один раз при першому виявленні статусу "прибуло/очікує", і знімається,
@@ -4922,6 +4926,7 @@ function createOrdersFromDeliveryReportUnmatched(){
         else if(r.statusText.includes('Отримано')){ o.shipped = true; o.delivered = true; }
         else if(r.statusText.includes('дорозі') || r.statusText.includes('Прибув') || r.statusText.includes('відділенн')) o.shipped = true;
       }
+      if(o.npReturned && o.status !== 'Скасовано') o.status = 'Повернено';
       orders.push(o);
       created++;
     });
@@ -5017,6 +5022,7 @@ async function handleDeliveryReportFile(file){
       } else if(statusText.includes('дорозі') || statusText.includes('Прибув') || statusText.includes('відділенн')){
         order.shipped = true;
       }
+      if(order.npReturned && order.status !== 'Скасовано') order.status = 'Повернено';
 
       if(order.shipped !== wasShipped || order.delivered !== wasDelivered) statusUpdates++;
       if(order.npReturned && !wasReturned) returnedNow++;
