@@ -80,6 +80,7 @@
   .fb-dot.on{background:var(--cardamom);}
   .fb-dot.off{background:var(--text-faint);}
   .fb-dot.err{background:var(--danger);}
+  .fb-dot.warn{background:var(--saffron);}
 
   input[type="text"], input[type="number"], select{
     background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;
@@ -286,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.10.6 · 23.09.2026 09:27</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.2 · 23.09.2026 15:17</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -364,6 +365,7 @@
     <span class="btns">
       <button class="btn btn-sm" id="editListToggleBtn" onclick="toggleEditListPanel()">Редагувати існуючі</button>
       <button class="btn btn-sm" id="costsToggleBtn" onclick="toggleCostsPanel()">Показати собівартості</button>
+      <button class="btn btn-sm" onclick="exportKitsExcel()">⬇ Excel</button>
       <button class="btn btn-primary btn-sm" onclick="addKit()">+ Новий набір / товар</button>
     </span>
   </div>
@@ -631,10 +633,10 @@
         <div class="hint" id="anthropicKeyStatus" style="margin-top:6px;"></div>
       </div>
       <div class="catalog-group">
-        <div class="catalog-group-title">SMS клієнту (TurboSMS)</div>
-        <p class="hint" style="margin:0 0 8px;">На відміну від Telegram/Viber, SMS доходить на <strong>будь-який</strong> номер без попередньої підписки клієнта. Зареєструйтесь на turbosms.ua, увімкніть «HTTP API» в налаштуваннях шлюзу, і скопіюйте токен. Ім'я відправника (Alpha Name) активується окремо в кабінеті TurboSMS.</p>
+        <div class="catalog-group-title">SMS клієнту (SMS Fly)</div>
+        <p class="hint" style="margin:0 0 8px;">На відміну від Telegram/Viber, SMS доходить на <strong>будь-який</strong> номер без попередньої підписки клієнта. У кабінеті sms-fly.ua: розділ «API» → скопіюйте ключ (auth key). Ім'я відправника (Sender ID/Альфаімя) підтверджується окремо в кабінеті SMS Fly.</p>
         <div class="delivery-grid">
-          <div style="grid-column:span 2;"><label>API-токен TurboSMS</label><input type="text" id="smsTokenInput" placeholder="токен з розділу Gateway (API)"></div>
+          <div style="grid-column:span 2;"><label>API-ключ SMS Fly</label><input type="text" id="smsTokenInput" placeholder="ключ з розділу «API» кабінету sms-fly.ua"></div>
           <div><label>Ім'я відправника</label><input type="text" id="smsSenderInput" placeholder="напр. Papriko"></div>
         </div>
         <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!</textarea>
@@ -760,8 +762,9 @@
         <label>Пошук за клієнтом</label>
         <input type="text" id="shf-search" placeholder="Ім'я клієнта або номер ТТН/декларації…" oninput="renderOrders()">
       </div>
-      <div style="display:flex;align-items:flex-end;">
+      <div style="display:flex;align-items:flex-end;gap:8px;">
         <button class="btn btn-sm" onclick="resetOrderFilters()">Скинути фільтри</button>
+        <button class="btn btn-sm" onclick="exportOrdersExcel()">⬇ Excel</button>
       </div>
     </div>
   </div></div>
@@ -776,6 +779,7 @@
     База клієнтів <span class="n" id="clientCount"></span>
     <span class="btns">
       <button class="btn btn-sm" onclick="extractClientsFromOrders()">Вигрузити клієнтів із замовлень</button>
+      <button class="btn btn-sm" onclick="exportClientsExcel()">⬇ Excel</button>
       <button class="btn btn-primary btn-sm" onclick="addClient()">+ Новий клієнт</button>
     </span>
   </div>
@@ -795,7 +799,10 @@
   </div>
 
   <div id="wh-view-balances" class="wh-view">
-    <input type="text" id="balanceSearch" placeholder="Пошук товару…" oninput="renderBalances()" style="margin-bottom:12px;">
+    <div class="fb-row" style="margin-bottom:12px;align-items:center;">
+      <input type="text" id="balanceSearch" placeholder="Пошук товару…" oninput="renderBalances()" style="flex:1;">
+      <button class="btn btn-sm" onclick="exportBalancesExcel()">⬇ Excel</button>
+    </div>
     <div class="catalog-panel"><div style="padding:14px 16px;" class="wh-balances">
       <div class="wh-row-head"><div>Товар</div><div style="text-align:right;">Залишок</div><div style="text-align:right;">Одиниця</div></div>
       <div id="balancesTable"></div>
@@ -831,6 +838,9 @@
       </div>
       <button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="addManualMovement()">Додати рух</button>
     </div></div>
+    <div class="fb-row" style="margin-bottom:12px;">
+      <button class="btn btn-sm" onclick="exportMovementsExcel()">⬇ Excel</button>
+    </div>
     <div class="catalog-panel"><div style="padding:14px 16px;" class="wh-movements">
       <div class="wh-row-head"><div>Дата</div><div>Товар</div><div style="text-align:right;">Кількість</div><div>Тип</div><div>Примітка</div><div></div></div>
       <div id="movementsTable"></div>
@@ -839,6 +849,9 @@
 
   <div id="wh-view-inventory" class="wh-view" style="display:none;">
     <p class="hint" style="margin:0 0 12px;">Впишіть фактично пораховану кількість по кожній позиції — там, де вона відрізняється від системного залишку, після натискання кнопки створиться коригувальний рух.</p>
+    <div class="fb-row" style="margin-bottom:12px;">
+      <button class="btn btn-sm" onclick="exportInventoryExcel()">⬇ Excel</button>
+    </div>
     <div class="catalog-panel"><div style="padding:14px 16px;" class="wh-inventory">
       <div class="wh-row-head"><div>Товар</div><div style="text-align:right;">Система</div><div style="text-align:right;">Фактично</div><div style="text-align:right;">Різниця</div><div>Примітка</div></div>
       <div id="inventoryTable"></div>
@@ -901,7 +914,10 @@
     <button class="btn btn-sm" onclick="clearSupplierOrder()">Очистити бланк</button>
   </div>
 
-  <div class="section-title">Збережені замовлення постачальникам</div>
+  <div class="section-title">
+    Збережені замовлення постачальникам
+    <span class="btns"><button class="btn btn-sm" onclick="exportSupplierOrderHistoryExcel()">⬇ Excel</button></span>
+  </div>
   <div class="catalog-panel"><div style="padding:14px 16px;">
     <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 100px 100px;"><div>Дата</div><div>Постачальник</div><div style="text-align:right;">Позицій</div><div style="text-align:right;">Сума</div><div></div></div>
     <div id="supplierOrderHistoryList"></div>
@@ -916,6 +932,7 @@
     <span class="btns">
       <button class="btn btn-sm" id="syncArchiveBtn" onclick="syncArchiveStatuses()">Перевірити статуси архіву</button>
       <button class="btn btn-sm" onclick="backfillArchivePayments()">Додати відсутні оплати в архіві</button>
+      <button class="btn btn-sm" onclick="exportArchiveExcel()">⬇ Excel</button>
     </span>
   </div>
   <p class="hint" style="margin:-8px 0 14px;">Сюди автоматично потрапляють відправки, у яких одночасно позначено «Оплачено» і «Відправлено». Помилились — натисніть «Повернути з архіву».</p>
@@ -1011,6 +1028,7 @@
           <input type="text" id="newCounterpartyName" placeholder="Назва / ПІБ контрагента">
           <input type="text" id="newCounterpartyPhone" placeholder="Телефон (необов'язково)">
           <button class="btn btn-sm" onclick="addCounterparty()">Додати</button>
+          <button class="btn btn-sm" onclick="exportCounterpartiesExcel()">⬇ Excel</button>
         </div>
         <div id="counterpartiesList"></div>
       </div>
@@ -1050,8 +1068,9 @@
           <option value="none">без контрагента</option>
         </select>
       </div>
-      <div style="display:flex;align-items:flex-end;">
+      <div style="display:flex;align-items:flex-end;gap:8px;">
         <button class="btn btn-sm" onclick="resetCashFilters()">Скинути</button>
+        <button class="btn btn-sm" onclick="exportCashExcel()">⬇ Excel</button>
       </div>
     </div>
   </div></div>
@@ -1125,7 +1144,10 @@
   </div></div>
 
   <div class="catalog-panel"><div style="padding:14px 16px;">
-    <div class="catalog-group-title">Виставлені рахунки</div>
+    <div class="catalog-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <span>Виставлені рахунки</span>
+      <button class="btn btn-sm" onclick="exportInvoicesHistoryExcel()">⬇ Excel</button>
+    </div>
     <div id="invoicesHistoryList"></div>
   </div></div>
 
@@ -1148,22 +1170,34 @@
 
   <div class="summary" id="reportsSummary" style="margin-bottom:1.5rem;"></div>
 
-  <div class="section-title"><span id="rb-topkits-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-topkits')">▸ Топ наборів за виручкою</span></div>
+  <div class="section-title">
+    <span id="rb-topkits-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-topkits')">▸ Топ наборів за виручкою</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportTopKitsReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-topkits" style="display:none;">
     <div id="reportTopKits" style="margin-bottom:2rem;"></div>
   </div>
 
-  <div class="section-title"><span id="rb-expcat-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-expcat')">▸ Витрати за категоріями</span></div>
+  <div class="section-title">
+    <span id="rb-expcat-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-expcat')">▸ Витрати за категоріями</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportExpenseCategoriesReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-expcat" style="display:none;">
     <div id="reportExpenseCategories" style="margin-bottom:2rem;"></div>
   </div>
 
-  <div class="section-title"><span id="rb-topclients-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-topclients')">▸ Топ клієнтів</span></div>
+  <div class="section-title">
+    <span id="rb-topclients-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-topclients')">▸ Топ клієнтів</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportTopClientsReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-topclients" style="display:none;">
     <div id="reportTopClients" style="margin-bottom:2rem;"></div>
   </div>
 
-  <div class="section-title"><span id="rb-sales-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-sales')">▸ Звіт по продажах за період</span></div>
+  <div class="section-title">
+    <span id="rb-sales-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-sales')">▸ Звіт по продажах за період</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportSalesReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-sales" style="display:none;">
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
       <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 100px;"><div>Дата</div><div>Клієнт</div><div style="text-align:right;">Позицій</div><div style="text-align:right;">Сума</div></div>
@@ -1196,7 +1230,10 @@
     </div></div>
   </div>
 
-  <div class="section-title"><span id="rb-shipments-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-shipments')">▸ Звіт по відвантаженнях за період</span></div>
+  <div class="section-title">
+    <span id="rb-shipments-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-shipments')">▸ Звіт по відвантаженнях за період</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportShipmentsReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-shipments" style="display:none;">
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
       <div class="wh-row-head" style="grid-template-columns:90px 1fr 90px 1fr 130px 120px;"><div>Дата</div><div>Клієнт</div><div>Служба</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div></div>
@@ -1219,7 +1256,10 @@
     </div></div>
   </div>
 
-  <div class="section-title"><span id="rb-usage-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-usage')">▸ Звіт по витраті інгредієнтів</span></div>
+  <div class="section-title">
+    <span id="rb-usage-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-usage')">▸ Звіт по витраті інгредієнтів</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportIngredientUsageReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-usage" style="display:none;">
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
       <div class="wh-row-head" style="grid-template-columns:1fr 100px 90px;"><div>Товар</div><div style="text-align:right;">Списано</div><div style="text-align:right;">Одиниця</div></div>
@@ -1227,7 +1267,10 @@
     </div></div>
   </div>
 
-  <div class="section-title"><span id="rb-expenses-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-expenses')">▸ Звіт по витратах</span></div>
+  <div class="section-title">
+    <span id="rb-expenses-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-expenses')">▸ Звіт по витратах</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportExpensesReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-expenses" style="display:none;">
     <div class="catalog-panel"><div style="padding:14px 16px;">
       <div class="wh-row-head" style="grid-template-columns:90px 1fr 1fr 100px;"><div>Дата</div><div>Категорія</div><div>Примітка</div><div style="text-align:right;">Сума</div></div>
@@ -1237,7 +1280,10 @@
 
   <div class="section-title">
     <span id="rb-undelivered-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-undelivered')">▸ Неотримані посилки (Нова Пошта)</span>
-    <span class="btns"><button class="btn btn-sm" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button></span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button>
+      <button class="btn btn-sm" onclick="exportUndeliveredReportExcel()">⬇ Excel</button>
+    </span>
   </div>
   <div id="rb-undelivered" style="display:none;">
     <p class="hint" style="margin:-8px 0 14px;">Список не залежить від фільтра періоду вище — тут завжди всі поточні відправлення НП, які ще не позначені як «Доставлено». Відсортовано від найдовше в дорозі.</p>
@@ -1249,7 +1295,10 @@
 
   <div class="section-title">
     <span id="rb-branchwait-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-branchwait')">▸ Довго очікують у відділенні</span>
-    <span class="btns"><button class="btn btn-sm" onclick="sendBranchReminderSmsToAll()">Надіслати нагадування всім (SMS)</button></span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="exportBranchWaitExcel()">Вигрузити в Excel</button>
+      <button class="btn btn-sm" onclick="sendBranchReminderSmsToAll()">Надіслати нагадування всім (SMS)</button>
+    </span>
   </div>
   <div id="rb-branchwait" style="display:none;">
     <p class="hint" style="margin:-8px 0 14px;">Посилки (Нова Пошта й Укрпошта), які вже прибули на відділення й чекають, поки клієнт їх забере. Не залежить від фільтра періоду. День рахується від моменту, коли статус вперше зафіксовано як «прибуло/очікує» (оновлюється при синхронізації статусів).</p>
@@ -1257,7 +1306,7 @@
       <input type="text" id="branchWaitSearch" placeholder="Пошук за клієнтом або телефоном..." oninput="renderReports()" style="max-width:280px;">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);white-space:nowrap;">
         нагадувати від
-        <input type="number" id="branchReminderThreshold" value="3" min="0" style="width:60px;" oninput="renderReports()">
+        <input type="number" id="branchReminderThreshold" value="5" min="0" style="width:60px;" oninput="renderReports()">
         днів
       </label>
     </div>
@@ -1267,7 +1316,10 @@
     </div></div>
   </div>
 
-  <div class="section-title"><span id="rb-returned-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-returned')">▸ Повернення (перевірити повернення коштів)</span></div>
+  <div class="section-title">
+    <span id="rb-returned-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-returned')">▸ Повернення (перевірити повернення коштів)</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportReturnedReportExcel()">⬇ Excel</button></span>
+  </div>
   <div id="rb-returned" style="display:none;">
     <p class="hint" style="margin:-8px 0 14px;">Замовлення, де Нова Пошта повідомила про відмову отримувача чи повернення посилки. Не залежить від фільтра періоду. Перевірте, чи не потрібно повернути клієнту гроші (якщо була передоплата) і чи не варто зняти позначку «Оплачено».</p>
     <div class="catalog-panel"><div style="padding:14px 16px;">
@@ -1319,6 +1371,10 @@ let fbDocRef = null;
 let fbConnected = false;
 let fbSaveTimer = null;
 let fbStorage = null;
+// updatedAt останньої версії, яку ми точно бачили з сервера (щойно завантажили або щойно самі записали) —
+// потрібно, щоб виявити ситуацію, коли ІНША вкладка/пристрій зберегли зміни, поки ця вкладка "спала"
+// з застарілими даними в пам'яті: інакше збереження з цієї вкладки тихо затре свіжіші зміни.
+let lastKnownRemoteUpdatedAt = null;
 
 // Ваша конфігурація Firebase — програма підключається до неї автоматично при відкритті.
 const HARDCODED_FIREBASE_CONFIG = {
@@ -1366,7 +1422,7 @@ function applyRemoteData(data){
   ukrProxyUrl = data.ukrProxyUrl || '';
   ukrTrackingBearer = data.ukrTrackingBearer || '';
   smsToken = data.smsToken || '';
-  smsSender = data.smsSender || '';
+  smsSender = data.smsSender || 'Papriko';
   smsTemplate = data.smsTemplate || smsTemplate;
   smsBranchReminderTemplate = data.smsBranchReminderTemplate || smsBranchReminderTemplate;
   anthropicApiKey = data.anthropicApiKey || '';
@@ -1465,7 +1521,20 @@ function scheduleSave(){
   if(!fbConnected || !fbDocRef) return;
   clearTimeout(fbSaveTimer);
   fbSaveTimer = setTimeout(() => {
-    fbDocRef.set(buildStatePayload()).catch(err => {
+    // читаємо поточний стан на сервері прямо перед записом: якщо він новіший за той, що ми
+    // востаннє бачили (значить, інша вкладка/пристрій зберегли зміни, поки ця вкладка не оновлювалась),
+    // НЕ перезаписуємо його наосліп — інакше саме так губляться ТТН та інші зміни, зроблені деінде.
+    fbDocRef.get().then(snap => {
+      const remote = snap.exists ? snap.data() : null;
+      if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
+        applyRemoteData(remote);
+        lastKnownRemoteUpdatedAt = remote.updatedAt;
+        setSyncBadge('warn', 'На сервері з\'явились свіжіші дані з іншої вкладки/пристрою — підхопив їх замість запису застарілих. Якщо ваша щойно зроблена зміна пропала — повторіть її.');
+        return null;
+      }
+      const payload = buildStatePayload();
+      return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; });
+    }).catch(err => {
       setSyncBadge('err', 'Помилка збереження: ' + err.message);
     });
   }, 600);
@@ -1481,9 +1550,11 @@ function doConnect(config){
       fbDocRef.get().then(snap => {
         if(snap.exists){
           applyRemoteData(snap.data());
+          lastKnownRemoteUpdatedAt = snap.data().updatedAt || null;
           return null;
         } else {
-          return fbDocRef.set(buildStatePayload());
+          const payload = buildStatePayload();
+          return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; });
         }
       }).then(() => {
         fbConnected = true;
@@ -1491,6 +1562,7 @@ function doConnect(config){
         fbDocRef.onSnapshot(snap => {
           if(!snap.exists || snap.metadata.hasPendingWrites) return;
           applyRemoteData(snap.data());
+          lastKnownRemoteUpdatedAt = snap.data().updatedAt || null;
         }, err => {
           setSyncBadge('err', 'Помилка синхронізації');
         });
@@ -1753,6 +1825,20 @@ function renderSupplierOrderHistory(){
   `).join('');
 }
 
+function exportSupplierOrderHistoryExcel(){
+  if(supplierOrderHistory.length === 0){ alert('Ще немає збережених замовлень.'); return; }
+  const sorted = [...supplierOrderHistory].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date) || b.id - a.id);
+  exportStyledExcel({
+    downloadName: `zamovlennya_postachalnykam_${todayStr()}.xlsx`,
+    sheetName: 'Замовлення постачальникам',
+    headers: [
+      {header:'Дата', width:12}, {header:'Постачальник', width:24}, {header:'Номер', width:12},
+      {header:'Позицій', width:10}, {header:'Сума', width:14}
+    ],
+    rows: sorted.map(so => [so.date||'', so.supplier||'(без назви)', so.number||'', so.items.length, fmt1(supplierOrderTotalValue(so.items))])
+  });
+}
+
 function openSupplierOrderFromHistory(id){
   const so = supplierOrderHistory.find(x => x.id === id);
   if(!so) return;
@@ -1778,56 +1864,67 @@ function exportSupplierOrderExcel(){
   if(supplierOrder.items.length === 0){ alert('Спочатку додайте хоча б одну позицію.'); return; }
   const rows = supplierOrder.items.map(it => {
     const c = catalogItem(it.catalogId);
-    return {
-      'Товар': c ? c.name : '(видалено)',
-      'Категорія': c ? c.category : '',
-      'Одиниця': c ? c.unit : '',
-      'Кількість': it.qty,
-      'Ціна за одиницю': c ? c.cost : 0,
-      'Сума': c ? fmt1((c.cost||0)*(it.qty||0)) : 0
-    };
+    return [c ? c.name : '(видалено)', c ? c.category : '', c ? c.unit : '', it.qty, c ? c.cost : 0, c ? fmt1((c.cost||0)*(it.qty||0)) : 0];
   });
   const total = supplierOrder.items.reduce((s,it) => {
     const c = catalogItem(it.catalogId);
     return s + (c ? (c.cost||0)*(it.qty||0) : 0);
   }, 0);
-
-  const headerRows = [
-    ['Замовлення постачальнику' + (supplierOrder.number ? ' '+supplierOrder.number : '')],
-    ['Постачальник:', supplierOrder.supplier || ''],
-    ['Дата:', supplierOrder.date || todayStr()],
-    []
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(headerRows);
-  XLSX.utils.sheet_add_json(ws, rows, {origin: -1});
-  XLSX.utils.sheet_add_aoa(ws, [[], ['', '', '', '', 'Разом:', fmt1(total)]], {origin: -1});
-  ws['!cols'] = [
-    {wch: 28}, // Товар
-    {wch: 12}, // Категорія
-    {wch: 10}, // Одиниця
-    {wch: 12}, // Кількість
-    {wch: 16}, // Ціна за одиницю
-    {wch: 12}  // Сума
-  ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Замовлення');
-  XLSX.writeFile(wb, `zamovlennya_postachalnyku_${supplierOrder.date || todayStr()}.xlsx`);
+  exportStyledExcel({
+    downloadName: `zamovlennya_postachalnyku_${supplierOrder.date || todayStr()}.xlsx`,
+    sheetName: 'Замовлення',
+    preamble: [
+      ['Замовлення постачальнику' + (supplierOrder.number ? ' '+supplierOrder.number : '')],
+      ['Постачальник:', supplierOrder.supplier || ''],
+      ['Дата:', supplierOrder.date || todayStr()]
+    ],
+    headers: [
+      {header:'Товар', width:28}, {header:'Категорія', width:12}, {header:'Одиниця', width:10},
+      {header:'Кількість', width:12}, {header:'Ціна за одиницю', width:16}, {header:'Сума', width:12}
+    ],
+    rows,
+    footer: ['', '', '', '', 'Разом:', fmt1(total)]
+  });
 }
 
 function exportCatalogExcel(){
   if(catalog.length === 0){ alert('Довідник порожній.'); return; }
   const sorted = [...catalog].sort((a,b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-  const rows = sorted.map(c => ({
-    'Назва': c.name,
-    'Категорія': c.category,
-    'Одиниця': c.unit,
-    'Собівартість за одиницю': c.cost
-  }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch: 30}, {wch: 14}, {wch: 10}, {wch: 20}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Інгредієнти');
-  XLSX.writeFile(wb, `dovidnyk_sobivartosti_${todayStr()}.xlsx`);
+  exportStyledExcel({
+    downloadName: `dovidnyk_sobivartosti_${todayStr()}.xlsx`,
+    sheetName: 'Інгредієнти',
+    headers: [
+      {header:'Назва', width:30}, {header:'Категорія', width:14},
+      {header:'Одиниця', width:10}, {header:'Собівартість за одиницю', width:20}
+    ],
+    rows: sorted.map(c => [c.name, c.category, c.unit, c.cost])
+  });
+}
+
+function exportKitsExcel(){
+  if(kits.length === 0){ alert('Ще немає жодного набору.'); return; }
+  exportStyledExcel({
+    downloadName: `nabory_ta_tovary_${todayStr()}.xlsx`,
+    sheetName: 'Набори та товари',
+    headers: [
+      {header:'Тип', width:12}, {header:'SKU', width:10}, {header:'Назва', width:26}, {header:'Вага, г', width:10},
+      {header:'Собівартість/од', width:16}, {header:'Логістика/од', width:14}, {header:'Маркетинг/од', width:14},
+      {header:'Ціна продажу/од', width:16}, {header:'Кількість продано', width:16},
+      {header:'Прибуток', width:14}, {header:'Маржа, %', width:10}
+    ],
+    rows: kits.map(k => {
+      const c = calcKit(k);
+      return [
+        k.type||'', k.sku||'', k.name||'', k.weight||0, fmt1(c.unitCost), k.logistics||0, k.marketing||0,
+        k.price||0, k.qty||0, fmt1(c.profit), fmt1(c.margin)
+      ];
+    }),
+    rowStyleFn: (row, values, idx) => {
+      const c = calcKit(kits[idx]);
+      row.getCell(10).fill = c.profit >= 0 ? XLS_GREEN : XLS_RED;
+      row.getCell(11).fill = c.margin >= 0 ? XLS_GREEN : XLS_RED;
+    }
+  });
 }
 
 function addCatalogItem(category){
@@ -2451,7 +2548,7 @@ function buildShipmentsTableText(list, title){
   return out.trim();
 }
 
-/* ---------- sms клієнту (turbosms) ---------- */
+/* ---------- sms клієнту (sms-fly) ---------- */
 
 let anthropicApiKey = '';
 function saveAnthropicKey(){
@@ -2461,7 +2558,7 @@ function saveAnthropicKey(){
 }
 
 let smsToken = '';
-let smsSender = '';
+let smsSender = 'Papriko';
 let smsTemplate = 'Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Дякуємо за покупку!';
 let smsBranchReminderTemplate = 'Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}';
 
@@ -2474,7 +2571,7 @@ function saveSmsSettings(){
   scheduleSave();
 }
 
-// приводить телефон до формату 380XXXXXXXXX, який очікує TurboSMS
+// приводить телефон до формату 380XXXXXXXXX, який очікує SMS Fly
 function toIntlPhone(phone){
   let d = String(phone||'').replace(/[^\d]/g,'');
   if(d.length === 10 && d.startsWith('0')) d = '380' + d.slice(1);
@@ -2484,23 +2581,40 @@ function toIntlPhone(phone){
 }
 
 async function sendSms(phone, text){
-  if(!smsToken || !smsSender) return {ok:false, error:'SMS не налаштовано (вкажіть токен і ім\'я відправника)'};
+  if(!smsToken || !smsSender) return {ok:false, error:'SMS не налаштовано (вкажіть ключ і ім\'я відправника)'};
   const intlPhone = toIntlPhone(phone);
   if(intlPhone.length !== 12) return {ok:false, error:'Невірний формат телефону: '+phone};
   try{
-    const res = await fetch('https://api.turbosms.ua/message/send.json', {
+    const res = await fetch('https://sms-fly.ua/api/v2/api.php', {
       method: 'POST',
-      headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+smsToken},
-      body: JSON.stringify({recipients:[intlPhone], sms:{sender: smsSender, text}})
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        auth: {key: smsToken},
+        action: 'SENDMESSAGE',
+        data: {
+          recipient: intlPhone,
+          channels: ['sms'],
+          sms: {source: smsSender, ttl: 1440, text}
+        }
+      })
     });
+    if(!res.ok){
+      let bodyText = '';
+      try{ bodyText = await res.text(); }catch(e){}
+      return {ok:false, error: `SMS Fly відповів HTTP ${res.status}. ${bodyText.slice(0,200)}`};
+    }
     const data = await res.json();
-    const okCodes = [0, 800, 801, 802, 803];
-    if(!okCodes.includes(data.response_code)) return {ok:false, error: data.response_status || 'Помилка TurboSMS'};
-    const perRecipient = data.response_result && data.response_result[0];
-    if(perRecipient && perRecipient.response_code !== 0) return {ok:false, error: perRecipient.response_status};
+    if(data.success !== 1){
+      const err = (data.data && (data.data.error || data.data.description)) || data.error || data.description || 'Помилка SMS Fly';
+      return {ok:false, error: typeof err === 'string' ? err : JSON.stringify(err)};
+    }
+    const smsStatus = data.data && data.data.sms && data.data.sms.status;
+    if(smsStatus === 'REJECTD' || smsStatus === 'UNDELIV') return {ok:false, error: 'SMS Fly відхилив повідомлення (статус '+smsStatus+')'};
     return {ok:true};
   }catch(err){
-    return {ok:false, error: err.message};
+    // TypeError "Failed to fetch" зазвичай означає, що сервер SMS Fly блокує прямі запити з браузера (CORS) —
+    // тоді знадобиться проміжна Firebase Cloud Function (проксі), як для Укрпошти.
+    return {ok:false, error: 'Не вдалося з\'єднатись із SMS Fly (можливо, потрібен проксі-сервер через CORS): ' + err.message};
   }
 }
 
@@ -2548,7 +2662,7 @@ async function sendBranchReminderSms(orderId, days){
 }
 
 async function sendBranchReminderSmsToAll(){
-  const threshold = Number(document.getElementById('branchReminderThreshold')?.value) || 3;
+  const threshold = Number(document.getElementById('branchReminderThreshold')?.value) || 5;
   const today = todayStr();
   const list = orders.filter(o => !isArchived(o) && isAtBranchAwaitingPickup(o) && o.atBranchSince);
   const due = list.map(o => ({o, days: daysBetween(o.atBranchSince, today)}))
@@ -3181,6 +3295,64 @@ function closeTodayShipmentsModal(){
   document.getElementById('todayShipmentsModal').style.display = 'none';
 }
 
+/* ---------- уніфікована вигрузка в Excel (колір/рамки як у звіті по відправленнях) ---------- */
+
+const XLS_THIN_BORDER = {
+  top: {style:'thin', color:{argb:'FFB0A08C'}},
+  left: {style:'thin', color:{argb:'FFB0A08C'}},
+  bottom: {style:'thin', color:{argb:'FFB0A08C'}},
+  right: {style:'thin', color:{argb:'FFB0A08C'}}
+};
+const XLS_BROWN = {type:'pattern', pattern:'solid', fgColor:{argb:'FFD9B896'}};
+const XLS_GREEN = {type:'pattern', pattern:'solid', fgColor:{argb:'FFC6E8C6'}};
+const XLS_RED = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF3C6C0'}};
+const XLS_YELLOW = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF5E3A8'}};
+
+// downloadName — ім'я файлу; sheetName — назва вкладки; headers — [{header, width}];
+// rows — масив рядків-масивів значень (у тому ж порядку, що headers); preamble — опційні рядки-заголовки
+// перед таблицею (масив рядків-масивів); footer — опційний підсумковий рядок-масив;
+// rowStyleFn(row, values, idx) — опційна функція для додаткового підсвічування конкретного рядка.
+async function exportStyledExcel({downloadName, sheetName, headers, rows, preamble, footer, rowStyleFn}){
+  if(typeof ExcelJS === 'undefined'){ alert('Бібліотека Excel ще не завантажилась — спробуйте за кілька секунд.'); return; }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet((sheetName||'Дані').slice(0,31));
+  headers.forEach((h,i) => { ws.getColumn(i+1).width = h.width || 16; });
+
+  if(preamble && preamble.length){
+    preamble.forEach(line => ws.addRow(line));
+    ws.addRow([]);
+  }
+
+  const headerRow = ws.addRow(headers.map(h => h.header));
+  headerRow.font = {bold:true};
+  headerRow.eachCell(cell => { cell.fill = XLS_BROWN; cell.border = XLS_THIN_BORDER; });
+  const headerRowNumber = headerRow.number;
+
+  rows.forEach((values, idx) => {
+    const row = ws.addRow(values);
+    row.eachCell({includeEmpty:true}, cell => { cell.border = XLS_THIN_BORDER; });
+    if(rowStyleFn) rowStyleFn(row, values, idx);
+  });
+
+  if(footer){
+    const footerRow = ws.addRow(footer);
+    footerRow.font = {bold:true};
+  }
+
+  ws.views = [{state:'frozen', ySplit: headerRowNumber}];
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = downloadName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 async function exportTodayShipmentsExcel(){
   const {orders: list, from, to} = getFilteredShipments();
   if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
@@ -3264,6 +3436,78 @@ async function exportTodayShipmentsExcel(){
   const a = document.createElement('a');
   a.href = url;
   a.download = `vidpravlennya_${from}_${to}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function exportBranchWaitExcel(){
+  const searchVal = (document.getElementById('branchWaitSearch')?.value || '').trim().toLowerCase();
+  const threshold = Number(document.getElementById('branchReminderThreshold')?.value) || 0;
+  const today = todayStr();
+  let waiting = orders.filter(o => !isArchived(o) && isAtBranchAwaitingPickup(o));
+  if(searchVal){
+    waiting = waiting.filter(o => (o.customer||'').toLowerCase().includes(searchVal) || (o.phone||'').toLowerCase().includes(searchVal));
+  }
+  const withDays = waiting.map(o => ({o, days: o.atBranchSince ? daysBetween(o.atBranchSince, today) : 0}))
+    .sort((a,b) => b.days - a.days);
+
+  if(withDays.length === 0){ alert('Немає посилок, що очікують у відділенні.'); return; }
+
+  const columns = [
+    {header:'Днів', key:'days', width:8},
+    {header:'Клієнт', key:'customer', width:24},
+    {header:'Телефон', key:'phone', width:14},
+    {header:'Служба доставки', key:'method', width:14},
+    {header:'Місто / відділення', key:'office', width:28},
+    {header:'ТТН', key:'ttn', width:16},
+    {header:'Статус', key:'status', width:28}
+  ];
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Довго очікують');
+  ws.columns = columns;
+
+  const THIN_BORDER = {
+    top: {style:'thin', color:{argb:'FFB0A08C'}},
+    left: {style:'thin', color:{argb:'FFB0A08C'}},
+    bottom: {style:'thin', color:{argb:'FFB0A08C'}},
+    right: {style:'thin', color:{argb:'FFB0A08C'}}
+  };
+  const BROWN = {type:'pattern', pattern:'solid', fgColor:{argb:'FFD9B896'}};
+  const RED = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF3C6C0'}};
+  const YELLOW = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF5E3A8'}};
+
+  const headerRow = ws.getRow(1);
+  headerRow.font = {bold:true};
+  headerRow.eachCell(cell => { cell.fill = BROWN; cell.border = THIN_BORDER; });
+
+  withDays.forEach(({o, days}) => {
+    const office = o.deliveryMethod === 'Укрпошта' ? (o.ukrOfficeDesc || o.ukrCity || '') : ((o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : ''));
+    const statusText = o.deliveryMethod === 'Укрпошта' ? (o.ukrStatusText || '') : (o.npStatusText || '');
+    const ttn = o.ttnNumber || o.ukrTtnNumber || '';
+    const row = ws.addRow({
+      days, customer: o.customer || 'Без імені', phone: o.phone || '',
+      method: o.deliveryMethod || '', office, ttn, status: statusText
+    });
+    row.eachCell({includeEmpty:true}, cell => { cell.border = THIN_BORDER; });
+    // Підсвічуємо рядок: червоний — уже за порогом нагадування, жовтий — наближається (2+ дні)
+    if(threshold > 0 && days >= threshold){
+      row.eachCell({includeEmpty:true}, cell => { cell.fill = RED; });
+    } else if(days >= 2){
+      row.eachCell({includeEmpty:true}, cell => { cell.fill = YELLOW; });
+    }
+  });
+
+  ws.views = [{state:'frozen', ySplit:1}];
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `dovgo_ochikuyut_${today}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -5348,6 +5592,43 @@ function renderOrders(){
   syncCashFromArchive();
 }
 
+function exportOrdersExcel(){
+  const active = orders.filter(o => !isArchived(o));
+  const searching = hasActiveOrderFilter();
+  const base = searching ? orders : active;
+  const list = applyOrderFilters(base);
+  if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
+  exportStyledExcel({
+    downloadName: `zamovlennya_${todayStr()}.xlsx`,
+    sheetName: 'Замовлення',
+    headers: [
+      {header:'Дата', width:11}, {header:'Клієнт', width:24}, {header:'Телефон', width:14},
+      {header:'Товари', width:36}, {header:'Сума', width:10}, {header:'Служба доставки', width:14},
+      {header:'Місто', width:18}, {header:'Відділення', width:24}, {header:'ТТН', width:16},
+      {header:'Статус', width:14}, {header:'Оплачено', width:10}, {header:'Відправлено', width:12},
+      {header:'Доставлено', width:12}, {header:'Примітка', width:32}
+    ],
+    rows: list.map(o => {
+      const c = calcOrder(o);
+      const itemsText = o.items.map(it => {
+        const k = kitById(it.kitId);
+        return `${k ? k.name : '(товар)'} x${it.qty}`;
+      }).join('; ');
+      return [
+        o.date||'', o.customer||'', o.phone||'', itemsText, fmt1(c.total), o.deliveryMethod||'',
+        o.city || o.ukrCity || o.address || '', o.warehouseDesc||'', o.ttnNumber||o.ukrTtnNumber||'',
+        o.status||'', o.paid?'так':'ні', o.shipped?'так':'ні', o.delivered?'так':'ні', o.notes||''
+      ];
+    }),
+    rowStyleFn: (row, values, idx) => {
+      const o = list[idx];
+      row.getCell(11).fill = o.paid ? XLS_GREEN : XLS_RED;
+      row.getCell(12).fill = o.shipped ? XLS_GREEN : XLS_RED;
+      row.getCell(13).fill = o.delivered ? XLS_GREEN : XLS_RED;
+    }
+  });
+}
+
 function unarchiveOrder(id){
   const o = orderById(id);
   if(!o) return;
@@ -5546,6 +5827,72 @@ function renderArchive(){
   document.getElementById('archiveCount').textContent = archived.length;
 }
 
+function getFilteredArchive(){
+  const statusSel = document.getElementById('af-status');
+  const sortSel = document.getElementById('af-sort');
+  const searchInput = document.getElementById('af-search');
+  const statusVal = statusSel ? statusSel.value : 'all';
+  const sortVal = sortSel ? sortSel.value : 'date-desc';
+  const search = searchInput ? (searchInput.value || '').trim().toLowerCase() : '';
+
+  let archived = orders.filter(isArchived);
+  if(statusVal !== 'all') archived = archived.filter(o => o.status === statusVal);
+  if(search){
+    const searchDigits = search.replace(/\D/g,'');
+    archived = archived.filter(o => {
+      const nameMatch = (o.customer||'').toLowerCase().includes(search);
+      const phoneMatch = (o.phone||'').replace(/\D/g,'').includes(searchDigits) && searchDigits.length >= 3;
+      const ttnMatch = searchDigits.length >= 3 && (
+        (o.ttnNumber||'').replace(/\D/g,'').includes(searchDigits) ||
+        (o.ukrTtnNumber||'').replace(/\D/g,'').includes(searchDigits)
+      );
+      return nameMatch || phoneMatch || ttnMatch;
+    });
+  }
+  archived = archived.sort((a,b) => {
+    if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
+    if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
+    if(sortVal === 'total-asc') return calcOrder(a).total - calcOrder(b).total || (a.id - b.id);
+    if(sortVal === 'customer-asc') return (a.customer||'').localeCompare(b.customer||'') || (b.id - a.id);
+    return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id);
+  });
+  return archived;
+}
+
+function exportArchiveExcel(){
+  const list = getFilteredArchive();
+  if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
+  exportStyledExcel({
+    downloadName: `arhiv_${todayStr()}.xlsx`,
+    sheetName: 'Архів',
+    headers: [
+      {header:'Дата', width:11}, {header:'Клієнт', width:24}, {header:'Телефон', width:14},
+      {header:'Товари', width:36}, {header:'Сума', width:10}, {header:'Служба доставки', width:14},
+      {header:'Місто', width:18}, {header:'Відділення', width:24}, {header:'ТТН', width:16},
+      {header:'Статус', width:14}, {header:'Оплачено', width:10}, {header:'Відправлено', width:12},
+      {header:'Доставлено', width:12}, {header:'Примітка', width:32}
+    ],
+    rows: list.map(o => {
+      const c = calcOrder(o);
+      const itemsText = o.items.map(it => {
+        const k = kitById(it.kitId);
+        return `${k ? k.name : '(товар)'} x${it.qty}`;
+      }).join('; ');
+      return [
+        o.date||'', o.customer||'', o.phone||'', itemsText, fmt1(c.total), o.deliveryMethod||'',
+        o.city || o.ukrCity || o.address || '', o.warehouseDesc||'', o.ttnNumber||o.ukrTtnNumber||'',
+        o.status||'', o.paid?'так':'ні', o.shipped?'так':'ні', o.delivered?'так':'ні', o.notes||''
+      ];
+    }),
+    rowStyleFn: (row, values, idx) => {
+      const o = list[idx];
+      row.getCell(11).fill = o.paid ? XLS_GREEN : XLS_RED;
+      row.getCell(12).fill = o.shipped ? XLS_GREEN : XLS_RED;
+      row.getCell(13).fill = o.delivered ? XLS_GREEN : XLS_RED;
+    }
+  });
+}
+
 /* ---------- cash register (каса) ---------- */
 
 let nextCashId = 1;
@@ -5712,6 +6059,21 @@ function renderCounterparties(){
       </div></div>
     `;
   }).join('');
+}
+
+function exportCounterpartiesExcel(){
+  if(counterparties.length === 0){ alert('Ще немає жодного контрагента.'); return; }
+  const sorted = [...counterparties].sort((a,b) => a.name.localeCompare(b.name));
+  exportStyledExcel({
+    downloadName: `kontragenty_${todayStr()}.xlsx`,
+    sheetName: 'Контрагенти',
+    headers: [
+      {header:'Назва / ПІБ', width:26}, {header:'Телефон', width:14}, {header:'ЄДРПОУ', width:12},
+      {header:'ІПН', width:12}, {header:'Адреса', width:28}, {header:'Контактна особа', width:22},
+      {header:'Телефон контактної особи', width:18}
+    ],
+    rows: sorted.map(c => [c.name||'', c.phone||'', c.edrpou||'', c.ipn||'', c.address||'', c.contactPerson||'', c.contactPhone||''])
+  });
 }
 
 function counterpartySelectOptionsHtml(selectedId){
@@ -5991,6 +6353,20 @@ function renderInvoicesHistory(){
   `).join('');
 }
 
+function exportInvoicesHistoryExcel(){
+  if(invoices.length === 0){ alert('Ще немає виставлених рахунків.'); return; }
+  const sorted = [...invoices].sort((a,b) => b.number - a.number);
+  exportStyledExcel({
+    downloadName: `rahunky_${todayStr()}.xlsx`,
+    sheetName: 'Рахунки',
+    headers: [
+      {header:'№', width:8}, {header:'Контрагент', width:26}, {header:'Дата', width:12},
+      {header:'Дійсний до', width:12}, {header:'Позицій', width:10}, {header:'Сума', width:14}
+    ],
+    rows: sorted.map(inv => [inv.number, inv.buyer.name || '(без контрагента)', inv.date||'', inv.dueDate||'', inv.items.length, fmt1(inv.total)])
+  });
+}
+
 // проходить по всіх замовленнях в архіві й позначає «Оплачено» ті, де це забули зробити
 // (найчастіше — коли замовлення потрапило в архів через ручний прапорець «В архів», без галочки оплати).
 // Після цього каса сама підхопить надходження через syncCashFromArchive().
@@ -6151,6 +6527,44 @@ function renderCash(){
   }).join('');
 }
 
+function getFilteredCashTransactions(){
+  const sorted = [...cashTransactions].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+  const typeEl = document.getElementById('cf-type');
+  const categoryEl = document.getElementById('cf-category');
+  const counterpartyEl = document.getElementById('cf-counterparty');
+  const typeFilter = typeEl ? typeEl.value : 'all';
+  const categoryFilter = categoryEl ? categoryEl.value : 'all';
+  const counterpartyFilter = counterpartyEl ? counterpartyEl.value : 'all';
+  return sorted.filter(t => {
+    if(typeFilter !== 'all' && t.type !== typeFilter) return false;
+    if(categoryFilter !== 'all' && t.category !== categoryFilter) return false;
+    if(counterpartyFilter === 'none' && t.counterpartyId) return false;
+    if(counterpartyFilter !== 'all' && counterpartyFilter !== 'none' && String(t.counterpartyId) !== counterpartyFilter) return false;
+    return true;
+  });
+}
+
+function exportCashExcel(){
+  const list = getFilteredCashTransactions();
+  if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
+  exportStyledExcel({
+    downloadName: `kasa_${todayStr()}.xlsx`,
+    sheetName: 'Каса',
+    headers: [
+      {header:'Дата', width:12}, {header:'Категорія', width:18}, {header:'Примітка', width:28},
+      {header:'Контрагент', width:22}, {header:'Сума', width:12}, {header:'Тип', width:14},
+      {header:'Джерело', width:14}
+    ],
+    rows: list.map(t => {
+      const counterparty = counterpartyById(t.counterpartyId);
+      return [t.date||'', t.category||'', t.note||'', counterparty ? counterparty.name : '', fmt1(t.amount), t.type||'', t.source==='order'?'автоматично':'вручну'];
+    }),
+    rowStyleFn: (row, values, idx) => {
+      row.getCell(5).fill = list[idx].type === 'Витрата' ? XLS_RED : XLS_GREEN;
+    }
+  });
+}
+
 function updateCashTransaction(id, field, value){
   const t = cashTransactions.find(x => x.id === id);
   if(!t) return;
@@ -6227,46 +6641,46 @@ let npCityOblastCache = {};
 let lastRegionRows = [];
 let lastMarginRows = [];
 let lastSkuMarginRows = [];
+let lastTopKitsRows = [];
+let lastExpCatRows = [];
+let lastTopClientsRows = [];
+let lastSalesReportRows = [];
+let lastShipmentsReportRows = [];
+let lastUsageReportRows = [];
+let lastExpensesReportRows = [];
+let lastUndeliveredReportRows = [];
+let lastReturnedReportRows = [];
 
 function exportSkuMarginReportExcel(){
   if(lastSkuMarginRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
-  const rows = lastSkuMarginRows.map(r => ({
-    'SKU': r.k.sku || '',
-    'Назва': r.k.name || '',
-    'Продано, шт': r.qty,
-    'Виручка': fmt1(r.revenue),
-    'Собівартість': fmt1(r.cost),
-    'Прибуток': fmt1(r.profit),
-    'Маржа, %': fmt1(r.margin)
-  }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch: 10}, {wch: 26}, {wch: 10}, {wch: 12}, {wch: 14}, {wch: 12}, {wch: 10}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Маржа по SKU');
   const fromInput = document.getElementById('rep-date-from');
   const toInput = document.getElementById('rep-date-to');
   const period = (fromInput && toInput && fromInput.value && toInput.value) ? `${fromInput.value}_${toInput.value}` : todayStr();
-  XLSX.writeFile(wb, `marzha_po_sku_${period}.xlsx`);
+  exportStyledExcel({
+    downloadName: `marzha_po_sku_${period}.xlsx`,
+    sheetName: 'Маржа по SKU',
+    headers: [
+      {header:'SKU', width:10}, {header:'Назва', width:26}, {header:'Продано, шт', width:12},
+      {header:'Виручка', width:12}, {header:'Собівартість', width:14}, {header:'Прибуток', width:12}, {header:'Маржа, %', width:10}
+    ],
+    rows: lastSkuMarginRows.map(r => [r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin)])
+  });
 }
 
 function exportMarginReportExcel(){
   if(lastMarginRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
-  const rows = lastMarginRows.map(r => ({
-    'Дата': r.order.date || '',
-    'Клієнт': r.order.customer || '',
-    'Виручка': fmt1(r.revenue),
-    'Собівартість': fmt1(r.cost),
-    'Прибуток': fmt1(r.profit),
-    'Маржа, %': fmt1(r.margin)
-  }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch: 12}, {wch: 26}, {wch: 12}, {wch: 14}, {wch: 12}, {wch: 10}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Маржа по продажах');
   const fromInput = document.getElementById('rep-date-from');
   const toInput = document.getElementById('rep-date-to');
   const period = (fromInput && toInput && fromInput.value && toInput.value) ? `${fromInput.value}_${toInput.value}` : todayStr();
-  XLSX.writeFile(wb, `marzha_po_prodazham_${period}.xlsx`);
+  exportStyledExcel({
+    downloadName: `marzha_po_prodazham_${period}.xlsx`,
+    sheetName: 'Маржа по продажах',
+    headers: [
+      {header:'Дата', width:12}, {header:'Клієнт', width:26}, {header:'Виручка', width:12},
+      {header:'Собівартість', width:14}, {header:'Прибуток', width:12}, {header:'Маржа, %', width:10}
+    ],
+    rows: lastMarginRows.map(r => [r.order.date||'', r.order.customer||'', fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin)])
+  });
 }
 
 // згортає/розгортає блок звіту — id елемента-обгортки й відповідного заголовка (id+'-title') узгоджені за назвою
@@ -6283,17 +6697,154 @@ function exportRegionStatsExcel(){
   if(lastRegionRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
   const fromInput = document.getElementById('rep-date-from');
   const toInput = document.getElementById('rep-date-to');
-  const rows = lastRegionRows.map(([region, stat]) => ({
-    'Область': region,
-    'Відправлень': stat.count,
-    'Сума': fmt1(stat.total)
-  }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch: 28}, {wch: 14}, {wch: 14}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Області');
   const period = (fromInput && toInput) ? `${fromInput.value}_${toInput.value}` : todayStr();
-  XLSX.writeFile(wb, `statystyka_oblasti_${period}.xlsx`);
+  exportStyledExcel({
+    downloadName: `statystyka_oblasti_${period}.xlsx`,
+    sheetName: 'Області',
+    headers: [{header:'Область', width:28}, {header:'Відправлень', width:14}, {header:'Сума', width:14}],
+    rows: lastRegionRows.map(([region, stat]) => [region, stat.count, fmt1(stat.total)])
+  });
+}
+
+function reportPeriodLabel(){
+  const fromInput = document.getElementById('rep-date-from');
+  const toInput = document.getElementById('rep-date-to');
+  return (fromInput && toInput && fromInput.value && toInput.value) ? `${fromInput.value}_${toInput.value}` : todayStr();
+}
+
+function exportTopKitsReportExcel(){
+  if(lastTopKitsRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  exportStyledExcel({
+    downloadName: `top_naboriv_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Топ наборів',
+    headers: [
+      {header:'Тип', width:12}, {header:'SKU', width:10}, {header:'Назва', width:26},
+      {header:'Продано, шт', width:12}, {header:'Виручка', width:14}
+    ],
+    rows: lastTopKitsRows.map(r => [r.k.type||'', r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue)])
+  });
+}
+
+function exportExpenseCategoriesReportExcel(){
+  if(lastExpCatRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  exportStyledExcel({
+    downloadName: `vytraty_za_kategoriyamy_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Витрати за категоріями',
+    headers: [{header:'Категорія', width:24}, {header:'Сума', width:14}],
+    rows: lastExpCatRows.map(([cat, amt]) => [cat, fmt1(amt)])
+  });
+}
+
+function exportTopClientsReportExcel(){
+  if(lastTopClientsRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  exportStyledExcel({
+    downloadName: `top_kliyentiv_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Топ клієнтів',
+    headers: [{header:'Клієнт', width:26}, {header:'Сума', width:14}, {header:'Замовлень', width:12}],
+    rows: lastTopClientsRows.map(r => [r.name||'', fmt1(r.total), r.count])
+  });
+}
+
+function exportSalesReportExcel(){
+  if(lastSalesReportRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  const total = lastSalesReportRows.reduce((s,o) => s + calcOrder(o).total, 0);
+  exportStyledExcel({
+    downloadName: `zvit_po_prodazhah_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Продажі за період',
+    headers: [
+      {header:'Дата', width:12}, {header:'Клієнт', width:26},
+      {header:'Позицій', width:10}, {header:'Сума', width:12}
+    ],
+    rows: lastSalesReportRows.map(o => [o.date||'', o.customer||'Без імені', o.items.length, fmt1(calcOrder(o).total)]),
+    footer: ['', `Разом (${lastSalesReportRows.length})`, '', fmt1(total)]
+  });
+}
+
+function exportShipmentsReportExcel(){
+  if(lastShipmentsReportRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  exportStyledExcel({
+    downloadName: `zvit_po_vidvantazhennyah_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Відвантаження',
+    headers: [
+      {header:'Дата', width:12}, {header:'Клієнт', width:26}, {header:'Служба', width:14},
+      {header:'Місто / відділення', width:28}, {header:'ТТН', width:16}, {header:'Статус', width:14}
+    ],
+    rows: lastShipmentsReportRows.map(o => {
+      const statusText = o.delivered ? 'Доставлено' : (o.shipped ? 'Відправлено' : '');
+      const office = o.deliveryMethod==='Нова Пошта' ? (o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : '') : (o.address||'');
+      return [o.date||'', o.customer||'Без імені', o.deliveryMethod||'', office, o.ttnNumber||o.ukrTtnNumber||'', statusText];
+    }),
+    rowStyleFn: (row, values, idx) => {
+      const o = lastShipmentsReportRows[idx];
+      row.getCell(6).fill = o.delivered ? XLS_GREEN : XLS_YELLOW;
+    }
+  });
+}
+
+function exportIngredientUsageReportExcel(){
+  if(lastUsageReportRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  exportStyledExcel({
+    downloadName: `vytrata_ingredientiv_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Витрата інгредієнтів',
+    headers: [{header:'Товар', width:26}, {header:'Списано', width:14}, {header:'Одиниця', width:10}],
+    rows: lastUsageReportRows.map(r => [r.c.name, fmt2(r.amt), r.c.unit])
+  });
+}
+
+function exportExpensesReportExcel(){
+  if(lastExpensesReportRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  const total = lastExpensesReportRows.reduce((s,t) => s + t.amount, 0);
+  exportStyledExcel({
+    downloadName: `zvit_po_vytratah_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Витрати',
+    headers: [
+      {header:'Дата', width:12}, {header:'Категорія', width:18},
+      {header:'Примітка', width:32}, {header:'Сума', width:12}
+    ],
+    rows: lastExpensesReportRows.map(t => [t.date||'', t.category||'', t.note||'', fmt1(t.amount)]),
+    footer: ['', `Разом (${lastExpensesReportRows.length})`, '', fmt1(total)]
+  });
+}
+
+function exportUndeliveredReportExcel(){
+  if(lastUndeliveredReportRows.length === 0){ alert('Немає неотриманих посилок для експорту.'); return; }
+  exportStyledExcel({
+    downloadName: `neotrymani_posylky_${todayStr()}.xlsx`,
+    sheetName: 'Неотримані',
+    headers: [
+      {header:'Відправлено', width:12}, {header:'Днів', width:8}, {header:'Клієнт', width:26},
+      {header:'Місто / відділення', width:28}, {header:'ТТН', width:16}, {header:'Статус НП', width:26}
+    ],
+    rows: lastUndeliveredReportRows.map(({o, days}) => [
+      o.date||'', days, o.customer||'Без імені',
+      (o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : ''),
+      o.ttnNumber||'', o.npStatusText || 'статус не оновлювався'
+    ]),
+    rowStyleFn: (row, values, idx) => {
+      const {days} = lastUndeliveredReportRows[idx];
+      row.getCell(2).fill = days>=5 ? XLS_RED : (days>=2 ? XLS_YELLOW : XLS_GREEN);
+    }
+  });
+}
+
+function exportReturnedReportExcel(){
+  if(lastReturnedReportRows.length === 0){ alert('Немає повернень для експорту.'); return; }
+  exportStyledExcel({
+    downloadName: `povernennya_${todayStr()}.xlsx`,
+    sheetName: 'Повернення',
+    headers: [
+      {header:'Дата', width:12}, {header:'Клієнт', width:26}, {header:'Сума', width:12},
+      {header:'Оплачено', width:12}, {header:'ТТН', width:16}, {header:'Статус НП', width:26}
+    ],
+    rows: lastReturnedReportRows.map(o => [
+      o.date||'', o.customer||'Без імені', fmt1(calcOrder(o).total),
+      o.paid ? 'так — перевірити повернення' : 'ні', o.ttnNumber||o.ukrTtnNumber||'', o.npStatusText||''
+    ]),
+    rowStyleFn: (row, values, idx) => {
+      const o = lastReturnedReportRows[idx];
+      row.getCell(4).fill = o.paid ? XLS_RED : XLS_GREEN;
+    }
+  });
 }
 
 function oblastForOrder(o){
@@ -6417,6 +6968,7 @@ function renderReports(){
     .filter(r => r.k)
     .sort((a,b) => b.revenue - a.revenue);
   const kitMax = Math.max(1, ...kitRows.map(r=>r.revenue));
+  lastTopKitsRows = kitRows; // для експорту в Excel
   const kitEl = document.getElementById('reportTopKits');
   kitEl.innerHTML = kitRows.length === 0 ? '<div class="comp-empty">Немає продажів за цей період.</div>' : kitRows.map(r => `
     <div class="bar-row">
@@ -6459,6 +7011,7 @@ function renderReports(){
   });
   const catRows = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
   const catMax = Math.max(1, ...catRows.map(r=>r[1]));
+  lastExpCatRows = catRows; // для експорту в Excel
   const catEl = document.getElementById('reportExpenseCategories');
   catEl.innerHTML = catRows.length === 0 ? '<div class="comp-empty">Витрат за цей період немає.</div>' : catRows.map(([cat, amt]) => `
     <div class="bar-row">
@@ -6479,6 +7032,7 @@ function renderReports(){
   });
   const clientRows = Object.values(clientTotals).sort((a,b) => b.total - a.total);
   const clientMax = Math.max(1, ...clientRows.map(r=>r.total));
+  lastTopClientsRows = clientRows; // для експорту в Excel
   const clientEl = document.getElementById('reportTopClients');
   clientEl.innerHTML = clientRows.length === 0 ? '<div class="comp-empty">Немає оплачених замовлень за цей період.</div>' : clientRows.map(r => `
     <div class="bar-row">
@@ -6491,6 +7045,7 @@ function renderReports(){
   // ---- звіт по продажах за період (журнал оплачених замовлень) ----
   const salesEl = document.getElementById('reportSalesTable');
   const salesSorted = [...paidOrdersInRange].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+  lastSalesReportRows = salesSorted; // для експорту в Excel
   if(salesSorted.length === 0){
     salesEl.innerHTML = '<div class="comp-empty">Немає оплачених замовлень за цей період.</div>';
   } else {
@@ -6513,6 +7068,7 @@ function renderReports(){
   const shipmentsEl = document.getElementById('reportShipmentsTable');
   const shippedInRange = orders.filter(o => (o.shipped || o.delivered) && inReportRange(o.date))
     .sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+  lastShipmentsReportRows = shippedInRange; // для експорту в Excel
   if(shippedInRange.length === 0){
     shipmentsEl.innerHTML = '<div class="comp-empty">Немає відвантажень за цей період.</div>';
   } else {
@@ -6571,6 +7127,7 @@ function renderReports(){
     .map(([cid, amt]) => ({c: catalogItem(parseInt(cid,10)), amt}))
     .filter(r => r.c)
     .sort((a,b) => b.amt - a.amt);
+  lastUsageReportRows = usageRows; // для експорту в Excel
   usageEl.innerHTML = usageRows.length === 0 ? '<div class="comp-empty">Списань сировини за цей період немає.</div>' : usageRows.map(r => `
     <div class="wh-row" style="grid-template-columns:1fr 100px 90px;">
       <div>${escapeAttr(r.c.name)}</div>
@@ -6583,6 +7140,7 @@ function renderReports(){
   const expEl = document.getElementById('reportExpensesTable');
   const expRows = cashTransactions.filter(t => t.type==='Витрата' && inReportRange(t.date))
     .sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+  lastExpensesReportRows = expRows; // для експорту в Excel
   if(expRows.length === 0){
     expEl.innerHTML = '<div class="comp-empty">Витрат за цей період немає.</div>';
   } else {
@@ -6611,6 +7169,7 @@ function renderReports(){
       const days = Math.max(0, Math.round((today - sentDate) / 86400000));
       return {o, days};
     }).sort((a,b) => b.days - a.days);
+    lastUndeliveredReportRows = withDays; // для експорту в Excel
 
     if(withDays.length === 0){
       undeliveredEl.innerHTML = '<div class="comp-empty">Немає неотриманих посилок — усе, що відправлено через Нову Пошту, або ще їде без ТТН, або вже доставлено.</div>';
@@ -6673,6 +7232,7 @@ function renderReports(){
   const returnedEl = document.getElementById('reportReturned');
   if(returnedEl){
     const returned = orders.filter(o => o.npReturned).sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+    lastReturnedReportRows = returned; // для експорту в Excel
     if(returned.length === 0){
       returnedEl.innerHTML = '<div class="comp-empty">Повернень немає.</div>';
     } else {
@@ -7081,6 +7641,24 @@ function renderClients(){
   document.getElementById('clientCount').textContent = clients.length;
 }
 
+function exportClientsExcel(){
+  if(clients.length === 0){ alert('Клієнтів ще немає.'); return; }
+  const sorted = [...clients].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  exportStyledExcel({
+    downloadName: `klienty_${todayStr()}.xlsx`,
+    sheetName: 'Клієнти',
+    headers: [
+      {header:'Ім\'я / компанія', width:26}, {header:'Телефон', width:14}, {header:'Місто', width:16},
+      {header:'Адреса / відділення', width:28}, {header:'Замовлень', width:12}, {header:'Сума, грн', width:14},
+      {header:'Примітки', width:28}
+    ],
+    rows: sorted.map(c => {
+      const stats = clientStats(c.id);
+      return [c.name||'', c.phone||'', c.city||'', c.address||'', stats.count, fmt1(stats.total), c.notes||''];
+    })
+  });
+}
+
 function clientCollapsedHtml(c){
   const stats = clientStats(c.id);
   return `
@@ -7210,6 +7788,61 @@ function renderBalances(){
     const cls = bal > 0 ? 'balance-pos' : (bal < 0 ? 'balance-neg' : 'balance-zero');
     return `<div class="wh-row"><div>${escapeAttr(it.name)}</div><div class="cv ${cls}" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt2(bal)}</div><div style="text-align:right;color:var(--text-faint);">${it.unit}</div></div>`;
   }).join('');
+}
+
+function exportBalancesExcel(){
+  const q = (document.getElementById('balanceSearch')?.value || '').trim().toLowerCase();
+  const items = allStockItems().filter(it => !q || it.name.toLowerCase().includes(q));
+  if(items.length === 0){ alert('Немає товарів для експорту.'); return; }
+  exportStyledExcel({
+    downloadName: `zalyshky_${todayStr()}.xlsx`,
+    sheetName: 'Залишки',
+    headers: [{header:'Товар', width:28}, {header:'Залишок', width:14}, {header:'Одиниця', width:10}],
+    rows: items.map(it => [it.name, fmt2(computeBalance(it.itemType, it.itemId)), it.unit]),
+    rowStyleFn: (row, values, idx) => {
+      const bal = computeBalance(items[idx].itemType, items[idx].itemId);
+      row.getCell(2).fill = bal < 0 ? XLS_RED : (bal === 0 ? XLS_YELLOW : XLS_GREEN);
+    }
+  });
+}
+
+function exportMovementsExcel(){
+  const sorted = [...stockMovements].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+  if(sorted.length === 0){ alert('Ще немає жодного руху товару.'); return; }
+  exportStyledExcel({
+    downloadName: `ruh_skladu_${todayStr()}.xlsx`,
+    sheetName: 'Рух складу',
+    headers: [
+      {header:'Дата', width:12}, {header:'Товар', width:26}, {header:'Кількість', width:12},
+      {header:'Тип', width:14}, {header:'Примітка', width:32}
+    ],
+    rows: sorted.map(m => [m.date||'', itemLabel(m.itemType, m.itemId).replace(/<[^>]*>/g,''), fmt2(m.qty), m.type||'', m.note||'']),
+    rowStyleFn: (row, values, idx) => {
+      row.getCell(3).fill = sorted[idx].qty < 0 ? XLS_RED : XLS_GREEN;
+    }
+  });
+}
+
+function exportInventoryExcel(){
+  const items = allStockItems();
+  if(items.length === 0){ alert('Немає товарів для експорту.'); return; }
+  exportStyledExcel({
+    downloadName: `inventaryzatsiya_${todayStr()}.xlsx`,
+    sheetName: 'Інвентаризація',
+    headers: [
+      {header:'Товар', width:26}, {header:'Система', width:12}, {header:'Фактично', width:12},
+      {header:'Різниця', width:12}, {header:'Примітка', width:28}
+    ],
+    rows: items.map(it => {
+      const key = `${it.itemType}:${it.itemId}`;
+      const system = computeBalance(it.itemType, it.itemId);
+      const actualInput = document.getElementById(`inv-actual-${key}`);
+      const noteInput = document.getElementById(`inv-note-${key}`);
+      const actual = actualInput ? (parseFloat(actualInput.value)||0) : system;
+      const diff = actual - system;
+      return [it.name, fmt2(system), fmt2(actual), fmt2(diff), noteInput ? (noteInput.value||'') : ''];
+    })
+  });
 }
 
 function renderMovements(){
