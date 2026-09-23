@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.10 · 23.09.2026 16:43</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.12 · 23.09.2026 17:42</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -639,8 +639,8 @@
           <div style="grid-column:span 2;"><label>API-ключ SMS Fly</label><input type="text" id="smsTokenInput" placeholder="ключ з розділу «API» кабінету sms-fly.ua"></div>
           <div><label>Ім'я відправника</label><input type="text" id="smsSenderInput" placeholder="напр. Papriko"></div>
         </div>
-        <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Сума замовлення: {sum} грн. Дякуємо за покупку!</textarea>
-        <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН), <code>{name}</code> (ім'я клієнта) та <code>{sum}</code> (сума замовлення).</p>
+        <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!</textarea>
+        <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН), <code>{name}</code> (ім'я клієнта) та <code>{sum}</code> (сума замовлення). Текст латиницею навмисно — кирилична SMS вкладається лише в 70 символів на сегмент, латиниця/цифри — 160, тож так виходить дешевше (1 SMS замість 2).</p>
         <textarea class="order-notes" id="smsBranchReminderTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон нагадування про відділення">Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}</textarea>
         <p class="hint" style="margin:4px 0 0;">Шаблон нагадування «довго у відділенні» (вкладка Звіти). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{days}</code> (днів очікування).</p>
         <div class="fb-row" style="margin-top:10px;">
@@ -1312,7 +1312,7 @@
       </label>
     </div>
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-      <div class="wh-row-head" style="grid-template-columns:80px 1fr 1fr 1fr 130px 1fr 160px;"><div>Днів</div><div>Клієнт</div><div>Телефон</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div><div></div></div>
+      <div class="wh-row-head" style="grid-template-columns:80px 100px 1fr 1fr 1fr 130px 1fr 160px;"><div>Днів</div><div>Дата прибуття</div><div>Клієнт</div><div>Телефон</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div><div></div></div>
       <div id="reportBranchWait"></div>
     </div></div>
   </div>
@@ -2577,7 +2577,7 @@ function saveAnthropicKey(){
 
 let smsToken = '';
 let smsSender = 'Papriko';
-let smsTemplate = 'Вітаємо! Ваше замовлення відправлено. ТТН: {ttn}. Сума замовлення: {sum} грн. Дякуємо за покупку!';
+let smsTemplate = 'Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!';
 let smsBranchReminderTemplate = 'Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}';
 
 function saveSmsSettings(){
@@ -3515,6 +3515,7 @@ async function exportBranchWaitExcel(){
 
   const columns = [
     {header:'Днів', key:'days', width:8},
+    {header:'Дата прибуття', key:'arrivedDate', width:14},
     {header:'Клієнт', key:'customer', width:24},
     {header:'Телефон', key:'phone', width:14},
     {header:'Служба доставки', key:'method', width:14},
@@ -3546,7 +3547,7 @@ async function exportBranchWaitExcel(){
     const statusText = o.deliveryMethod === 'Укрпошта' ? (o.ukrStatusText || '') : (o.npStatusText || '');
     const ttn = o.ttnNumber || o.ukrTtnNumber || '';
     const row = ws.addRow({
-      days, customer: o.customer || 'Без імені', phone: o.phone || '',
+      days, arrivedDate: o.atBranchSince || '', customer: o.customer || 'Без імені', phone: o.phone || '',
       method: o.deliveryMethod || '', office, ttn, status: statusText
     });
     row.eachCell({includeEmpty:true}, cell => { cell.border = THIN_BORDER; });
@@ -7281,8 +7282,9 @@ function renderReports(){
         const remindedToday = o.branchReminderSentDate === today;
         const dueColor = days>=threshold && threshold>0 ? 'var(--danger)' : (days>=2?'var(--saffron)':'var(--text-muted)');
         return `
-          <div class="wh-row" style="grid-template-columns:80px 1fr 1fr 1fr 130px 1fr 160px;">
+          <div class="wh-row" style="grid-template-columns:80px 100px 1fr 1fr 1fr 130px 1fr 160px;">
             <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${dueColor};">${days}</div>
+            <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.atBranchSince||'—')}</div>
             <div>${escapeAttr(o.customer||'Без імені')}</div>
             <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.phone||'—')}</div>
             <div class="hint">${escapeAttr(office||'—')}</div>
