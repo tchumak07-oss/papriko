@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.9 · 23.09.2026 16:39</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.10 · 23.09.2026 16:43</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -647,6 +647,7 @@
           <input type="text" id="smsTestPhoneInput" placeholder="Ваш номер для тесту, напр. 0671231234" style="max-width:220px;">
           <button class="btn btn-sm" onclick="saveSmsSettings()">Зберегти</button>
           <button class="btn btn-sm" onclick="sendTestSms()">Надіслати собі тестове SMS</button>
+          <button class="btn btn-sm" onclick="checkSmsSources()">Перевірити підтверджені імена відправника</button>
         </div>
         <div class="hint" id="smsStatus" style="margin-top:6px;"></div>
       </div>
@@ -2636,6 +2637,36 @@ async function sendSms(phone, text){
     // TypeError "Failed to fetch" зазвичай означає, що сервер SMS Fly блокує прямі запити з браузера (CORS) —
     // тоді знадобиться проміжна Firebase Cloud Function (проксі), як для Укрпошти.
     return {ok:false, error: 'Не вдалося з\'єднатись із SMS Fly (можливо, потрібен проксі-сервер через CORS): ' + err.message};
+  }
+}
+
+async function checkSmsSources(){
+  const statusEl = document.getElementById('smsStatus');
+  saveSmsSettings();
+  if(!smsToken){ statusEl.textContent = 'Спочатку впишіть API-ключ.'; return; }
+  statusEl.textContent = 'Перевіряю...';
+  try{
+    const res = await fetch('https://sms-fly.ua/api/v2/api.php', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({auth: {key: smsToken}, action: 'GETSOURCES'})
+    });
+    const data = await res.json();
+    if(data.success !== 1){
+      const err = (data.error && (data.error.description || data.error.code)) || 'Помилка SMS Fly';
+      statusEl.textContent = 'Помилка: ' + (typeof err === 'string' ? err : JSON.stringify(err));
+      return;
+    }
+    const sources = (data.data && (data.data.sources || data.data.sms || data.data)) || [];
+    const list = Array.isArray(sources) ? sources : [];
+    if(list.length === 0){
+      statusEl.textContent = 'У вашому акаунті SMS Fly ще немає жодного підтвердженого імені відправника — зверніться в підтримку sms-fly.ua, щоб підтвердили «Papriko» (або дали тимчасове службове ім\'я).';
+    } else {
+      const names = list.map(s => (s.source || s.name || JSON.stringify(s))).join(', ');
+      statusEl.textContent = 'Підтверджені імена відправника: ' + names + ' — впишіть одне з них у поле вище.';
+    }
+  }catch(err){
+    statusEl.textContent = 'Помилка перевірки: ' + err.message;
   }
 }
 
