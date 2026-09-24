@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.0 · 24.09.2026 06:33</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.1 · 24.09.2026 09:04</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -450,8 +450,9 @@
     <div class="catalog-panel"><div style="padding:14px 16px;">
       <div class="catalog-group-title">Оплати з реєстру Укрпошти</div>
       <div id="ukrPaymentsList" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
+      <p class="hint" style="margin:8px 0 0;">Для знайдених замовлень галочка позначить їх оплаченими. Для рядків без збігу — позначте галочкою, і для них буде створено нове замовлення (Укрпошта, товари порожні) й одразу позначено оплаченим.</p>
       <div class="fb-row" style="margin-top:10px;">
-        <button class="btn btn-primary btn-sm" type="button" onclick="markUkrPaymentsOrdersPaid()">Позначити відмічені як оплачені</button>
+        <button class="btn btn-primary btn-sm" type="button" onclick="markUkrPaymentsOrdersPaid()">Обробити позначені</button>
       </div>
     </div></div>
   </div>
@@ -5380,11 +5381,17 @@ function renderUkrPaymentsList(){
   wrapEl.style.display = '';
   listEl.innerHTML = ukrPaymentsParsed.map((p, idx) => {
     const order = p.orderId ? orderById(p.orderId) : null;
-    const statusText = !order ? '⚠ замовлення не знайдено за цим ТТН' : (p.alreadyPaid ? '✓ вже позначено оплаченим' : 'готово до позначення');
-    const statusColor = !order ? 'var(--danger)' : (p.alreadyPaid ? 'var(--cardamom)' : 'var(--text-muted)');
+    let statusText, statusColor;
+    if(!order){
+      statusText = p.selected ? '➕ буде створено нове замовлення' : '⚠ замовлення не знайдено за цим ТТН';
+      statusColor = p.selected ? 'var(--saffron)' : 'var(--danger)';
+    }else{
+      statusText = p.alreadyPaid ? '✓ вже позначено оплаченим' : 'готово до позначення';
+      statusColor = p.alreadyPaid ? 'var(--cardamom)' : 'var(--text-muted)';
+    }
     return `
-      <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:${order?'pointer':'default'};opacity:${order?'1':'0.6'};">
-        <input type="checkbox" ${p.selected?'checked':''} ${order?'':'disabled'} onchange="ukrPaymentsParsed[${idx}].selected=this.checked" style="width:auto;accent-color:var(--saffron);">
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;">
+        <input type="checkbox" ${p.selected?'checked':''} onchange="ukrPaymentsParsed[${idx}].selected=this.checked; renderUkrPaymentsList();" style="width:auto;accent-color:var(--saffron);">
         <span style="flex:1;">
           <strong>${escapeAttr(order ? (order.customer||'Без імені') : (p.name||'?'))}</strong> · ${fmt(p.amount)} грн
           <br><span class="hint">ТТН ${escapeAttr(p.ttn)} · ${escapeAttr(p.date||'')}${p.desc ? ' · '+escapeAttr(p.desc) : ''} · <span style="color:${statusColor};">${statusText}</span></span>
@@ -5395,24 +5402,41 @@ function renderUkrPaymentsList(){
 }
 
 function markUkrPaymentsOrdersPaid(){
-  const selected = ukrPaymentsParsed.filter(p => p.selected && p.orderId);
+  const selected = ukrPaymentsParsed.filter(p => p.selected);
   if(selected.length === 0){ setUkrPaymentsStatus('Нічого не позначено — поставте галочки біля потрібних рядків.', 'error'); return; }
-  let updated = 0;
+  let updated = 0, created = 0;
   selected.forEach(p => {
-    const order = orderById(p.orderId);
-    if(!order) return;
+    let order = p.orderId ? orderById(p.orderId) : null;
+    if(!order){
+      const id = nextOrderId++;
+      order = newOrderDefaults(id);
+      order.customer = p.name || '';
+      order.deliveryMethod = 'Укрпошта';
+      order.ukrTtnNumber = p.ttn;
+      order.date = p.date || todayStr();
+      order.collapsed = true;
+      order.importedFromNp = true;
+      order.notes = 'Імпортовано автоматично з реєстру оплат Укрпошти — товари не вказані, заповніть вручну за потреби.';
+      orders.push(order);
+      p.orderId = order.id;
+      created++;
+    }else{
+      updated++;
+    }
     order.paid = true;
     order.codReceivedAmount = p.amount;
     order.codPaymentDate = p.date;
     p.alreadyPaid = true;
     p.selected = false;
-    updated++;
   });
   renderOrders();
   renderOrdersSummary();
   renderUkrPaymentsList();
   scheduleSave();
-  setUkrPaymentsStatus(`Позначено оплаченими ${updated} замовлень.`, 'ok');
+  const parts = [];
+  if(updated) parts.push(`позначено оплаченими ${updated}`);
+  if(created) parts.push(`створено нових замовлень ${created}`);
+  setUkrPaymentsStatus(parts.length ? parts.join(', ')+'.' : 'Готово.', 'ok');
 }
 
 async function handleDeliveryReportFile(file){
