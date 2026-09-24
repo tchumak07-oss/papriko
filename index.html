@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.11.13 · 23.09.2026 21:07</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.0 · 24.09.2026 06:33</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -410,6 +410,7 @@
       <button class="btn btn-sm" onclick="document.getElementById('orderScreenshotInput').click()">Розпізнати замовлення зі скріншота</button>
       <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
       <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
+      <button class="btn btn-sm" onclick="document.getElementById('ukrPaymentsInput').click()">Завантажити реєстр оплат Укрпошти (Excel)</button>
       <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
       <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
       <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
@@ -437,6 +438,20 @@
       <div id="deliveryReportUnmatchedList" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
       <div class="fb-row" style="margin-top:10px;">
         <button class="btn btn-primary btn-sm" type="button" onclick="createOrdersFromDeliveryReportUnmatched()">Створити позначені</button>
+      </div>
+    </div></div>
+  </div>
+
+  <input type="file" id="ukrPaymentsInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleUkrPaymentsFile(this.files[0])">
+  <div id="ukrPaymentsStatus" class="scan-status"></div>
+  <p class="hint" style="margin:-8px 0 14px;">«Завантажити реєстр оплат Укрпошти» — це «РЕЄСТР ПЕРЕСЛАНИХ СУМ ВАРТОСТІ ВІДПРАВЛЕНЬ З ПІСЛЯПЛАТОЮ», який можна вивантажити з кабінету Укрпошти. Програма зіставить номери ШКІ (декларацій) з вашими замовленнями за полем ТТН Укрпошти і дозволить позначити знайдені як оплачені.</p>
+
+  <div id="ukrPaymentsWrap" style="display:none;margin-bottom:14px;">
+    <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">Оплати з реєстру Укрпошти</div>
+      <div id="ukrPaymentsList" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
+      <div class="fb-row" style="margin-top:10px;">
+        <button class="btn btn-primary btn-sm" type="button" onclick="markUkrPaymentsOrdersPaid()">Позначити відмічені як оплачені</button>
       </div>
     </div></div>
   </div>
@@ -3088,7 +3103,7 @@ function newOrderDefaults(id){
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
     ukrIndex:'', address:'', ukrCity:'', ukrOfficeDesc:'', ukrStreet:'', ukrHouse:'', ukrApartment:'', ukrTtnNumber:'', ukrShipmentUuid:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
-    codAmount:'',
+    codAmount:'', codReceivedAmount:'', codPaymentDate:'',
     discountType:'none', discountValue:'',
     atBranchSince:'', branchReminderSentDate:'',
     importedFromNp:false,
@@ -5276,6 +5291,130 @@ function createOrdersFromDeliveryReportUnmatched(){
   }
 }
 
+/* ---------- реєстр оплат Укрпошти (післяплата) ---------- */
+
+let ukrPaymentsParsed = [];
+
+function setUkrPaymentsStatus(text, kind){
+  const el = document.getElementById('ukrPaymentsStatus');
+  if(!el) return;
+  el.className = 'scan-status' + (kind ? ' '+kind : '');
+  el.textContent = text || '';
+}
+
+// шукає в рядку заголовків індекс колонки за списком варіантів назви (без урахування регістру/апострофів/пробілів)
+function findHeaderColIndex(headerRow, candidates){
+  const norm = s => String(s||'').toLowerCase().replace(/[^а-яіїєґa-z0-9]/g,'');
+  for(let i=0;i<headerRow.length;i++){
+    const cell = norm(headerRow[i]);
+    if(!cell) continue;
+    if(candidates.some(c => cell.includes(norm(c)))) return i;
+  }
+  return -1;
+}
+
+async function handleUkrPaymentsFile(file){
+  if(!file) return;
+  setUkrPaymentsStatus('Читаю файл...', 'loading');
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+    if(aoa.length === 0) throw new Error('У файлі немає рядків з даними');
+
+    // шапка таблиці («N п.п.», «дата», «сума, грн.», ... «ШКІ» ...) — шукаємо рядок, де є колонка «ШКІ»
+    let headerRowIdx = aoa.findIndex(row => findHeaderColIndex(row, ['шкі']) > -1);
+    if(headerRowIdx === -1) throw new Error('Не знайшов колонку «ШКІ» у файлі — переконайтесь, що це «Реєстр переісланих сум вартості відправлень з післяплатою» з кабінету Укрпошти');
+
+    const headerRow = aoa[headerRowIdx];
+    const ttnIdx = findHeaderColIndex(headerRow, ['шкі']);
+    const dateIdx = findHeaderColIndex(headerRow, ['дата']);
+    const amountIdx = findHeaderColIndex(headerRow, ['сумагрн','сума']);
+    const nameIdx = findHeaderColIndex(headerRow, ['відправникпіб','піб']);
+    const descIdx = findHeaderColIndex(headerRow, ['письмповід','повідомлення']);
+
+    const parsed = [];
+    for(let r = headerRowIdx+1; r < aoa.length; r++){
+      const row = aoa[r];
+      const ttn = normalizeTtnNumber(ttnIdx > -1 ? row[ttnIdx] : '');
+      if(ttn.length < 12 || ttn.length > 14) continue; // пропускаємо рядок нумерації колонок, порожні й підсумковий рядки
+
+      const amountRaw = amountIdx > -1 ? String(row[amountIdx]||'').trim() : '';
+      const amount = parseFloat(amountRaw.replace(/\s/g,'').replace(',','.')) || 0;
+      const date = dateIdx > -1 ? excelDateToStr(row[dateIdx]) : '';
+      const name = nameIdx > -1 ? String(row[nameIdx]||'').trim() : '';
+      const desc = descIdx > -1 ? String(row[descIdx]||'').trim() : '';
+
+      const order = orders.find(o => o.ukrTtnNumber && normalizeTtnNumber(o.ukrTtnNumber) === ttn);
+      parsed.push({
+        ttn, amount, date, name, desc,
+        orderId: order ? order.id : null,
+        alreadyPaid: order ? !!order.paid : false,
+        selected: !!order && !order.paid
+      });
+    }
+
+    if(parsed.length === 0) throw new Error('У файлі не знайдено жодного рядка з номером ШКІ');
+
+    ukrPaymentsParsed = parsed;
+    renderUkrPaymentsList();
+    const matched = parsed.filter(p => p.orderId).length;
+    const alreadyPaid = parsed.filter(p => p.alreadyPaid).length;
+    setUkrPaymentsStatus(`У реєстрі ${parsed.length} рядків. Знайдено відповідне замовлення для ${matched}. Уже позначено оплаченими: ${alreadyPaid}. Перевірте список нижче й натисніть «Позначити відмічені як оплачені».`, matched > 0 ? 'ok' : 'error');
+  }catch(err){
+    setUkrPaymentsStatus('Помилка: ' + (err && err.message ? err.message : err), 'error');
+  }
+  document.getElementById('ukrPaymentsInput').value = '';
+}
+
+function renderUkrPaymentsList(){
+  const listEl = document.getElementById('ukrPaymentsList');
+  const wrapEl = document.getElementById('ukrPaymentsWrap');
+  if(!listEl || !wrapEl) return;
+  if(ukrPaymentsParsed.length === 0){
+    wrapEl.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+  wrapEl.style.display = '';
+  listEl.innerHTML = ukrPaymentsParsed.map((p, idx) => {
+    const order = p.orderId ? orderById(p.orderId) : null;
+    const statusText = !order ? '⚠ замовлення не знайдено за цим ТТН' : (p.alreadyPaid ? '✓ вже позначено оплаченим' : 'готово до позначення');
+    const statusColor = !order ? 'var(--danger)' : (p.alreadyPaid ? 'var(--cardamom)' : 'var(--text-muted)');
+    return `
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:${order?'pointer':'default'};opacity:${order?'1':'0.6'};">
+        <input type="checkbox" ${p.selected?'checked':''} ${order?'':'disabled'} onchange="ukrPaymentsParsed[${idx}].selected=this.checked" style="width:auto;accent-color:var(--saffron);">
+        <span style="flex:1;">
+          <strong>${escapeAttr(order ? (order.customer||'Без імені') : (p.name||'?'))}</strong> · ${fmt(p.amount)} грн
+          <br><span class="hint">ТТН ${escapeAttr(p.ttn)} · ${escapeAttr(p.date||'')}${p.desc ? ' · '+escapeAttr(p.desc) : ''} · <span style="color:${statusColor};">${statusText}</span></span>
+        </span>
+      </label>
+    `;
+  }).join('');
+}
+
+function markUkrPaymentsOrdersPaid(){
+  const selected = ukrPaymentsParsed.filter(p => p.selected && p.orderId);
+  if(selected.length === 0){ setUkrPaymentsStatus('Нічого не позначено — поставте галочки біля потрібних рядків.', 'error'); return; }
+  let updated = 0;
+  selected.forEach(p => {
+    const order = orderById(p.orderId);
+    if(!order) return;
+    order.paid = true;
+    order.codReceivedAmount = p.amount;
+    order.codPaymentDate = p.date;
+    p.alreadyPaid = true;
+    p.selected = false;
+    updated++;
+  });
+  renderOrders();
+  renderOrdersSummary();
+  renderUkrPaymentsList();
+  scheduleSave();
+  setUkrPaymentsStatus(`Позначено оплаченими ${updated} замовлень.`, 'ok');
+}
+
 async function handleDeliveryReportFile(file){
   if(!file) return;
   setDeliveryReportStatus('Читаю файл...', 'loading');
@@ -7386,9 +7525,9 @@ function orderExpandedHtml(o){
 
       <div class="order-head" style="margin-top:-4px;">
         <div class="order-head-left">
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="${o.codReceivedAmount ? `За реєстром Укрпошти: ${fmt(o.codReceivedAmount)} грн, ${escapeAttr(o.codPaymentDate||'')}` : ''}">
             <input type="checkbox" ${o.paid?'checked':''} onchange="toggleOrderPaid(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
-            Оплачено
+            Оплачено${o.codReceivedAmount ? ` <span class="hint">(${fmt(o.codReceivedAmount)} грн, ${escapeAttr(o.codPaymentDate||'')})</span>` : ''}
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.shipped?'checked':''} onchange="toggleOrderShipped(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
