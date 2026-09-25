@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.1 · 24.09.2026 09:04</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.2 · 25.09.2026 15:53</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -4246,8 +4246,9 @@ const UKR_SHIPPED_EVENTS = [20700,20800,20900,21500,31100,21700,21400,31300,3140
 const UKR_CANCELLED_EVENTS = [10600,10602];
 
 function applyUkrStatus(o, statusItem){
-  if(!statusItem) return {shipped:false, delivered:false, returned:false, paid:false};
+  if(!statusItem) return {shipped:false, delivered:false, returned:false, paid:false, completed:false};
   const wasShipped = o.shipped, wasDelivered = o.delivered, wasReturned = o.npReturned, wasPaid = o.paid;
+  const wasCompleted = o.delivered && o.paid;
   o.ukrStatusText = statusItem.eventName || '';
   const event = Number(statusItem.event);
   const reasonId = Number(statusItem.eventReason_id);
@@ -4294,7 +4295,13 @@ function applyUkrStatus(o, statusItem){
 
   if(o.npReturned && o.status !== 'Скасовано') o.status = 'Повернено';
 
-  return {shipped: o.shipped && !wasShipped, delivered: o.delivered && !wasDelivered, returned: o.npReturned && !wasReturned, paid: o.paid && !wasPaid};
+  return {
+    shipped: o.shipped && !wasShipped,
+    delivered: o.delivered && !wasDelivered,
+    returned: o.npReturned && !wasReturned,
+    paid: o.paid && !wasPaid,
+    completed: (o.delivered && o.paid) && !wasCompleted
+  };
 }
 
 async function syncUkrStatus(orderId){
@@ -4321,9 +4328,10 @@ async function syncUkrStatus(orderId){
 async function syncAllUkrStatusesQuiet(){
   if(!ukrBearer) return {ok:false, skipped:true, error:'Не вказано Bearer Укрпошти'};
   const withTtn = orders.filter(o => o.deliveryMethod==='Укрпошта' && o.ukrTtnNumber && !isArchived(o));
-  if(withTtn.length === 0) return {ok:true, checked:0, shipped:0, delivered:0, paid:0, returned:0};
+  if(withTtn.length === 0) return {ok:true, checked:0, shipped:0, delivered:0, paid:0, returned:0, completedList:[]};
   try{
     let justShipped=0, justDelivered=0, justReturned=0, justPaid=0;
+    const completedList = [];
     for(let i=0; i<withTtn.length; i+=100){
       const chunk = withTtn.slice(i, i+100);
       const barcodes = chunk.map(o => o.ukrTtnNumber);
@@ -4335,9 +4343,10 @@ async function syncAllUkrStatusesQuiet(){
         if(res.delivered) justDelivered++;
         if(res.returned) justReturned++;
         if(res.paid) justPaid++;
+        if(res.completed) completedList.push({customer: o.customer || 'Без імені', ttn: o.ukrTtnNumber});
       });
     }
-    return {ok:true, checked:withTtn.length, shipped:justShipped, delivered:justDelivered, paid:justPaid, returned:justReturned};
+    return {ok:true, checked:withTtn.length, shipped:justShipped, delivered:justDelivered, paid:justPaid, returned:justReturned, completedList};
   }catch(err){
     return {ok:false, error: err.message};
   }
@@ -4351,7 +4360,11 @@ async function syncAllUkrStatuses(){
   if(!res.ok){ alert('Помилка синхронізації з Укрпоштою: ' + res.error); return; }
   renderOrders();
   scheduleSave();
-  alert(`Перевірено ${res.checked} активних декларацій Укрпошти (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Повернень: ${res.returned}.`);
+  let msg = `Перевірено ${res.checked} активних декларацій Укрпошти (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Повернень: ${res.returned}.`;
+  if(res.completedList && res.completedList.length){
+    msg += `\n\nДоставлено й оплачено (${res.completedList.length}):\n` + res.completedList.map(c => `${c.customer} — ${c.ttn}`).join('\n');
+  }
+  alert(msg);
 }
 
 let ukrShipmentInFlight = new Set();
@@ -5065,7 +5078,7 @@ function isInTransitOnly(o){
 // StatusCode "1" = ТТН зареєстровано, вантаж ще не прийнято у відділенні.
 // Будь-який інший код означає, що відправлення вже рухається по мережі НП (це ще не доставка).
 function applyNpStatus(o, statusItem){
-  if(!statusItem) return {shipped:false, delivered:false, archived:false, returned:false, paid:false};
+  if(!statusItem) return {shipped:false, delivered:false, archived:false, returned:false, paid:false, completed:false};
   o.npStatusText = statusItem.Status || '';
   o.npStatusCode = statusItem.StatusCode || '';
   const wasShipped = o.shipped;
@@ -5073,6 +5086,7 @@ function applyNpStatus(o, statusItem){
   const wasArchived = isArchived(o);
   const wasReturned = o.npReturned;
   const wasPaid = o.paid;
+  const wasCompleted = o.delivered && o.paid;
   if(statusItem.StatusCode && statusItem.StatusCode !== '1'){
     o.shipped = true;
   }
@@ -5125,7 +5139,8 @@ function applyNpStatus(o, statusItem){
     delivered: o.delivered && !wasDelivered,
     archived: isArchived(o) && !wasArchived,
     returned: o.npReturned && !wasReturned,
-    paid: o.paid && !wasPaid
+    paid: o.paid && !wasPaid,
+    completed: (o.delivered && o.paid) && !wasCompleted
   };
 }
 
@@ -5152,9 +5167,10 @@ async function syncNpStatus(orderId){
 async function syncAllNpStatusesQuiet(){
   if(!npApiKey) return {ok:false, skipped:true, error:'Не вказано API-ключ Нової Пошти'};
   const withTtn = orders.filter(o => o.ttnNumber && !isArchived(o));
-  if(withTtn.length === 0) return {ok:true, checked:0, shipped:0, delivered:0, archived:0, returned:0, paid:0};
+  if(withTtn.length === 0) return {ok:true, checked:0, shipped:0, delivered:0, archived:0, returned:0, paid:0, completedList:[]};
   try{
     let justShippedCount = 0, justDeliveredCount = 0, justArchivedCount = 0, justReturnedCount = 0, justPaidCount = 0;
+    const completedList = [];
     for(let i=0; i<withTtn.length; i+=100){
       const chunk = withTtn.slice(i, i+100);
       const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {
@@ -5168,9 +5184,10 @@ async function syncAllNpStatusesQuiet(){
         if(res.archived) justArchivedCount++;
         if(res.returned) justReturnedCount++;
         if(res.paid) justPaidCount++;
+        if(res.completed) completedList.push({customer: o.customer || 'Без імені', ttn: o.ttnNumber});
       });
     }
-    return {ok:true, checked:withTtn.length, shipped:justShippedCount, delivered:justDeliveredCount, archived:justArchivedCount, returned:justReturnedCount, paid:justPaidCount};
+    return {ok:true, checked:withTtn.length, shipped:justShippedCount, delivered:justDeliveredCount, archived:justArchivedCount, returned:justReturnedCount, paid:justPaidCount, completedList};
   }catch(err){
     return {ok:false, error: err.message};
   }
@@ -5189,6 +5206,9 @@ async function syncAllNpStatuses(){
     scheduleSave();
     let msg = `Перевірено ${res.checked} активних відправлень (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Перенесено в архів: ${res.archived}.`;
     if(res.returned > 0) msg += ` ⚠ Повернень (перевірте повернення коштів): ${res.returned}.`;
+    if(res.completedList && res.completedList.length){
+      msg += `\n\nДоставлено й оплачено (${res.completedList.length}):\n` + res.completedList.map(c => `${c.customer} — ${c.ttn}`).join('\n');
+    }
     alert(msg);
   }catch(err){
     alert('Помилка синхронізації з НП: ' + err.message);
