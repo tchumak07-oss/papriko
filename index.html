@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.6 · 27.09.2026 21:35</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.7 · 27.09.2026 21:40</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -6590,6 +6590,8 @@ async function syncArchiveStatuses(){
 
     renderOrders();
     scheduleSave();
+    const tsModal = document.getElementById('todayShipmentsModal');
+    if(tsModal && tsModal.style.display !== 'none') renderTodayShipmentsModal();
 
     let msg = `Перевірено в архіві: ${npList.length} НП, ${ukrList.length} Укрпошта.\n`;
     msg += `НП — оплачено: ${npPaid}, доставлено: ${npDelivered}, повернень: ${npReturned}.\n`;
