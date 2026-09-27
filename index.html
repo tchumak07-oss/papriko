@@ -302,11 +302,12 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.16.5 · 27.09.2026 20:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.16.6 · 27.09.2026 20:25</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
+        <button class="btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="claimActiveSession()" title="Якщо програма відкрита ще десь (телефон, інший комп'ютер) — натисніть тут: ці інші місця перестануть зберігати зміни, активною лишиться тільки ця вкладка">Зробити цю вкладку єдиною активною</button>
       </div>
     </div>
   </header>
@@ -1459,6 +1460,32 @@ let fbStorage = null;
 // потрібно, щоб виявити ситуацію, коли ІНША вкладка/пристрій зберегли зміни, поки ця вкладка "спала"
 // з застарілими даними в пам'яті: інакше збереження з цієї вкладки тихо затре свіжіші зміни.
 let lastKnownRemoteUpdatedAt = null;
+// унікальний ідентифікатор ЦІЄЇ вкладки/сеансу — потрібен для механізму "єдиної активної вкладки":
+// коли якась вкладка зберігає дані (або натиснута кнопка "зробити активною"), вона записує свій id
+// у полі activeSessionId. Усі ІНШІ відкриті вкладки, побачивши, що це поле змінилось на чужий id,
+// самі себе блокують від подальших записів — це і є "примусове закриття" інших сеансів на запис.
+const mySessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+let seenSessionId = null;
+let sessionLocked = false;
+function lockThisSessionAsStale(){
+  if(sessionLocked) return;
+  sessionLocked = true;
+  clearTimeout(fbSaveTimer);
+  fbSaveTimer = null;
+  if(document.getElementById('sessionLockBanner')) return;
+  const div = document.createElement('div');
+  div.id = 'sessionLockBanner';
+  div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#c85a4a;color:#fff;padding:12px 20px;text-align:center;font-size:14px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,0.4);';
+  div.textContent = '⚠️ Цю програму зроблено активною в іншому місці (вкладці/пристрої) — тут зміни більше НЕ зберігаються. Оновіть сторінку (F5), якщо хочете продовжити роботу саме тут.';
+  document.body.prepend(div);
+}
+function claimActiveSession(){
+  if(!fbConnected || !fbDocRef) return;
+  fbDocRef.update({activeSessionId: mySessionId}).then(() => {
+    seenSessionId = mySessionId;
+    setSyncBadge('on', 'Цю вкладку зроблено єдиною активною — інші відкриті вкладки/пристрої більше не зберігатимуть зміни.');
+  }).catch(err => setSyncBadge('err', 'Не вдалося: ' + err.message));
+}
 
 // Ваша конфігурація Firebase — програма підключається до неї автоматично при відкритті.
 const HARDCODED_FIREBASE_CONFIG = {
@@ -1478,6 +1505,7 @@ function buildStatePayload(){
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
     quickOrderKitId,
+    activeSessionId: mySessionId,
     updatedAt: new Date().toISOString()
   };
 }
@@ -1605,6 +1633,7 @@ function applyRemoteData(data){
 }
 
 function scheduleSave(){
+  if(sessionLocked) return; // цю вкладку витіснено іншою активною — не пишемо в базу
   if(!fbConnected || !fbDocRef) return;
   clearTimeout(fbSaveTimer);
   fbSaveTimer = setTimeout(() => {
@@ -1654,22 +1683,36 @@ function doConnect(config){
         if(snap.exists){
           applyRemoteData(snap.data());
           lastKnownRemoteUpdatedAt = snap.data().updatedAt || null;
+          seenSessionId = snap.data().activeSessionId || null;
           return null;
         } else {
           const payload = buildStatePayload();
-          return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; });
+          return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; });
         }
       }).then(() => {
         fbConnected = true;
         setSyncBadge('on', 'Синхронізовано');
         fbDocRef.onSnapshot(snap => {
           if(!snap.exists || snap.metadata.hasPendingWrites) return;
+          const remoteData = snap.data();
+          // "єдина активна вкладка": якщо поле activeSessionId змінилось на чужий (не наш) id відносно
+          // того, що ми востаннє бачили — значить інша вкладка/пристрій щойно зберегли дані або явно
+          // натиснули "зробити активною". Ця вкладка більше не пише в базу, лише показує актуальні дані.
+          const incomingSession = remoteData.activeSessionId || null;
+          if(incomingSession && seenSessionId !== null && incomingSession !== seenSessionId && incomingSession !== mySessionId){
+            lockThisSessionAsStale();
+          }
+          if(incomingSession) seenSessionId = incomingSession;
+          if(sessionLocked){
+            applyRemoteData(remoteData);
+            lastKnownRemoteUpdatedAt = remoteData.updatedAt || null;
+            return;
+          }
           // якщо зараз є незбережені локальні зміни (запланований дебаунс-запис або запис уже в польоті) —
           // не застосовуємо цей знімок: він може бути лише підтвердженням СТАРІШОГО запису і затре щойно
           // зроблені локальні зміни (напр. вибір відділення НП відразу після вибору міста).
           // Коли поточний локальний запис таки виконається, він сам звірить свіжість даних перед записом.
           if(fbSaveTimer || fbSaveInFlight) return;
-          const remoteData = snap.data();
           const remoteOrders = Array.isArray(remoteData.orders) ? remoteData.orders : [];
           const remoteIds = new Set(remoteOrders.map(o => o.id));
           // самозахист: якщо у ЦІЄЇ вкладки в пам'яті є замовлення, яких нема у щойно отриманому стані з
