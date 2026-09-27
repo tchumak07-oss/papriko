@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.7 · 27.09.2026 21:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.8 · 27.09.2026 21:42</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -6548,6 +6548,9 @@ async function syncArchiveStatuses(){
   let npPaid=0, npDelivered=0, npReturned=0, ukrPaid=0, ukrDelivered=0, ukrReturned=0;
   const errors = [];
 
+  // НП і Укrpошта обробляються в ОКРЕМИХ try/catch: раніше одна крива декларація (напр. штрихкод
+  // неправильної довжини) валила запит цілим пакетом і зривала взагалі все — включно з НП-частиною,
+  // яка вже встигла оновитись у пам'яті, але так і не доходила до renderOrders()/scheduleSave().
   try{
     if(npList.length > 0){
       if(!npApiKey){
@@ -6568,13 +6571,22 @@ async function syncArchiveStatuses(){
         }
       }
     }
+  }catch(err){
+    errors.push('НП: помилка запиту — ' + err.message);
+  }
 
-    if(ukrList.length > 0){
+  try{
+    // штрихкод Укrpошти має бути рівно 13 цифр — інакше весь пакетний запит відхиляється сервером
+    // (навіть якщо кривий лише один рядок). Криві номери пропускаємо окремо, решту перевіряємо як завжди.
+    const ukrValid = ukrList.filter(o => (o.ukrTtnNumber||'').replace(/\D/g,'').length === 13);
+    const ukrInvalidCount = ukrList.length - ukrValid.length;
+    if(ukrInvalidCount > 0) errors.push(`Укрпошта: пропущено ${ukrInvalidCount} декларацій(ю) з неправильним номером (не 13 цифр).`);
+    if(ukrValid.length > 0){
       if(!ukrBearer){
         errors.push('Укрпошта: не вказано Bearer.');
       } else {
-        for(let i=0; i<ukrList.length; i+=100){
-          const chunk = ukrList.slice(i, i+100);
+        for(let i=0; i<ukrValid.length; i+=100){
+          const chunk = ukrValid.slice(i, i+100);
           const barcodes = chunk.map(o => o.ukrTtnNumber);
           const data = await ukrTrackingApiCall('/statuses/last', 'POST', barcodes);
           chunk.forEach(o => {
@@ -6587,7 +6599,11 @@ async function syncArchiveStatuses(){
         }
       }
     }
+  }catch(err){
+    errors.push('Укрпошта: помилка запиту — ' + err.message);
+  }
 
+  try{
     renderOrders();
     scheduleSave();
     const tsModal = document.getElementById('todayShipmentsModal');
