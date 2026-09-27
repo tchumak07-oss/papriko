@@ -233,11 +233,12 @@
     header .sub{display:none;}
     header .eyebrow{font-size:10px;}
 
-    /* плаваюча кнопка "Нове замовлення" — менша і трохи нижче, щоб не заважала заголовку */
-    .wrap > button[onclick="createOrderFromAnywhere()"]{
+    /* плаваюча кнопка "Нове замовлення" (разом з вибором набору) — менша і трохи нижче, щоб не заважала заголовку */
+    #quickOrderBar{
       top:auto!important;bottom:16px!important;right:16px!important;
-      box-shadow:0 4px 14px rgba(0,0,0,0.5);z-index:300;
+      z-index:300;
     }
+    #quickOrderBar button{box-shadow:0 4px 14px rgba(0,0,0,0.5);}
 
     /* більші зони дотику для чекбоксів і кнопок на тач-екранах */
     input[type="checkbox"]{width:18px;height:18px;}
@@ -303,13 +304,16 @@
         <h1>Адміністрування Папріко</h1>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.15.6 · 27.09.2026 19:38</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.16.2 · 27.09.2026 20:01</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
     </div>
   </header>
-  <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()" style="position:fixed;top:16px;right:24px;z-index:200;box-shadow:0 4px 14px rgba(0,0,0,0.4);">+ Нове замовлення</button>
+  <div id="quickOrderBar" style="position:fixed;top:16px;right:24px;z-index:200;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+    <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()" style="box-shadow:0 4px 14px rgba(0,0,0,0.4);">+ Нове замовлення</button>
+    <select id="quickOrderKitSelect" onchange="setQuickOrderKit(this.value)" title="Цей набір автоматично додаватиметься в кожне нове замовлення, поки ви не зміните вибір тут" style="width:220px;font-size:12px;padding:4px 8px;box-shadow:0 4px 14px rgba(0,0,0,0.4);"></select>
+  </div>
 
   <div class="app-layout">
     <nav class="app-sidebar">
@@ -1473,6 +1477,7 @@ function buildStatePayload(){
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
+    quickOrderKitId,
     updatedAt: new Date().toISOString()
   };
 }
@@ -1536,8 +1541,10 @@ function applyRemoteData(data){
   nextCashId = data.nextCashId || (Math.max(0, ...cashTransactions.map(t=>t.id), 0) + 1);
   nextCounterpartyId = data.nextCounterpartyId || (Math.max(0, ...counterparties.map(c=>c.id), 0) + 1);
   nextSupplierOrderId = data.nextSupplierOrderId || (Math.max(0, ...supplierOrderHistory.map(s=>s.id), 0) + 1);
+  quickOrderKitId = data.quickOrderKitId || '';
   renderCatalog();
   renderKits();
+  renderQuickOrderKitSelect();
   renderOrders();
   renderSummary();
   renderOrdersSummary();
@@ -1603,26 +1610,31 @@ function scheduleSave(){
   fbSaveTimer = setTimeout(() => {
     fbSaveTimer = null;
     fbSaveInFlight = true;
-    // читаємо поточний стан на сервері прямо перед записом: якщо він новіший за той, що ми
-    // востаннє бачили (значить, інша вкладка/пристрій зберегли зміни, поки ця вкладка не оновлювалась),
-    // НЕ відкидаємо свої щойно зроблені локальні зміни наосліп (саме так губилось вибране відділення НП,
-    // додані товари тощо — правка була гірша за проблему) — натомість підтягуємо з серверної версії лише
-    // "чужі" критичні поля, яких у нас ще немає (номери ТТН/статуси, створені деінде, чи нові замовлення),
-    // і записуємо поверх це вже об'єднане, актуальне локальне повідомлення.
-    fbDocRef.get().then(snap => {
-      const remote = snap.exists ? snap.data() : null;
-      if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
-        const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
-        remoteOrders.forEach(ro => {
-          const lo = orders.find(o => o.id === ro.id);
-          if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
-          ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate']
-            .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
-        });
-        setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
-      }
-      const payload = buildStatePayload();
-      return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; });
+    // атомарна транзакція: читання поточного стану сервера й запис відбуваються як єдина неподільна
+    // операція — Firestore сам автоматично повторить транзакцію, якщо документ на сервері зміниться
+    // між нашим читанням і записом (наприклад, інша вкладка/пристрій встигли зберегтись саме в цю мить).
+    // Це закриває прогалину, яку мав попередній варіант (окремі get() і set() з проміжком між ними,
+    // куди міг встрягнути чужий запис і бути мовчки затертим) — саме так одного разу губились
+    // замовлення, створені в іншій вкладці за кілька секунд до збереження в цій.
+    fbDb.runTransaction(t => {
+      return t.get(fbDocRef).then(snap => {
+        const remote = snap.exists ? snap.data() : null;
+        if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
+          const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
+          remoteOrders.forEach(ro => {
+            const lo = orders.find(o => o.id === ro.id);
+            if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate']
+              .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
+          });
+          setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
+        }
+        const payload = buildStatePayload();
+        t.set(fbDocRef, payload);
+        return payload;
+      });
+    }).then(payload => {
+      lastKnownRemoteUpdatedAt = payload.updatedAt;
     }).catch(err => {
       setSyncBadge('err', 'Помилка збереження: ' + err.message);
     }).finally(() => {
@@ -2255,6 +2267,7 @@ function renderKits(){
     kits.forEach(k => { if(!k.collapsed) renderKitComponents(k.id); renderKitStats(k.id); });
   }
   document.getElementById('kitCount').textContent = kits.length;
+  renderQuickOrderKitSelect();
 }
 
 function kitCollapsedHtml(k){
@@ -3182,7 +3195,17 @@ function addOrder(){
   // щоб нове замовлення одразу було видно.
   resetOrderFilters();
   const id = nextOrderId++;
-  orders.push(newOrderDefaults(id));
+  const o = newOrderDefaults(id);
+  // якщо зафіксовано «швидкий набір» — одразу додаємо його першою позицією, щоб не вибирати вручну щоразу
+  if(quickOrderKitId){
+    const k = kitById(quickOrderKitId);
+    if(k) o.items.push({kitId: k.id, qty: 1, price: k.price || 0});
+  }
+  orders.push(o);
+  if(quickOrderKitId){
+    autoUpdateWeightSilently(id);
+    autoUpdateCodAmountSilently(id);
+  }
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -3890,10 +3913,26 @@ function pickOrderClient(orderId, clientId){
   renderOrders();
   scheduleSave();
 }
-function orderKitOptionsHtml(){
+function orderKitOptionsHtml(placeholder){
   const sorted = [...kits].sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
   const opt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
-  return `<option value="">Оберіть набір/товар…</option>${sorted.map(opt).join('')}`;
+  return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>${sorted.map(opt).join('')}`;
+}
+
+/* ---------- «швидкий набір» — фіксований вибір набору, який автоматично додається в кожне нове замовлення ---------- */
+
+let quickOrderKitId = '';
+
+function renderQuickOrderKitSelect(){
+  const el = document.getElementById('quickOrderKitSelect');
+  if(!el) return;
+  el.innerHTML = orderKitOptionsHtml('— не додавати автоматично —');
+  el.value = quickOrderKitId || '';
+}
+
+function setQuickOrderKit(value){
+  quickOrderKitId = value ? parseInt(value, 10) : '';
+  scheduleSave();
 }
 // тихо перераховує вагу з товарів (без alert) — викликається автоматично при зміні складу замовлення.
 // НЕ перезаписує вагу, якщо жоден товар не має вказаної ваги (щоб не затирати вже вписане вручну нулем).
