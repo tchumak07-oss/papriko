@@ -303,7 +303,7 @@
         <h1>Адміністрування Папріко</h1>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.15.1 · 27.09.2026 14:34</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.15.3 · 27.09.2026 14:42</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -497,6 +497,7 @@
       <p class="hint" style="margin:8px 0 0;">Для кожного платежу оберіть замовлення у списку (за замовчуванням підставлене те, чия сума збігається). «— не прив'язувати —» пропустить рядок.</p>
       <div class="fb-row" style="margin-top:10px;">
         <button class="btn btn-primary btn-sm" type="button" onclick="linkMonoPayments()">Прив'язати позначені й позначити оплаченими</button>
+        <button class="btn btn-sm" type="button" onclick="cancelMonoPayments()">Скасувати</button>
       </div>
     </div></div>
   </div>
@@ -5698,6 +5699,13 @@ function linkMonoPayments(){
   setMonoPaymentsStatus(parts.length ? parts.join(', ')+'.' : 'Готово.', parts.length ? 'ok' : 'error');
 }
 
+// закрити список надходжень із виписки Monobank без прив'язки жодного платежу (нічого не змінюємо в замовленнях).
+function cancelMonoPayments(){
+  monoPaymentsParsed = [];
+  renderMonoPaymentsList();
+  setMonoPaymentsStatus('Скасовано — жодних змін не внесено.', '');
+}
+
 async function handleDeliveryReportFile(file){
   if(!file) return;
   setDeliveryReportStatus('Читаю файл...', 'loading');
@@ -6083,6 +6091,7 @@ function bulkSetOrdersDate(){
     const o = orderById(id);
     if(o) o.date = dateVal;
   });
+  selectedOrderIds.clear();
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
