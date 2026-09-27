@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.16.6 · 27.09.2026 20:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.0 · 27.09.2026 20:31</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1518,6 +1518,9 @@ function applyRemoteData(data){
   // старі замовлення, позначені прапорцем повернення ще до появи статусу «Повернено» в списку —
   // підтягуємо їм статус заднім числом, інакше фільтр за статусом їх не знаходить.
   orders.forEach(o => { if(o.npReturned && o.status !== 'Скасовано' && o.status !== 'Повернено') o.status = 'Повернено'; });
+  // старі замовлення, створені до появи uid — довидаємо його зараз, щоб логіка об'єднання при
+  // збереженні (scheduleSave) могла надійно розрізняти замовлення навіть при збігу числового id.
+  orders.forEach(o => { if(!o.uid) o.uid = generateOrderUid(); });
   clients = data.clients || [];
   stockMovements = data.stockMovements || [];
   cashTransactions = data.cashTransactions || [];
@@ -1651,11 +1654,14 @@ function scheduleSave(){
         if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
           const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
           remoteOrders.forEach(ro => {
-            const lo = orders.find(o => o.id === ro.id);
+            // звіряємо передусім за uid (стійкий до випадкового збігу числового id, який кожна
+            // вкладка/пристрій рахує окремо й незалежно); на uid-позбавлені старі записи — за id.
+            const lo = orders.find(o => (o.uid && ro.uid) ? o.uid === ro.uid : o.id === ro.id);
             if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
             ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
+          resolveDuplicateOrderIds();
           setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
         }
         const payload = buildStatePayload();
@@ -1714,16 +1720,19 @@ function doConnect(config){
           // Коли поточний локальний запис таки виконається, він сам звірить свіжість даних перед записом.
           if(fbSaveTimer || fbSaveInFlight) return;
           const remoteOrders = Array.isArray(remoteData.orders) ? remoteData.orders : [];
+          const remoteUids = new Set(remoteOrders.map(o => o.uid).filter(Boolean));
           const remoteIds = new Set(remoteOrders.map(o => o.id));
           // самозахист: якщо у ЦІЄЇ вкладки в пам'яті є замовлення, яких нема у щойно отриманому стані з
           // сервера — це майже напевно застарілий запис з іншого пристрою/вкладки (зі старою версією
           // програми чи просто застарілими даними в пам'яті), який мовчки затер їх на сервері. Не приймаємо
           // це як істину — відновлюємо ці замовлення локально й одразу перезаписуємо сервер правильною версією.
-          const rescuedOrders = orders.filter(o => !remoteIds.has(o.id));
+          // Звіряємо за uid, коли він є (надійніше за числовий id, який можуть незалежно збігтись).
+          const rescuedOrders = orders.filter(o => o.uid ? !remoteUids.has(o.uid) : !remoteIds.has(o.id));
           applyRemoteData(remoteData);
           lastKnownRemoteUpdatedAt = remoteData.updatedAt || null;
           if(rescuedOrders.length){
             orders.push(...rescuedOrders);
+            resolveDuplicateOrderIds();
             renderOrders();
             renderOrdersSummary();
             setSyncBadge('warn', `Відновлено ${rescuedOrders.length} замовлення(нь), яке(і) зникло(ли) через застарілий запис з іншого пристрою/вкладки — збережено виправлену версію.`);
@@ -3229,9 +3238,29 @@ function daysBetween(fromStr, toStr){
   return Math.max(0, Math.round((to - from) / 86400000));
 }
 
+// унікальний ідентифікатор замовлення, незалежний від числового id — числовий id рахується окремо
+// на кожному пристрої/вкладці й тому може випадково збігтися з id, який паралельно видала інша вкладка
+// (напр. обидві вважають, що наступний вільний номер — 336); тоді два РІЗНИХ замовлення матимуть
+// однаковий id, і логіка об'єднання при збереженні помилково сприйме їх за одне й те саме замовлення,
+// затерши одне з них. uid генерується з часу й випадкового рядка, тому практично ніколи не збігається.
+function generateOrderUid(){
+  return 'ord_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,9);
+}
+
+// якщо після об'єднання даних з іншого пристрою/вкладки в списку опинилися два РІЗНІ замовлення
+// (різний uid) з однаковим числовим id (могло статись ще до появи uid) — видаємо дублікату новий
+// вільний id, щоб нумерація, пошук за id тощо знову працювали однозначно. Саме замовлення не чіпаємо.
+function resolveDuplicateOrderIds(){
+  const seen = new Set();
+  orders.forEach(o => {
+    if(seen.has(o.id)) o.id = nextOrderId++;
+    seen.add(o.id);
+  });
+}
+
 function newOrderDefaults(id){
   return {
-    id, clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, delivered:false, items:[], notes:'', collapsed:false,
+    id, uid: generateOrderUid(), clientId:'', customer:'', phone:'', date: todayStr(), status:'Нове', paid:false, shipped:false, delivered:false, items:[], notes:'', collapsed:false,
     stockDeducted:false, manualArchive:false,
     deliveryMethod: 'Нова Пошта', region:'',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
@@ -9402,7 +9431,7 @@ async function handleOrdersExcelFile(file){
         const ttnVal = keys.ttnKey ? String(first[keys.ttnKey]||'').trim() : '';
         const destSplit = keys.cityKey ? splitDestination(first[keys.cityKey]) : {city:'', warehouse:''};
         const order = {
-          id, clientId:'', customer: keys.customerKey ? String(first[keys.customerKey]||'').trim() : '',
+          id, uid: generateOrderUid(), clientId:'', customer: keys.customerKey ? String(first[keys.customerKey]||'').trim() : '',
           phone: keys.phoneKey ? cleanPhone(first[keys.phoneKey]) : '',
           date: (keys.dateKey && first[keys.dateKey] && excelDateToStr(first[keys.dateKey])) || todayStr(),
           status:'Нове',
