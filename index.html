@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.8 · 27.09.2026 21:42</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.18.0 · 27.09.2026 21:50</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1253,6 +1253,18 @@
   </div></div>
 
   <div class="summary" id="reportsSummary" style="margin-bottom:1.5rem;"></div>
+
+  <div class="section-title">
+    <span id="rb-weekday-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-weekday')">▾ Активність по днях тижня</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportWeekdayReportExcel()">⬇ Excel</button></span>
+  </div>
+  <div id="rb-weekday">
+    <p class="hint" style="margin:-8px 0 14px;">Усі замовлення за обраний період (не лише оплачені), згруповані за днем тижня дати замовлення — щоб бачити, у які дні найбільше активності.</p>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:1fr 100px 120px 120px;"><div>День тижня</div><div style="text-align:right;">Замовлень</div><div style="text-align:right;">Сума</div><div style="text-align:right;">Середній чек</div></div>
+      <div id="reportWeekday"></div>
+    </div></div>
+  </div>
 
   <div class="section-title">
     <span id="rb-topkits-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-topkits')">▸ Топ наборів за виручкою</span>
@@ -7793,9 +7805,62 @@ async function resolveNpCityOblasts(){
   alert(`Визначено область для ${resolved} міст. ${failed > 0 ? 'Не вдалося визначити: '+failed+'.' : ''}`);
 }
 
+const WEEKDAY_LABELS = ['Понеділок','Вівторок','Середа','Четвер','Пʼятниця','Субота','Неділя'];
+let lastWeekdayRows = [];
+function renderWeekdayReport(ordersInRange){
+  const el = document.getElementById('reportWeekday');
+  if(!el) return;
+  const stats = WEEKDAY_LABELS.map(() => ({count:0, revenue:0}));
+  ordersInRange.forEach(o => {
+    if(!o.date) return;
+    const d = new Date(o.date + 'T00:00:00');
+    if(isNaN(d.getTime())) return;
+    const jsDay = d.getDay(); // 0=неділя..6=субота
+    const idx = (jsDay + 6) % 7; // переводимо на 0=понеділок..6=неділя
+    stats[idx].count++;
+    stats[idx].revenue += calcOrder(o).total;
+  });
+  const totalCount = stats.reduce((s,x) => s+x.count, 0);
+  lastWeekdayRows = WEEKDAY_LABELS.map((label,i) => ({label, ...stats[i]}));
+  if(totalCount === 0){
+    el.innerHTML = '<div class="comp-empty">Немає замовлень за цей період.</div>';
+    return;
+  }
+  const maxCount = Math.max(1, ...stats.map(s=>s.count));
+  el.innerHTML = WEEKDAY_LABELS.map((label,i) => {
+    const s = stats[i];
+    const avgCheck = s.count > 0 ? s.revenue / s.count : 0;
+    const isBusiest = s.count === maxCount && s.count > 0;
+    return `
+      <div class="wh-row" style="grid-template-columns:1fr 100px 120px 120px;${isBusiest ? 'background:rgba(224,168,64,0.08);' : ''}">
+        <div>${isBusiest ? '🔥 ' : ''}${label}</div>
+        <div class="cv" style="text-align:right;">${s.count}</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(s.revenue)} грн</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text-muted);">${fmt(avgCheck)} грн</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function exportWeekdayReportExcel(){
+  if(lastWeekdayRows.length === 0 || lastWeekdayRows.every(r => r.count === 0)){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  const fromInput = document.getElementById('rep-date-from');
+  const toInput = document.getElementById('rep-date-to');
+  const period = (fromInput && toInput) ? `${fromInput.value}_${toInput.value}` : todayStr();
+  exportStyledExcel({
+    downloadName: `aktyvnist_dni_tyzhnya_${period}.xlsx`,
+    sheetName: 'Дні тижня',
+    headers: [{header:'День тижня', width:16}, {header:'Замовлень', width:14}, {header:'Сума', width:14}, {header:'Середній чек', width:16}],
+    rows: lastWeekdayRows.map(r => [r.label, r.count, fmt1(r.revenue), fmt1(r.count>0 ? r.revenue/r.count : 0)])
+  });
+}
+
 function renderReports(){
   const summaryEl = document.getElementById('reportsSummary');
   if(!summaryEl) return;
+
+  const allOrdersInRange = orders.filter(o => inReportRange(o.date));
+  renderWeekdayReport(allOrdersInRange);
 
   const paidOrdersInRange = orders.filter(o => o.paid && inReportRange(o.date));
   const revenue = paidOrdersInRange.reduce((s,o) => s + calcOrder(o).total, 0);
