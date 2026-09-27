@@ -303,7 +303,7 @@
         <h1>Адміністрування Папріко</h1>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.15.3 · 27.09.2026 14:42</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.15.6 · 27.09.2026 19:38</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3493,6 +3493,9 @@ async function exportTodayShipmentsExcel(){
   const {orders: list, from, to} = getFilteredShipments();
   if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
 
+  // стовпчик «За наш рахунок» додаємо лише якщо серед вигружених є хоч одна така доставка — інакше він просто пустий і займає місце.
+  const hasOurExpense = list.some(o => o.payerType === 'Відправник');
+
   const columns = [
     {header:'№', key:'num', width:6},
     {header:'Дата', key:'date', width:11},
@@ -3501,7 +3504,7 @@ async function exportTodayShipmentsExcel(){
     {header:'Товари', key:'items', width:36},
     {header:'Сума', key:'total', width:10},
     {header:'Служба доставки', key:'method', width:14},
-    {header:'За наш рахунок', key:'ourExpense', width:14},
+    ...(hasOurExpense ? [{header:'За наш рахунок', key:'ourExpense', width:14}] : []),
     {header:'Місто', key:'city', width:18},
     {header:'Відділення', key:'warehouse', width:24},
     {header:'ТТН', key:'ttn', width:16},
@@ -3549,7 +3552,7 @@ async function exportTodayShipmentsExcel(){
       items: itemsText,
       total: c.total,
       method: o.deliveryMethod || '',
-      ourExpense: ourExpense ? 'так' : '',
+      ...(hasOurExpense ? {ourExpense: ourExpense ? 'так' : ''} : {}),
       city: o.city || o.ukrCity || o.address || '',
       warehouse: o.warehouseDesc || '',
       ttn: o.ttnNumber || o.ukrTtnNumber || '',
@@ -3572,8 +3575,10 @@ async function exportTodayShipmentsExcel(){
         row.getCell('paid').fill = YELLOW;
       }
     }
-    // доставка за наш рахунок — окремо підсвічуємо цю клітинку синім, незалежно від оплати
-    if(ourExpense) row.getCell('ourExpense').fill = BLUE;
+    // доставка за наш рахунок — окремо підсвічуємо цю клітинку синім, незалежно від оплати (лише якщо колонка взагалі є)
+    if(hasOurExpense && ourExpense) row.getCell('ourExpense').fill = BLUE;
+    // ТТН/номер декларації — виділяємо для легкого пошуку в роздрукованій таблиці
+    row.getCell('ttn').font = {size:13, bold:true};
   });
 
   ws.views = [{state:'frozen', ySplit:1}];
@@ -6221,8 +6226,8 @@ function renderOrders(){
     if(filtered.length === 0){
       list.innerHTML = '<div class="comp-empty">Нічого не знайдено за цими фільтрами (шукали і в архіві теж).</div>';
     } else {
-      list.innerHTML = filtered.map(o => {
-        const html = o.collapsed ? orderCollapsedHtml(o) : orderExpandedHtml(o);
+      list.innerHTML = filtered.map((o, idx) => {
+        const html = o.collapsed ? orderCollapsedHtml(o, idx+1) : orderExpandedHtml(o, idx+1);
         // коли показуємо архівні замовлення разом з активними (бо шукаємо по всіх) — позначаємо, де воно лежить
         return (searching && isArchived(o)) ? html.replace('<strong>', '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);">🗄️ В архіві</span> <strong>') : html;
       }).join('');
@@ -6272,6 +6277,7 @@ function exportOrdersExcel(){
     }),
     rowStyleFn: (row, values, idx) => {
       const o = list[idx];
+      row.getCell(9).font = {size:13, bold:true}; // ТТН/номер декларації — виділяємо для легкого пошуку в роздрукованій таблиці
       row.getCell(11).fill = o.paid ? XLS_GREEN : XLS_RED;
       row.getCell(12).fill = o.shipped ? XLS_GREEN : XLS_RED;
       row.getCell(13).fill = o.delivered ? XLS_GREEN : XLS_RED;
@@ -6538,6 +6544,7 @@ function exportArchiveExcel(){
     }),
     rowStyleFn: (row, values, idx) => {
       const o = list[idx];
+      row.getCell(9).font = {size:13, bold:true}; // ТТН/номер декларації — виділяємо для легкого пошуку в роздрукованій таблиці
       row.getCell(11).fill = o.paid ? XLS_GREEN : XLS_RED;
       row.getCell(12).fill = o.shipped ? XLS_GREEN : XLS_RED;
       row.getCell(13).fill = o.delivered ? XLS_GREEN : XLS_RED;
@@ -7969,11 +7976,12 @@ function renderReports(){
   }
 }
 
-function orderCollapsedHtml(o){
+function orderCollapsedHtml(o, num){
   const c = calcOrder(o);
   return `
     <div class="order-card order-card-collapsed${o.shipped?' shipped-card':''}" data-order="${o.id}">
       <div class="order-collapsed-row">
+        ${num ? `<span class="hint order-num" style="font-family:'JetBrains Mono',monospace;flex:0 0 auto;min-width:22px;text-align:right;">${num}</span>` : ''}
         <label style="display:flex;align-items:center;padding:0 2px;cursor:pointer;flex:0 0 auto;" title="Вибрати для пакетної дії">
           <input type="checkbox" ${selectedOrderIds.has(o.id)?'checked':''} onchange="toggleOrderSelect(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
         </label>
@@ -8008,12 +8016,13 @@ function clientOptionsHtml(selectedId){
   return `<option value="">— без клієнта / ввести вручну —</option>${sorted.map(opt).join('')}`;
 }
 
-function orderExpandedHtml(o){
+function orderExpandedHtml(o, num){
   const c = calcOrder(o);
   return `
     <div class="order-card${o.shipped?' shipped-card':''}" data-order="${o.id}">
       <div class="order-head">
         <div class="order-head-left">
+          ${num ? `<span class="hint order-num" style="font-family:'JetBrains Mono',monospace;">${num}</span>` : ''}
           <label style="display:flex;align-items:center;cursor:pointer;" title="Вибрати для пакетної дії">
             <input type="checkbox" ${selectedOrderIds.has(o.id)?'checked':''} onchange="toggleOrderSelect(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
           </label>
