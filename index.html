@@ -148,7 +148,9 @@
   .order-card-collapsed{padding:0.8rem 1.1rem;}
   .order-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
   .order-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;overflow:hidden;}
-  .order-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .order-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:100px;max-width:240px;}
+  .order-collapsed-info .hint{flex:1 1 100px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;cursor:default;}
+  .order-collapsed-info .status-badge{flex:0 0 auto;}
   .order-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:0;flex-wrap:wrap;}
   .order-head-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
   .order-head-left input[type="date"], .order-head-left select{width:auto;min-width:140px;}
@@ -297,7 +299,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.13.0 · 27.09.2026 14:17</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.14.1 · 27.09.2026 14:25</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -421,6 +423,7 @@
       <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
       <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
       <button class="btn btn-sm" onclick="document.getElementById('ukrPaymentsInput').click()">Завантажити реєстр оплат Укрпошти (Excel)</button>
+      <button class="btn btn-sm" onclick="document.getElementById('monoPaymentsInput').click()">Завантажити виписку Monobank (Excel)</button>
       <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
       <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
       <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
@@ -463,6 +466,21 @@
       <p class="hint" style="margin:8px 0 0;">Для знайдених замовлень галочка позначить їх оплаченими. Для рядків без збігу — позначте галочкою, і для них буде створено нове замовлення (Укрпошта, товари порожні) й одразу позначено оплаченим.</p>
       <div class="fb-row" style="margin-top:10px;">
         <button class="btn btn-primary btn-sm" type="button" onclick="markUkrPaymentsOrdersPaid()">Обробити позначені</button>
+      </div>
+    </div></div>
+  </div>
+
+  <input type="file" id="monoPaymentsInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleMonoPaymentsFile(this.files[0])">
+  <div id="monoPaymentsStatus" class="scan-status"></div>
+  <p class="hint" style="margin:-8px 0 14px;">«Завантажити виписку Monobank» — звичайна виписка по рахунку/картці за період, яку можна вивантажити у форматі Excel з кабінету/застосунку Monobank. Програма покаже всі надходження (додатні суми) за цей період і спробує сама підібрати замовлення за співпадінням суми — але остаточний вибір, до якого замовлення прив'язати кожен платіж, завжди за вами: перевірте випадаючий список біля кожного рядка і виправте, де підбір невірний.</p>
+
+  <div id="monoPaymentsWrap" style="display:none;margin-bottom:14px;">
+    <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">Надходження з виписки Monobank</div>
+      <div id="monoPaymentsList" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
+      <p class="hint" style="margin:8px 0 0;">Для кожного платежу оберіть замовлення у списку (за замовчуванням підставлене те, чия сума збігається). «— не прив'язувати —» пропустить рядок.</p>
+      <div class="fb-row" style="margin-top:10px;">
+        <button class="btn btn-primary btn-sm" type="button" onclick="linkMonoPayments()">Прив'язати позначені й позначити оплаченими</button>
       </div>
     </div></div>
   </div>
@@ -5505,6 +5523,140 @@ function markUkrPaymentsOrdersPaid(){
   setUkrPaymentsStatus(parts.length ? parts.join(', ')+'.' : 'Готово.', 'ok');
 }
 
+/* ---------- виписка Monobank: показуємо надходження і даємо прив'язати кожне до конкретного замовлення ---------- */
+
+let monoPaymentsParsed = [];
+
+function setMonoPaymentsStatus(text, kind){
+  const el = document.getElementById('monoPaymentsStatus');
+  if(!el) return;
+  el.className = 'scan-status' + (kind ? ' '+kind : '');
+  el.textContent = text || '';
+}
+
+async function handleMonoPaymentsFile(file){
+  if(!file) return;
+  setMonoPaymentsStatus('Читаю файл...', 'loading');
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+    if(aoa.length === 0) throw new Error('У файлі немає рядків з даними');
+
+    // виписка Monobank починається з кількох службових рядків (номер картки/рахунку, період) —
+    // шукаємо саму шапку таблиці: рядок, де є одночасно колонка з датою і колонка із сумою.
+    let headerRowIdx = -1, dateIdx = -1, amountIdx = -1, descIdx = -1;
+    for(let r = 0; r < aoa.length; r++){
+      const row = aoa[r];
+      const d = findHeaderColIndex(row, ['датаічасоперації','датаоперації','дата']);
+      const a = findHeaderColIndex(row, ['сумавалютікартки', 'сумаоперації', 'сума']);
+      if(d > -1 && a > -1){
+        headerRowIdx = r; dateIdx = d; amountIdx = a;
+        descIdx = findHeaderColIndex(row, ['деталіоперації','описоперації','опис','призначенняплатежу']);
+        break;
+      }
+    }
+    if(headerRowIdx === -1) throw new Error('Не знайшов колонки «Дата» і «Сума» — переконайтесь, що це виписка Monobank, вивантажена як Excel (у застосунку/кабінеті: Виписка → обрати період → вивантажити .xlsx)');
+
+    const parsed = [];
+    for(let r = headerRowIdx+1; r < aoa.length; r++){
+      const row = aoa[r];
+      const amountRaw = String(row[amountIdx]||'').trim();
+      if(!amountRaw) continue;
+      const amount = parseFloat(amountRaw.replace(/\s/g,'').replace(',','.'));
+      if(!amount || amount <= 0) continue; // нас цікавлять лише надходження (додатна сума), витрати пропускаємо
+      const date = excelDateToStr(row[dateIdx]);
+      const desc = descIdx > -1 ? String(row[descIdx]||'').trim() : '';
+
+      // автопідбір: серед неоплачених замовлень шукаємо збіг суми (з точністю до копійки)
+      const candidate = orders.find(o => !o.paid && Math.abs(calcOrder(o).total - amount) < 0.01);
+
+      parsed.push({ date, amount, desc, orderId: candidate ? candidate.id : null, linked: false });
+    }
+
+    if(parsed.length === 0) throw new Error('У виписці не знайдено жодного надходження (рядка з додатною сумою)');
+
+    monoPaymentsParsed = parsed;
+    renderMonoPaymentsList();
+    const matched = parsed.filter(p => p.orderId).length;
+    setMonoPaymentsStatus(`Надходжень у виписці: ${parsed.length}. Автоматично підібрано замовлення за сумою для ${matched}. Перевірте кожен рядок нижче — де підбір невірний або відсутній, оберіть замовлення вручну.`, 'ok');
+  }catch(err){
+    setMonoPaymentsStatus('Помилка: ' + (err && err.message ? err.message : err), 'error');
+  }
+  document.getElementById('monoPaymentsInput').value = '';
+}
+
+// список замовлень для випадаючого списку одного платежу: спочатку найближчі за сумою, потім решта неоплачених.
+function monoOrderOptionsHtml(amount, selectedId){
+  const candidates = orders.filter(o => !o.paid || String(o.id) === String(selectedId));
+  const scored = candidates.map(o => ({o, diff: Math.abs(calcOrder(o).total - amount)}))
+    .sort((a,b) => a.diff - b.diff || (a.o.customer||'').localeCompare(b.o.customer||''));
+  const opts = scored.map(({o,diff}) => {
+    const total = calcOrder(o).total;
+    const mark = diff < 0.01 ? ' ✓ збігається' : '';
+    return `<option value="${o.id}" ${String(selectedId)===String(o.id)?'selected':''}>${escapeAttr(o.customer||'Без імені')} — ${fmt(total)} грн${mark} (${o.date||''})</option>`;
+  }).join('');
+  return `<option value="">— не прив'язувати —</option>${opts}`;
+}
+
+function renderMonoPaymentsList(){
+  const listEl = document.getElementById('monoPaymentsList');
+  const wrapEl = document.getElementById('monoPaymentsWrap');
+  if(!listEl || !wrapEl) return;
+  if(monoPaymentsParsed.length === 0){
+    wrapEl.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+  wrapEl.style.display = '';
+  listEl.innerHTML = monoPaymentsParsed.map((p, idx) => {
+    const order = p.orderId ? orderById(p.orderId) : null;
+    let statusText, statusColor;
+    if(p.linked){ statusText = '✓ прив’язано і позначено оплаченим'; statusColor = 'var(--cardamom)'; }
+    else if(order && order.paid){ statusText = 'це замовлення вже оплачене'; statusColor = 'var(--text-muted)'; }
+    else if(order){ statusText = 'готово до прив’язки'; statusColor = 'var(--saffron)'; }
+    else { statusText = 'не прив’язано'; statusColor = 'var(--text-faint)'; }
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;flex-wrap:wrap;">
+        <span style="flex:1 1 220px;min-width:180px;">
+          <strong style="font-family:'JetBrains Mono',monospace;">${fmt(p.amount)} грн</strong> · ${escapeAttr(p.date||'')}
+          ${p.desc ? `<br><span class="hint">${escapeAttr(p.desc)}</span>` : ''}
+        </span>
+        <select ${p.linked?'disabled':''} onchange="monoPaymentsParsed[${idx}].orderId = this.value ? Number(this.value) : null; renderMonoPaymentsList();" style="width:auto;min-width:240px;">
+          ${monoOrderOptionsHtml(p.amount, p.orderId)}
+        </select>
+        <span class="hint" style="color:${statusColor};min-width:170px;">${statusText}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function linkMonoPayments(){
+  const toLink = monoPaymentsParsed.filter(p => p.orderId && !p.linked);
+  if(toLink.length === 0){ setMonoPaymentsStatus("Немає жодного платежу з обраним замовленням — виберіть замовлення у списку нижче.", 'error'); return; }
+  let linked = 0, skippedAlreadyPaid = 0;
+  toLink.forEach(p => {
+    const order = orderById(p.orderId);
+    if(!order) return;
+    if(order.paid){ skippedAlreadyPaid++; return; }
+    order.paid = true;
+    order.codReceivedAmount = p.amount;
+    order.codPaymentDate = p.date || todayStr();
+    order.notes = (order.notes ? order.notes + ' · ' : '') + `Оплата Monobank${p.desc ? ': '+p.desc : ''} (${p.date||''})`;
+    p.linked = true;
+    linked++;
+  });
+  renderOrders();
+  renderOrdersSummary();
+  renderMonoPaymentsList();
+  scheduleSave();
+  const parts = [];
+  if(linked) parts.push(`прив'язано й позначено оплаченими: ${linked}`);
+  if(skippedAlreadyPaid) parts.push(`пропущено (замовлення вже оплачене): ${skippedAlreadyPaid}`);
+  setMonoPaymentsStatus(parts.length ? parts.join(', ')+'.' : 'Готово.', parts.length ? 'ok' : 'error');
+}
+
 async function handleDeliveryReportFile(file){
   if(!file) return;
   setDeliveryReportStatus('Читаю файл...', 'loading');
@@ -5677,6 +5829,21 @@ function deliverySummaryText(o){
     return `Укрпошта${o.ukrIndex ? ', ' + o.ukrIndex : ''}${regionPart ? ', ' + regionPart.replace(/, $/,'') : ''}${addrPart ? ', ' + addrPart : ''}${o.ukrTtnNumber ? ' · ЕН '+o.ukrTtnNumber : ''}`;
   }
   return o.deliveryMethod + (regionPart ? ', ' + regionPart.replace(/, $/,'') : '') + (o.address ? ', ' + o.address : '');
+}
+
+// коротка службова примітка, яку самі автоматичні імпорти (НП/Укрпошта) записують у order.notes —
+// у згорнутому рядку її не дублюємо текстом (для цього вже є бейдж «⬇ з кабінету НП» з тултипом),
+// щоб рядок замовлення не розтягувався на кілька рядків.
+const AUTO_IMPORT_NOTE_PREFIX = 'Імпортовано автоматично';
+
+// один рядок-підсумок для згорнутої картки замовлення: дата · кількість позицій · доставка · примітки.
+// рендериться в один рядок з обрізанням («…») і повним текстом у title — щоб рядки не розтягувались по висоті.
+function orderCollapsedHintHtml(o){
+  const parts = [o.date || '', `${o.items.length} поз.`, deliverySummaryText(o)];
+  if(o.stockDeducted) parts.push('✓ списано');
+  if(o.notes && !o.notes.startsWith(AUTO_IMPORT_NOTE_PREFIX)) parts.push('💬 ' + o.notes);
+  const text = parts.filter(Boolean).join(' · ');
+  return `<span class="hint" title="${escapeAttr(text)}">${escapeAttr(text)}</span>`;
 }
 
 function autoCalcShipmentWeight(orderId){
@@ -6002,7 +6169,7 @@ function archiveCollapsedHtml(o){
           ${carrierBadgeHtml(o)}
           ${shipmentTrackHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
-          <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
+          ${orderCollapsedHintHtml(o)}
         </div>
         <div class="hint" style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--saffron);">${fmt(c.total)} грн</div>
         <div class="kit-collapsed-actions">
@@ -7681,7 +7848,7 @@ function orderCollapsedHtml(o){
           ${carrierBadgeHtml(o)}
           ${shipmentTrackHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
-          <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
+          ${orderCollapsedHintHtml(o)}
         </div>
         <div class="hint" id="order-total-${o.id}" style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--saffron);">${fmt(c.total)} грн</div>
         <div class="kit-collapsed-actions">
