@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.6 · 27.09.2026 13:18</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.8 · 27.09.2026 13:32</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3723,6 +3723,14 @@ function updateOrderField(id, field, value){
   renderOrdersSummary();
   scheduleSave();
 }
+// галочка "Доставка за наш рахунок" — керує тим самим payerType, що вже передається і в НП
+// (PayerType: Sender/Recipient), і в Укрпошту (paidByRecipient), просто у вигляді чекбокса замість списку.
+function setPayerAtOurExpense(id, checked){
+  const o = orderById(id);
+  if(!o) return;
+  o.payerType = checked ? 'Відправник' : 'Отримувач';
+  scheduleSave();
+}
 function toggleOrderPaid(id, checked){
   const o = orderById(id);
   if(!o) return;
@@ -5536,7 +5544,7 @@ async function handleDeliveryReportFile(file){
           weight: weightKey ? row[weightKey] : '',
           cost: costKey ? row[costKey] : '',
           codAmount: codKey ? row[codKey] : '',
-          date: dateKey ? excelDateToStr(row[dateKey]) : todayStr(),
+          date: (dateKey && excelDateToStr(row[dateKey])) || todayStr(),
           selected: true
         });
         return;
@@ -5653,13 +5661,6 @@ function deliveryBlockHtml(o){
         <div><label>Оголошена вартість, грн</label><input type="number" step="1" value="${o.cost}" oninput="updateOrderField(${o.id},'cost',this.value)" placeholder="${fmt(calcOrder(o).total)}"></div>
         <div style="grid-column:span 3;"><label>Опис вантажу</label><input type="text" value="${escapeAttr(o.description||'')}" oninput="updateOrderField(${o.id},'description',this.value)"></div>
         <div>
-          <label>Хто платить за доставку</label>
-          <select oninput="updateOrderField(${o.id},'payerType',this.value)">
-            <option ${o.payerType==='Отримувач'?'selected':''}>Отримувач</option>
-            <option ${o.payerType==='Відправник'?'selected':''}>Відправник</option>
-          </select>
-        </div>
-        <div>
           <label>Спосіб оплати</label>
           <select oninput="updateOrderField(${o.id},'paymentMethod',this.value)">
             <option ${o.paymentMethod==='Готівка'?'selected':''}>Готівка</option>
@@ -5671,6 +5672,10 @@ function deliveryBlockHtml(o){
           <button class="btn btn-primary btn-sm" id="np-create-btn-${o.id}" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
         </div>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:8px;">
+        <input type="checkbox" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
+        Доставка за наш рахунок
+      </label>
       <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі. Оскільки у вас підключено послугу «Контроль оплати» (договір з NovaPay), кошти йдуть напряму на розрахунковий рахунок ФОП, а не готівкою чи на картку — без потреби вказувати картку для кожної посилки окремо.</p>
       <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
       ${!o.ttnNumber ? `
@@ -5711,6 +5716,10 @@ function deliveryBlockHtml(o){
           <button class="btn btn-primary btn-sm" type="button" id="ukr-create-btn-${o.id}" onclick="createUkrShipment(${o.id})">Створити накладну (Укрпошта)</button>
         </div>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:8px;">
+        <input type="checkbox" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
+        Доставка за наш рахунок
+      </label>
       <p class="hint" id="ukr-index-status-${o.id}" style="margin-top:4px;">${o.ukrOfficeDesc ? `Відділення за цим індексом: <strong>${escapeAttr(o.ukrOfficeDesc)}</strong>` : ''}</p>
       <p class="hint" style="margin-top:4px;">Якщо поле «Вулиця» порожнє — відправлення оформлюється до відділення (за індексом). Якщо заповнене — до дверей. Сума контролю оплати передається в декларацію як післяплата (за наявності договору з NovaPay — надходить напряму на розрахунковий рахунок).</p>
       <div id="ukr-result-${o.id}" style="margin-top:8px;">${ukrResultHtml(o)}</div>
@@ -8909,7 +8918,7 @@ async function handleOrdersExcelFile(file){
         const order = {
           id, clientId:'', customer: keys.customerKey ? String(first[keys.customerKey]||'').trim() : '',
           phone: keys.phoneKey ? cleanPhone(first[keys.phoneKey]) : '',
-          date: keys.dateKey && first[keys.dateKey] ? excelDateToStr(first[keys.dateKey]) : todayStr(),
+          date: (keys.dateKey && first[keys.dateKey] && excelDateToStr(first[keys.dateKey])) || todayStr(),
           status:'Нове',
           paid: keys.paidKey ? parsePaidCell(first[keys.paidKey]) : false,
           shipped: keys.shippedKey ? parseBoolCell(first[keys.shippedKey]) : false,
@@ -8983,18 +8992,25 @@ function normalizeMethod(v){
   return 'Нова Пошта';
 }
 
+// Розпізнає дату з клітинки Excel (число-серіал, "ДД.ММ.РРРР" чи інший розпізнаваний формат).
+// Якщо розпізнати не вдалось — повертає '' (порожній рядок), А НЕ сьогоднішню дату: раніше ця
+// функція тихцем підставляла todayStr() при невдачі, через що дата зі звіту НП іноді мовчки
+// підмінялась на "сьогодні" замість реальної дати відправки. Виклики самі вирішують, чи потрібен
+// резервний варіант (todayStr()), коли ця функція повертає ''.
 function excelDateToStr(v){
-  // числове значення дати з Excel (кількість днів від 1900) або текстова дата
+  if(v === '' || v === null || v === undefined) return '';
   if(typeof v === 'number'){
     const d = new Date(Math.round((v - 25569) * 86400 * 1000));
     if(!isNaN(d)) return d.toISOString().slice(0,10);
   }
   const s = String(v).trim();
-  const m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/);
+  if(!s) return '';
+  // "ДД.ММ.РРРР" чи "ДД.ММ.РРРР ГГ:ХХ[:СС]" — час (якщо є) відкидаємо, беремо лише дату
+  const m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})(?:\s+\d{1,2}:\d{2}(:\d{2})?)?$/);
   if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
   const d2 = new Date(s);
   if(!isNaN(d2)) return d2.toISOString().slice(0,10);
-  return todayStr();
+  return '';
 }
 
 /* ---------- init ---------- */
