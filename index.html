@@ -302,9 +302,9 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.16.5 · 27.09.2026 20:15</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.16.2 · 27.09.2026 20:01</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -1669,8 +1669,23 @@ function doConnect(config){
           // зроблені локальні зміни (напр. вибір відділення НП відразу після вибору міста).
           // Коли поточний локальний запис таки виконається, він сам звірить свіжість даних перед записом.
           if(fbSaveTimer || fbSaveInFlight) return;
-          applyRemoteData(snap.data());
-          lastKnownRemoteUpdatedAt = snap.data().updatedAt || null;
+          const remoteData = snap.data();
+          const remoteOrders = Array.isArray(remoteData.orders) ? remoteData.orders : [];
+          const remoteIds = new Set(remoteOrders.map(o => o.id));
+          // самозахист: якщо у ЦІЄЇ вкладки в пам'яті є замовлення, яких нема у щойно отриманому стані з
+          // сервера — це майже напевно застарілий запис з іншого пристрою/вкладки (зі старою версією
+          // програми чи просто застарілими даними в пам'яті), який мовчки затер їх на сервері. Не приймаємо
+          // це як істину — відновлюємо ці замовлення локально й одразу перезаписуємо сервер правильною версією.
+          const rescuedOrders = orders.filter(o => !remoteIds.has(o.id));
+          applyRemoteData(remoteData);
+          lastKnownRemoteUpdatedAt = remoteData.updatedAt || null;
+          if(rescuedOrders.length){
+            orders.push(...rescuedOrders);
+            renderOrders();
+            renderOrdersSummary();
+            setSyncBadge('warn', `Відновлено ${rescuedOrders.length} замовлення(нь), яке(і) зникло(ли) через застарілий запис з іншого пристрою/вкладки — збережено виправлену версію.`);
+            scheduleSave();
+          }
         }, err => {
           setSyncBadge('err', 'Помилка синхронізації');
         });
@@ -3530,7 +3545,7 @@ async function exportTodayShipmentsExcel(){
     ...(hasOurExpense ? [{header:'За наш рахунок', key:'ourExpense', width:14}] : []),
     {header:'Місто', key:'city', width:18},
     {header:'Відділення', key:'warehouse', width:24},
-    {header:'ТТН', key:'ttn', width:16},
+    {header:'ТТН', key:'ttn', width:22},
     {header:'Оплачено', key:'paid', width:10},
     {header:'Відправлено', key:'shipped', width:12},
     {header:'Доставлено', key:'delivered', width:12},
@@ -3639,7 +3654,7 @@ async function exportBranchWaitExcel(){
     {header:'Телефон', key:'phone', width:14},
     {header:'Служба доставки', key:'method', width:14},
     {header:'Місто / відділення', key:'office', width:28},
-    {header:'ТТН', key:'ttn', width:16},
+    {header:'ТТН', key:'ttn', width:22},
     {header:'Статус', key:'status', width:28}
   ];
 
@@ -6298,7 +6313,7 @@ function exportOrdersExcel(){
     headers: [
       {header:'Дата', width:11}, {header:'Клієнт', width:24}, {header:'Телефон', width:14},
       {header:'Товари', width:36}, {header:'Сума', width:10}, {header:'Служба доставки', width:14},
-      {header:'Місто', width:18}, {header:'Відділення', width:24}, {header:'ТТН', width:16},
+      {header:'Місто', width:18}, {header:'Відділення', width:24}, {header:'ТТН', width:22},
       {header:'Статус', width:14}, {header:'Оплачено', width:10}, {header:'Відправлено', width:12},
       {header:'Доставлено', width:12}, {header:'Примітка', width:32}
     ],
@@ -6565,7 +6580,7 @@ function exportArchiveExcel(){
     headers: [
       {header:'Дата', width:11}, {header:'Клієнт', width:24}, {header:'Телефон', width:14},
       {header:'Товари', width:36}, {header:'Сума', width:10}, {header:'Служба доставки', width:14},
-      {header:'Місто', width:18}, {header:'Відділення', width:24}, {header:'ТТН', width:16},
+      {header:'Місто', width:18}, {header:'Відділення', width:24}, {header:'ТТН', width:22},
       {header:'Статус', width:14}, {header:'Оплачено', width:10}, {header:'Відправлено', width:12},
       {header:'Доставлено', width:12}, {header:'Примітка', width:32}
     ],
