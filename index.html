@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.4 · 27.09.2026 21:26</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.5 · 27.09.2026 21:30</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -4429,12 +4429,24 @@ async function runTrackLookup(){
           const recipient = item.RecipientFullName || '';
           const recipientAddr = item.WarehouseRecipient || item.RecipientAddress || '';
           const senderCity = item.CitySender || '';
+          // діагностика: показуємо буквально всі поля відповіді НП, що містять слово "date"/"дата",
+          // і те, що зараз збережено в нашому замовленні — щоб бачити правду, а не здогадуватись.
+          const dateFields = Object.keys(item).filter(k => /date/i.test(k));
+          const dateFieldsHtml = dateFields.length
+            ? dateFields.map(k => `${escapeAttr(k)} = «${escapeAttr(String(item[k]))}»`).join('<br>')
+            : '(жодного поля з "date" у відповіді НП немає)';
+          const ownDeliveredDate = order ? (order.deliveredDate || '(порожнє)') : '—';
           carrierHtml = `
             <div style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
               <strong>Нова Пошта — статус:</strong> ${escapeAttr(item.Status)}<br>
               ${recipient ? `<span class="hint">Отримувач: ${escapeAttr(recipient)}</span><br>` : ''}
               ${recipientAddr ? `<span class="hint">${escapeAttr(recipientAddr)}</span><br>` : ''}
               ${senderCity ? `<span class="hint">Місто відправника: ${escapeAttr(senderCity)}</span>` : ''}
+            </div>
+            <div style="padding:10px 14px;background:var(--surface-2);border:1px dashed var(--border);border-radius:8px;margin-top:8px;">
+              <strong>Діагностика дат:</strong><br>
+              <span class="hint">Поля з датою у відповіді НП:<br>${dateFieldsHtml}</span><br>
+              <span class="hint">Зараз збережено у вашому замовленні (deliveredDate): «${escapeAttr(ownDeliveredDate)}»</span>
             </div>`;
         } else {
           carrierHtml = '<p class="hint">Нова Пошта: дані по цьому номеру не знайдено.</p>';
