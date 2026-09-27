@@ -153,6 +153,16 @@
   .order-head-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
   .order-head-left input[type="date"], .order-head-left select{width:auto;min-width:140px;}
   .status-badge{font-family:'JetBrains Mono',monospace;font-size:11px;padding:2px 8px;border-radius:100px;display:inline-block;white-space:nowrap;}
+  .ship-track{position:relative;display:inline-flex;align-items:center;width:56px;height:14px;margin:0 2px;vertical-align:middle;flex:0 0 auto;}
+  .ship-track-line{position:absolute;left:6px;right:6px;top:50%;height:2px;background:var(--border-soft);transform:translateY(-50%);border-radius:1px;}
+  .ship-track-dot{position:absolute;top:50%;width:6px;height:6px;border-radius:50%;background:var(--text-faint);transform:translate(-50%,-50%);}
+  .ship-track-dot--start{left:6px;}
+  .ship-track-dot--end{left:calc(100% - 6px);}
+  .ship-track-parcel{position:absolute;top:50%;transform:translate(-50%,-50%);color:#2dd4bf;width:13px;height:13px;}
+  .ship-track-parcel svg{display:block;width:100%;height:100%;}
+  .ship-track--transit .ship-track-line{background:var(--saffron);}
+  .ship-track--delivered .ship-track-line, .ship-track--delivered .ship-track-dot--end{background:var(--cardamom);}
+  .ship-track--returned .ship-track-line, .ship-track--returned .ship-track-dot--start{background:var(--danger);}
   .order-item-row{display:grid;grid-template-columns:1fr 70px 90px 90px 26px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:13px;}
   .order-item-row:last-child{border-bottom:none;}
   .order-item-row input[type="number"]{padding:5px 6px;}
@@ -287,7 +297,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.9 · 27.09.2026 13:37</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.13.0 · 27.09.2026 14:17</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -5613,6 +5623,49 @@ function carrierBadgeHtml(o){
   return `<span class="status-badge" title="${escapeAttr(o.deliveryMethod)}" style="background:${m.bg};color:${m.fg};font-weight:700;">${m.label}</span>`;
 }
 
+const SHIP_TRACK_ICON_BOX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg>';
+const SHIP_TRACK_ICON_RETURN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
+
+// маленька декоративна лінія прогресу доставки для заголовка картки замовлення:
+// не відправлено — крапка на старті; в дорозі/на відділенні — посередині (далі, якщо вже на відділенні);
+// доставлено — крапка на фініші; повернення (авто з НП/Укрпошти або вручну статусом «Повернено») — стрілка назад.
+function shipmentTrackHtml(o){
+  const returned = o.npReturned || o.status === 'Повернено';
+  if(returned){
+    return `<span class="ship-track ship-track--returned" title="Повернення">
+      <span class="ship-track-line"></span>
+      <span class="ship-track-dot ship-track-dot--start"></span>
+      <span class="ship-track-dot ship-track-dot--end"></span>
+      <span class="ship-track-parcel" style="left:28%;">${SHIP_TRACK_ICON_RETURN}</span>
+    </span>`;
+  }
+  if(o.delivered){
+    return `<span class="ship-track ship-track--delivered" title="Доставлено">
+      <span class="ship-track-line"></span>
+      <span class="ship-track-dot ship-track-dot--start"></span>
+      <span class="ship-track-dot ship-track-dot--end"></span>
+      <span class="ship-track-parcel" style="left:100%;">${SHIP_TRACK_ICON_BOX}</span>
+    </span>`;
+  }
+  if(o.shipped){
+    const atBranch = isAtBranchAwaitingPickup(o);
+    const pos = atBranch ? 78 : 50;
+    const label = atBranch ? 'На відділенні' : 'В дорозі';
+    return `<span class="ship-track ship-track--transit" title="${label}">
+      <span class="ship-track-line"></span>
+      <span class="ship-track-dot ship-track-dot--start"></span>
+      <span class="ship-track-dot ship-track-dot--end"></span>
+      <span class="ship-track-parcel" style="left:${pos}%;">${SHIP_TRACK_ICON_BOX}</span>
+    </span>`;
+  }
+  return `<span class="ship-track ship-track--pending" title="Ще не відправлено">
+      <span class="ship-track-line"></span>
+      <span class="ship-track-dot ship-track-dot--start"></span>
+      <span class="ship-track-dot ship-track-dot--end"></span>
+      <span class="ship-track-parcel" style="left:0%;">${SHIP_TRACK_ICON_BOX}</span>
+    </span>`;
+}
+
 function deliverySummaryText(o){
   const regionPart = o.region ? o.region + ', ' : '';
   if(o.deliveryMethod === 'Нова Пошта'){
@@ -5947,6 +6000,7 @@ function archiveCollapsedHtml(o){
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
           ${o.manualArchive ? '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);">Вручну в архів</span>' : ''}
           ${carrierBadgeHtml(o)}
+          ${shipmentTrackHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
         </div>
@@ -5971,6 +6025,7 @@ function archiveExpandedHtml(o){
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
           ${o.manualArchive ? '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);">Вручну в архів</span>' : ''}
           ${carrierBadgeHtml(o)}
+          ${shipmentTrackHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
         </div>
         <div class="order-head-left">
@@ -7624,6 +7679,7 @@ function orderCollapsedHtml(o){
           ${c.discount > 0 ? `<span class="status-badge" style="background:var(--danger);color:#fff;" title="Знижка клієнту">🏷 −${fmt(c.discount)} грн</span>` : ''}
           ${o.importedFromNp && o.items.length===0 ? '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);" title="Створено автоматично з кабінету НП — товари не вказані">⬇ з кабінету НП</span>' : ''}
           ${carrierBadgeHtml(o)}
+          ${shipmentTrackHtml(o)}
           <strong>${escapeAttr(o.customer || 'Без імені')}</strong>
           <span class="hint">${o.date || ''} · ${o.items.length} поз. · ${escapeAttr(deliverySummaryText(o))}${o.stockDeducted ? ' · ✓ списано' : ''}${o.notes ? ' · 💬 '+escapeAttr(o.notes) : ''}</span>
         </div>
@@ -7655,6 +7711,7 @@ function orderExpandedHtml(o){
             ${ORDER_STATUSES.map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
           </select>
           ${carrierBadgeHtml(o)}
+          ${shipmentTrackHtml(o)}
           ${(o.delivered && !o.paid && Number(o.codAmount) > 0) ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);" title="НП API не передає підтвердження переказу по «Контролю оплати» — перевірте виписку банку">💰 Перевірте оплату</span>' : ''}
         </div>
         <div class="order-head-left">
