@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.3 · 25.09.2026 17:00</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.6 · 27.09.2026 13:18</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -5260,15 +5260,22 @@ function renderDeliveryReportUnmatched(){
     return;
   }
   wrapEl.style.display = '';
-  listEl.innerHTML = deliveryReportUnmatched.map((r,idx) => `
+  listEl.innerHTML = deliveryReportUnmatched.map((r,idx) => {
+    const hasCod = Number(r.codAmount) > 0;
+    const hasCost = Number(r.cost) > 0;
+    let moneyHint = '';
+    if(hasCod) moneyHint = `післяплата ${fmt(Number(r.codAmount))} грн`;
+    else if(hasCost) moneyHint = `післяплати немає — буде одразу «Оплачено» на ${fmt(Number(r.cost))} грн`;
+    return `
     <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;">
       <input type="checkbox" ${r.selected?'checked':''} onchange="deliveryReportUnmatched[${idx}].selected=this.checked" style="width:auto;accent-color:var(--saffron);">
       <span style="flex:1;">
         <strong>${escapeAttr(r.customer||'Без імені')}</strong>${r.phone ? ' · '+escapeAttr(r.phone) : ''}
-        <br><span class="hint">${escapeAttr(r.city||'')}${r.address ? ', '+escapeAttr(r.address) : ''} · ТТН ${escapeAttr(r.ttn)} · ${escapeAttr(r.statusText||'')} · ${r.date}</span>
+        <br><span class="hint">${escapeAttr(r.city||'')}${r.address ? ', '+escapeAttr(r.address) : ''} · ТТН ${escapeAttr(r.ttn)} · ${escapeAttr(r.statusText||'')} · ${r.date}${moneyHint ? ' · '+moneyHint : ''}</span>
       </span>
     </label>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function createOrdersFromDeliveryReportUnmatched(){
@@ -5287,13 +5294,20 @@ function createOrdersFromDeliveryReportUnmatched(){
       o.warehouseDesc = split.warehouse || r.address || '';
       o.ttnNumber = r.ttn;
       o.weight = r.weight || '';
-      o.cost = r.cost || '';
-      o.codAmount = r.codAmount || '';
+      o.cost = r.cost || ''; // оголошена вартість (з колонки «Вартість вантажу» звіту НП)
+      o.codAmount = r.codAmount || ''; // контроль оплати / післяплата (з колонки звіту, якщо була)
       o.date = r.date || todayStr();
       o.npStatusText = r.statusText || '';
       o.collapsed = true;
       o.importedFromNp = true;
       o.notes = 'Імпортовано автоматично зі звіту доставки НП (Excel) — товари не вказані, заповніть вручну за потреби.';
+      // якщо в звіті немає суми післяплати (контролю оплати) — вважаємо, що замовлення вже оплачене
+      // наперед (передоплата), на суму оголошеної вартості з того самого звіту.
+      if(!(Number(o.codAmount) > 0) && Number(o.cost) > 0){
+        o.paid = true;
+        o.codReceivedAmount = Number(o.cost);
+        o.codPaymentDate = o.date;
+      }
       if(r.statusText){
         if(r.statusText.includes('Поверн') || r.statusText.includes('Відмова')) o.npReturned = true;
         else if(r.statusText.includes('Отримано')){ o.shipped = true; o.delivered = true; }
@@ -5475,7 +5489,7 @@ async function handleDeliveryReportFile(file){
     const ttnKey = findKey(rowKeys, ['номерен','номерент','ttn']);
     const statusKey = findKey(rowKeys, ['статусенанадатуформуванн','статусен','статус']);
     const contactKey = findKey(rowKeys, ['контактотримувача']);
-    const dateKey = findKey(rowKeys, ['датаен','дата']);
+    const dateKey = findKey(rowKeys, ['датавідправки','датаен','дата']);
     const recipientKey = findKey(rowKeys, ['отримувач']);
     const cityKey = findKey(rowKeys, ['містоодержувач','містоотримувача']);
     const addressKey = findKey(rowKeys, ['адресаодержувача','адресаотримувача']);
@@ -6540,6 +6554,7 @@ function buildInvoiceHtml(inv){
   th{background:#f2ece2;text-align:left;}
   .total-row td{font-weight:bold;background:#faf6ee;}
   .notes{margin-top:16px;font-size:13px;color:#333;}
+  .signature{margin-top:36px;font-size:13px;color:#1a1a1a;}
   .print-btn{margin-bottom:20px;}
   @media print{ .print-btn{display:none;} body{padding:0;} }
 </style></head>
@@ -6558,6 +6573,7 @@ function buildInvoiceHtml(inv){
   </table>
   <p class="notes">Сума прописом: ${escapeHtml(numberToUaWords(inv.total))}</p>
   ${inv.notes ? `<p class="notes">${escapeHtml(inv.notes)}</p>` : ''}
+  <p class="signature">Виконавець: ____________________ / Чумак Т.В. /</p>
 </body></html>`;
 }
 
