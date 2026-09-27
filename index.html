@@ -269,6 +269,11 @@
   .balance-pos{color:var(--cardamom);}
 
   .hint{font-size:12px;color:var(--text-faint);}
+  .hint-details summary{font-size:12px;color:var(--text-muted);cursor:pointer;list-style:none;user-select:none;}
+  .hint-details summary::-webkit-details-marker{display:none;}
+  .hint-details summary::before{content:'▸ ';color:var(--text-faint);}
+  .hint-details[open] summary::before{content:'▾ ';}
+  .hint-details summary:hover{color:var(--text);}
 
   .chart-toggle{display:flex;gap:6px;margin-bottom:1.1rem;}
   .chart-toggle button{background:var(--surface-2);border:1px solid var(--border);color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 12px;border-radius:6px;text-transform:uppercase;letter-spacing:.04em;}
@@ -296,10 +301,9 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.14.1 · 27.09.2026 14:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.15.1 · 27.09.2026 14:34</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -436,14 +440,20 @@
   <div id="screenshotStatus" class="scan-status"></div>
   <input type="file" id="ordersExcelInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleOrdersExcelFile(this.files[0])">
   <div id="ordersExcelStatus" class="scan-status" style="margin-bottom:14px;"></div>
-  <p class="hint" style="margin:-8px 0 14px;" id="ordersExcelFormatHint">
-    Формат файлу: один рядок = одна позиція товару. Колонки (назви можуть відрізнятись): <strong>№ замовлення</strong> (щоб згрупувати кілька товарів в одне замовлення), <strong>Дата</strong>, <strong>Клієнт</strong>, <strong>Телефон</strong>, <strong>SKU</strong> (артикул набору з довідника «Товари»), <strong>Кількість</strong>, необов'язково — <strong>Ціна</strong>, <strong>Спосіб доставки</strong>, <strong>Місто</strong>, <strong>Відділення</strong>, <strong>Індекс</strong>, <strong>Адреса</strong>, <strong>ТТН</strong> (номер, якщо вже створена), <strong>Оплачено</strong>/<strong>Відправлено</strong>/<strong>Доставлено</strong> (так/ні), <strong>Примітка</strong>.
-    Якщо якийсь товар не знайдеться в довіднику — програма запитає по кожному окремо, чи створити для нього новий SKU (можна буде донастроїти склад і ціну пізніше).
-  </p>
+  <details class="hint-details" style="margin:-8px 0 14px;" id="ordersExcelFormatHint">
+    <summary>Формат файлу для завантаження замовлень з Excel</summary>
+    <p class="hint" style="margin:6px 0 0;">
+      Один рядок = одна позиція товару. Колонки (назви можуть відрізнятись): <strong>№ замовлення</strong> (щоб згрупувати кілька товарів в одне замовлення), <strong>Дата</strong>, <strong>Клієнт</strong>, <strong>Телефон</strong>, <strong>SKU</strong> (артикул набору з довідника «Товари»), <strong>Кількість</strong>, необов'язково — <strong>Ціна</strong>, <strong>Спосіб доставки</strong>, <strong>Місто</strong>, <strong>Відділення</strong>, <strong>Індекс</strong>, <strong>Адреса</strong>, <strong>ТТН</strong> (номер, якщо вже створена), <strong>Оплачено</strong>/<strong>Відправлено</strong>/<strong>Доставлено</strong> (так/ні), <strong>Примітка</strong>.
+      Якщо якийсь товар не знайдеться в довіднику — програма запитає по кожному окремо, чи створити для нього новий SKU (можна буде донастроїти склад і ціну пізніше).
+    </p>
+  </details>
 
   <input type="file" id="deliveryReportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleDeliveryReportFile(this.files[0])">
   <div id="deliveryReportStatus" class="scan-status"></div>
-  <p class="hint" style="margin:-8px 0 14px;">«Звірити звіт доставки з НП» — це звичайний «Звіт по клієнту за період», який можна вивантажити з кабінету Нової Пошти. Програма зіставить номери ЕН з вашими відправками (за номером ТТН, а якщо ТТН ще не записана — за телефоном отримувача) і сама проставить «Відправлено» / «Доставлено» за статусом у звіті. Накладні, яких немає в програмі (створені на відділенні, у кабінеті чи мобільному додатку — не через цю програму), можна одразу створити зі списку нижче.</p>
+  <details class="hint-details" style="margin:-8px 0 14px;">
+    <summary>Що таке «Звірити звіт доставки з НП»</summary>
+    <p class="hint" style="margin:6px 0 0;">Це звичайний «Звіт по клієнту за період», який можна вивантажити з кабінету Нової Пошти. Програма зіставить номери ЕН з вашими відправками (за номером ТТН, а якщо ТТН ще не записана — за телефоном отримувача) і сама проставить «Відправлено» / «Доставлено» за статусом у звіті. Накладні, яких немає в програмі (створені на відділенні, у кабінеті чи мобільному додатку — не через цю програму), можна одразу створити зі списку нижче.</p>
+  </details>
 
   <div id="deliveryReportUnmatchedWrap" style="display:none;margin-bottom:14px;">
     <div class="catalog-panel"><div style="padding:14px 16px;">
@@ -457,7 +467,10 @@
 
   <input type="file" id="ukrPaymentsInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleUkrPaymentsFile(this.files[0])">
   <div id="ukrPaymentsStatus" class="scan-status"></div>
-  <p class="hint" style="margin:-8px 0 14px;">«Завантажити реєстр оплат Укрпошти» — це «РЕЄСТР ПЕРЕСЛАНИХ СУМ ВАРТОСТІ ВІДПРАВЛЕНЬ З ПІСЛЯПЛАТОЮ», який можна вивантажити з кабінету Укрпошти. Програма зіставить номери ШКІ (декларацій) з вашими замовленнями за полем ТТН Укрпошти і дозволить позначити знайдені як оплачені.</p>
+  <details class="hint-details" style="margin:-8px 0 14px;">
+    <summary>Що таке «Завантажити реєстр оплат Укрпошти»</summary>
+    <p class="hint" style="margin:6px 0 0;">Це «РЕЄСТР ПЕРЕСЛАНИХ СУМ ВАРТОСТІ ВІДПРАВЛЕНЬ З ПІСЛЯПЛАТОЮ», який можна вивантажити з кабінету Укрпошти. Програма зіставить номери ШКІ (декларацій) з вашими замовленнями за полем ТТН Укрпошти і дозволить позначити знайдені як оплачені.</p>
+  </details>
 
   <div id="ukrPaymentsWrap" style="display:none;margin-bottom:14px;">
     <div class="catalog-panel"><div style="padding:14px 16px;">
@@ -472,7 +485,10 @@
 
   <input type="file" id="monoPaymentsInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleMonoPaymentsFile(this.files[0])">
   <div id="monoPaymentsStatus" class="scan-status"></div>
-  <p class="hint" style="margin:-8px 0 14px;">«Завантажити виписку Monobank» — звичайна виписка по рахунку/картці за період, яку можна вивантажити у форматі Excel з кабінету/застосунку Monobank. Програма покаже всі надходження (додатні суми) за цей період і спробує сама підібрати замовлення за співпадінням суми — але остаточний вибір, до якого замовлення прив'язати кожен платіж, завжди за вами: перевірте випадаючий список біля кожного рядка і виправте, де підбір невірний.</p>
+  <details class="hint-details" style="margin:-8px 0 14px;">
+    <summary>Що таке «Завантажити виписку Monobank»</summary>
+    <p class="hint" style="margin:6px 0 0;">Звичайна виписка по рахунку/картці за період, яку можна вивантажити у форматі Excel з кабінету/застосунку Monobank. Програма покаже всі надходження (додатні суми) за цей період і спробує сама підібрати замовлення за співпадінням суми — але остаточний вибір, до якого замовлення прив'язати кожен платіж, завжди за вами: перевірте випадаючий список біля кожного рядка і виправте, де підбір невірний.</p>
+  </details>
 
   <div id="monoPaymentsWrap" style="display:none;margin-bottom:14px;">
     <div class="catalog-panel"><div style="padding:14px 16px;">
@@ -813,6 +829,21 @@
       </div>
     </div>
   </div></div>
+
+  <div id="bulkOrderBar" class="catalog-panel" style="display:none;margin-bottom:14px;">
+    <div style="padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
+      <strong id="bulkOrderCount" style="color:var(--saffron);white-space:nowrap;"></strong>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" id="bulkSelectAllCheckbox" onchange="toggleSelectAllVisibleOrders(this.checked)" style="width:auto;accent-color:var(--saffron);">
+        Позначити всі показані
+      </label>
+      <input type="date" id="bulkDateInput" style="width:auto;">
+      <button class="btn btn-sm" type="button" onclick="bulkSetOrdersDate()">Змінити дату</button>
+      <button class="btn btn-sm" type="button" onclick="bulkArchiveOrders()">В архів</button>
+      <button class="btn btn-sm" type="button" style="color:var(--danger);" onclick="bulkDeleteOrders()">Видалити</button>
+      <button class="btn-ghost" type="button" onclick="clearOrderSelection()">Зняти виділення</button>
+    </div>
+  </div>
 
   <div id="orderList"></div>
 
@@ -5546,14 +5577,17 @@ async function handleMonoPaymentsFile(file){
 
     // виписка Monobank починається з кількох службових рядків (номер картки/рахунку, період) —
     // шукаємо саму шапку таблиці: рядок, де є одночасно колонка з датою і колонка із сумою.
-    let headerRowIdx = -1, dateIdx = -1, amountIdx = -1, descIdx = -1;
+    let headerRowIdx = -1, dateIdx = -1, amountIdx = -1, descIdx = -1, nameIdx = -1, opTypeIdx = -1;
     for(let r = 0; r < aoa.length; r++){
       const row = aoa[r];
       const d = findHeaderColIndex(row, ['датаічасоперації','датаоперації','дата']);
-      const a = findHeaderColIndex(row, ['сумавалютікартки', 'сумаоперації', 'сума']);
+      const a = findHeaderColIndex(row, ['сумавалютірахунку','сумавалютікартки', 'сумаоперації', 'сума']);
       if(d > -1 && a > -1){
         headerRowIdx = r; dateIdx = d; amountIdx = a;
         descIdx = findHeaderColIndex(row, ['деталіоперації','описоперації','опис','призначенняплатежу']);
+        // «Контрагент» — ім'я/назва платника чи отримувача (є у виписці ФОП/бізнес-рахунку) — найважливіша колонка для впізнавання, хто заплатив.
+        nameIdx = findHeaderColIndex(row, ['контрагент']);
+        opTypeIdx = findHeaderColIndex(row, ['видоперації']);
         break;
       }
     }
@@ -5565,14 +5599,20 @@ async function handleMonoPaymentsFile(file){
       const amountRaw = String(row[amountIdx]||'').trim();
       if(!amountRaw) continue;
       const amount = parseFloat(amountRaw.replace(/\s/g,'').replace(',','.'));
-      if(!amount || amount <= 0) continue; // нас цікавлять лише надходження (додатна сума), витрати пропускаємо
+      if(!amount) continue;
+      // цікавлять лише надходження: якщо є колонка «Вид операції» — довіряємо їй (кредит), інакше орієнтуємось на знак суми (>0)
+      const opType = opTypeIdx > -1 ? String(row[opTypeIdx]||'').trim().toLowerCase() : '';
+      const isIncoming = opTypeIdx > -1 ? opType.includes('кредит') : amount > 0;
+      if(!isIncoming) continue;
+      const absAmount = Math.abs(amount);
       const date = excelDateToStr(row[dateIdx]);
       const desc = descIdx > -1 ? String(row[descIdx]||'').trim() : '';
+      const name = nameIdx > -1 ? String(row[nameIdx]||'').trim() : '';
 
       // автопідбір: серед неоплачених замовлень шукаємо збіг суми (з точністю до копійки)
-      const candidate = orders.find(o => !o.paid && Math.abs(calcOrder(o).total - amount) < 0.01);
+      const candidate = orders.find(o => !o.paid && Math.abs(calcOrder(o).total - absAmount) < 0.01);
 
-      parsed.push({ date, amount, desc, orderId: candidate ? candidate.id : null, linked: false });
+      parsed.push({ date, amount: absAmount, desc, name, orderId: candidate ? candidate.id : null, linked: false });
     }
 
     if(parsed.length === 0) throw new Error('У виписці не знайдено жодного надходження (рядка з додатною сумою)');
@@ -5620,7 +5660,7 @@ function renderMonoPaymentsList(){
     return `
       <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;flex-wrap:wrap;">
         <span style="flex:1 1 220px;min-width:180px;">
-          <strong style="font-family:'JetBrains Mono',monospace;">${fmt(p.amount)} грн</strong> · ${escapeAttr(p.date||'')}
+          <strong>${escapeAttr(p.name || 'Без імені платника')}</strong> — <strong style="font-family:'JetBrains Mono',monospace;">${fmt(p.amount)} грн</strong> · ${escapeAttr(p.date||'')}
           ${p.desc ? `<br><span class="hint">${escapeAttr(p.desc)}</span>` : ''}
         </span>
         <select ${p.linked?'disabled':''} onchange="monoPaymentsParsed[${idx}].orderId = this.value ? Number(this.value) : null; renderMonoPaymentsList();" style="width:auto;min-width:240px;">
@@ -5643,7 +5683,8 @@ function linkMonoPayments(){
     order.paid = true;
     order.codReceivedAmount = p.amount;
     order.codPaymentDate = p.date || todayStr();
-    order.notes = (order.notes ? order.notes + ' · ' : '') + `Оплата Monobank${p.desc ? ': '+p.desc : ''} (${p.date||''})`;
+    const monoLabel = p.name || p.desc || '';
+    order.notes = (order.notes ? order.notes + ' · ' : '') + `Оплата Monobank${monoLabel ? ': '+monoLabel : ''} (${p.date||''})`;
     p.linked = true;
     linked++;
   });
@@ -5997,6 +6038,81 @@ function deliveryBlockHtml(o){
 
 function isArchived(o){ return !!((o.paid && o.delivered) || o.manualArchive); }
 
+/* ---------- масовий вибір замовлень і пакетні дії (дата / архів / видалити) ---------- */
+
+let selectedOrderIds = new Set();
+
+function renderBulkOrderBar(){
+  const bar = document.getElementById('bulkOrderBar');
+  const countEl = document.getElementById('bulkOrderCount');
+  if(!bar || !countEl) return;
+  const n = selectedOrderIds.size;
+  if(n === 0){
+    bar.style.display = 'none';
+    const allCb = document.getElementById('bulkSelectAllCheckbox');
+    if(allCb) allCb.checked = false;
+    return;
+  }
+  bar.style.display = '';
+  countEl.textContent = `Обрано: ${n}`;
+}
+
+function toggleOrderSelect(id, checked){
+  if(checked) selectedOrderIds.add(id); else selectedOrderIds.delete(id);
+  renderBulkOrderBar();
+}
+
+function clearOrderSelection(){
+  selectedOrderIds.clear();
+  renderOrders();
+}
+
+function toggleSelectAllVisibleOrders(checked){
+  document.querySelectorAll('#orderList [data-order]').forEach(card => {
+    const id = Number(card.getAttribute('data-order'));
+    if(checked) selectedOrderIds.add(id); else selectedOrderIds.delete(id);
+  });
+  renderOrders();
+}
+
+function bulkSetOrdersDate(){
+  if(selectedOrderIds.size === 0) return;
+  const dateVal = document.getElementById('bulkDateInput').value;
+  if(!dateVal){ alert('Спершу оберіть дату у полі поруч із кнопкою.'); return; }
+  selectedOrderIds.forEach(id => {
+    const o = orderById(id);
+    if(o) o.date = dateVal;
+  });
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+
+function bulkArchiveOrders(){
+  if(selectedOrderIds.size === 0) return;
+  const n = selectedOrderIds.size;
+  if(!confirm(`Відправити в архів ${n} замовлень(-я)?`)) return;
+  selectedOrderIds.forEach(id => {
+    const o = orderById(id);
+    if(o) o.manualArchive = true;
+  });
+  selectedOrderIds.clear();
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+
+function bulkDeleteOrders(){
+  if(selectedOrderIds.size === 0) return;
+  const n = selectedOrderIds.size;
+  if(!confirm(`Видалити ${n} замовлень(-я) повністю (разом з даними доставки й ТТН)? Цю дію не можна скасувати.`)) return;
+  orders = orders.filter(o => !selectedOrderIds.has(o.id));
+  selectedOrderIds.clear();
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+}
+
 function toggleManualArchive(id, checked){
   const o = orderById(id);
   if(!o) return;
@@ -6045,6 +6161,12 @@ function applyOrderFilters(list){
   });
 
   result = [...result].sort((a,b) => {
+    // створені, але ще не відправлені — завжди зверху списку, незалежно від обраного сортування чи вписаної дати,
+    // і сортовані між собою за часом створення (id), найновіші вище.
+    if(!a.shipped && b.shipped) return -1;
+    if(a.shipped && !b.shipped) return 1;
+    if(!a.shipped && !b.shipped) return b.id - a.id;
+
     if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
     if(sortVal === 'date-desc') return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id);
     if(sortVal === 'total-desc') return calcOrder(b).total - calcOrder(a).total || (b.id - a.id);
@@ -6099,6 +6221,13 @@ function renderOrders(){
     }
   }
   document.getElementById('orderCount').textContent = active.length;
+
+  // прибираємо з виділення id, яких вже немає серед замовлень (видалені деінде)
+  if(selectedOrderIds.size){
+    const existingIds = new Set(orders.map(o => o.id));
+    selectedOrderIds.forEach(id => { if(!existingIds.has(id)) selectedOrderIds.delete(id); });
+  }
+  renderBulkOrderBar();
 
   renderArchive();
   syncCashFromArchive();
@@ -7836,6 +7965,9 @@ function orderCollapsedHtml(o){
   return `
     <div class="order-card order-card-collapsed${o.shipped?' shipped-card':''}" data-order="${o.id}">
       <div class="order-collapsed-row">
+        <label style="display:flex;align-items:center;padding:0 2px;cursor:pointer;flex:0 0 auto;" title="Вибрати для пакетної дії">
+          <input type="checkbox" ${selectedOrderIds.has(o.id)?'checked':''} onchange="toggleOrderSelect(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
+        </label>
         <div class="order-collapsed-info">
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
@@ -7873,6 +8005,9 @@ function orderExpandedHtml(o){
     <div class="order-card${o.shipped?' shipped-card':''}" data-order="${o.id}">
       <div class="order-head">
         <div class="order-head-left">
+          <label style="display:flex;align-items:center;cursor:pointer;" title="Вибрати для пакетної дії">
+            <input type="checkbox" ${selectedOrderIds.has(o.id)?'checked':''} onchange="toggleOrderSelect(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
+          </label>
           <input type="date" value="${o.date||''}" oninput="updateOrderField(${o.id},'date',this.value)">
           <select oninput="updateOrderField(${o.id},'status',this.value)">
             ${ORDER_STATUSES.map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
