@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.5 · 27.09.2026 21:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.6 · 27.09.2026 21:35</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -5346,12 +5346,14 @@ function applyNpStatus(o, statusItem){
   // Фактичне отримання посилки отримувачем — лише тоді вважаємо "доставлено".
   if(statusLower.includes('отримано') || paidPhraseMatch){
     o.delivered = true;
-    // НП повертає справжню дату доставки в полі ActualDeliveryDate — використовуємо саме її
-    // (а не "сьогодні", яке залежало лише від того, коли ми випадково натиснули синхронізацію).
-    // Але для частини відправлень (напр. з контролем оплати) це поле порожнє — тоді дата й час
-    // фактичного отримання сидять прямо в тексті самого статусу (напр. «...отримано 26.09.2026
-    // 13:16:56...») — розпізнаємо її звідти як запасний варіант.
-    const actualDate = npDateToIso(statusItem.ActualDeliveryDate) || extractDateFromText(o.npStatusText);
+    // Перевірено на реальній відповіді НП: RecipientDateTime — це дата й час, коли КЛІЄНТ фактично
+    // забрав посилку (саме це нам треба); ActualDeliveryDate часто означає лише дату прибуття на
+    // відділення (може бути на день раніше) і до того ж приходить у форматі РРРР-ММ-ДД, а не
+    // ДД.ММ.РРРР — тому раніше й не розпізнавалась. Пробуємо поля за пріоритетом, гнучким парсером,
+    // що розуміє обидва формати; перезаписуємо безумовно, щоб виправити і вже збережені хибні дати.
+    const actualDate = parseFlexibleDateToIso(statusItem.RecipientDateTime)
+      || parseFlexibleDateToIso(statusItem.ActualDeliveryDate)
+      || parseFlexibleDateToIso(statusItem.TrackingUpdateDate);
     if(actualDate) o.deliveredDate = actualDate;
     else if(!o.deliveredDate) o.deliveredDate = todayStr();
     // За вашим рішенням: якщо була сума післяплати/контролю оплати — вважаємо оплаченим одразу
