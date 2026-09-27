@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.2 · 27.09.2026 20:50</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.3 · 27.09.2026 21:22</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -4579,6 +4579,8 @@ async function syncAllUkrStatuses(){
   if(!res.ok){ alert('Помилка синхронізації з Укрпоштою: ' + res.error); return; }
   renderOrders();
   scheduleSave();
+  const tsModal = document.getElementById('todayShipmentsModal');
+  if(tsModal && tsModal.style.display !== 'none') renderTodayShipmentsModal();
   let msg = `Перевірено ${res.checked} активних декларацій Укрпошти (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Повернень: ${res.returned}.`;
   if(res.completedList && res.completedList.length){
     msg += `\n\nДоставлено й оплачено (${res.completedList.length}):\n` + res.completedList.map(c => `${c.customer} — ${c.ttn}`).join('\n');
@@ -5423,6 +5425,10 @@ async function syncAllNpStatuses(){
     if(!res.ok){ alert('Помилка синхронізації з НП: ' + res.error); return; }
     renderOrders();
     scheduleSave();
+    // якщо зараз відкритий звіт «Звіт по відправленнях» — оновлюємо і його теж, інакше він лишається
+    // зі старим знімком даних (звідси й враження, що синхронізація «нічого не поміняла»).
+    const tsModal = document.getElementById('todayShipmentsModal');
+    if(tsModal && tsModal.style.display !== 'none') renderTodayShipmentsModal();
     let msg = `Перевірено ${res.checked} активних відправлень (без архіву). «Відправлено»: ${res.shipped}. «Доставлено»: ${res.delivered}. «Оплачено»: ${res.paid}. Перенесено в архів: ${res.archived}.`;
     if(res.returned > 0) msg += ` ⚠ Повернень (перевірте повернення коштів): ${res.returned}.`;
     if(res.completedList && res.completedList.length){
