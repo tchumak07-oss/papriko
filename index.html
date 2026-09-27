@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.1 · 27.09.2026 20:36</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.2 · 27.09.2026 20:50</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -3508,7 +3508,12 @@ function renderTodayShipmentsModal(){
       summaryEl.textContent = '';
     } else {
       const total = list.reduce((s,o) => s + calcOrder(o).total, 0);
-      summaryEl.innerHTML = `Обрано: <strong style="color:var(--saffron);">${list.length}</strong> відправлень(-ня) на загальну суму <strong style="color:var(--saffron);">${fmt(total)} грн</strong>.`;
+      // тільки післяплата (накладений платіж) — сума, яку перевізник перекаже/перекажe на рахунок.
+      // Передоплачені замовлення (codAmount не вказано) в цю суму НЕ входять.
+      const codList = list.filter(o => Number(o.codAmount) > 0);
+      const codTotal = codList.reduce((s,o) => s + Number(o.codAmount), 0);
+      summaryEl.innerHTML = `Обрано: <strong style="color:var(--saffron);">${list.length}</strong> відправлень(-ня) на загальну суму <strong style="color:var(--saffron);">${fmt(total)} грн</strong>.<br>`
+        + `У т.ч. <strong>лише післяплата</strong> (буде/було переказано перевізником): <strong style="color:var(--cardamom);">${fmt(codTotal)} грн</strong> (${codList.length} відправлень). Передоплачені замовлення сюди не входять.`;
     }
   }
   if(list.length === 0){
