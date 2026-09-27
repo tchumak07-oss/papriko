@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.0 · 27.09.2026 20:31</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.17.1 · 27.09.2026 20:36</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1518,9 +1518,11 @@ function applyRemoteData(data){
   // старі замовлення, позначені прапорцем повернення ще до появи статусу «Повернено» в списку —
   // підтягуємо їм статус заднім числом, інакше фільтр за статусом їх не знаходить.
   orders.forEach(o => { if(o.npReturned && o.status !== 'Скасовано' && o.status !== 'Повернено') o.status = 'Повернено'; });
-  // старі замовлення, створені до появи uid — довидаємо його зараз, щоб логіка об'єднання при
-  // збереженні (scheduleSave) могла надійно розрізняти замовлення навіть при збігу числового id.
-  orders.forEach(o => { if(!o.uid) o.uid = generateOrderUid(); });
+  // ЗВЕРНІТЬ УВАГУ: старим замовленням (без uid) свідомо НЕ підставляємо тут випадковий uid.
+  // Якби кожен пристрій сам вигадував uid при завантаженні, той самий старий запис отримав би
+  // РІЗНІ uid на телефоні й на комп'ютері — і логіка звірки хибно вважала б, що замовлення
+  // «зникло» та дублювала його. Для старих записів (без uid) звірка й далі йде за числовим id;
+  // uid є лише в замовленнях, створених після цього оновлення — там він один, з моменту створення.
   clients = data.clients || [];
   stockMovements = data.stockMovements || [];
   cashTransactions = data.cashTransactions || [];
@@ -1720,14 +1722,13 @@ function doConnect(config){
           // Коли поточний локальний запис таки виконається, він сам звірить свіжість даних перед записом.
           if(fbSaveTimer || fbSaveInFlight) return;
           const remoteOrders = Array.isArray(remoteData.orders) ? remoteData.orders : [];
-          const remoteUids = new Set(remoteOrders.map(o => o.uid).filter(Boolean));
-          const remoteIds = new Set(remoteOrders.map(o => o.id));
           // самозахист: якщо у ЦІЄЇ вкладки в пам'яті є замовлення, яких нема у щойно отриманому стані з
           // сервера — це майже напевно застарілий запис з іншого пристрою/вкладки (зі старою версією
           // програми чи просто застарілими даними в пам'яті), який мовчки затер їх на сервері. Не приймаємо
           // це як істину — відновлюємо ці замовлення локально й одразу перезаписуємо сервер правильною версією.
-          // Звіряємо за uid, коли він є (надійніше за числовий id, який можуть незалежно збігтись).
-          const rescuedOrders = orders.filter(o => o.uid ? !remoteUids.has(o.uid) : !remoteIds.has(o.id));
+          // Порівнюємо по КОЖНІЙ парі окремо: якщо в ОБОХ (і локального, і віддаленого запису) є uid —
+          // звіряємо за ним, інакше — за числовим id. Так старі записи без uid не дають хибних спрацювань.
+          const rescuedOrders = orders.filter(o => !remoteOrders.some(ro => (o.uid && ro.uid) ? ro.uid === o.uid : ro.id === o.id));
           applyRemoteData(remoteData);
           lastKnownRemoteUpdatedAt = remoteData.updatedAt || null;
           if(rescuedOrders.length){
