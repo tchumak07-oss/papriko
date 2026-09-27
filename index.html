@@ -287,7 +287,7 @@
         <p class="sub">Спочатку впишіть собівартості спецій та упаковки в довіднику. Потім зберіть із них набори, баночки чи пакети — програма сама порахує вартість, прибуток і маржу.</p>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.8 · 27.09.2026 13:32</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.12.9 · 27.09.2026 13:37</span>
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
       </div>
@@ -3434,12 +3434,14 @@ async function exportTodayShipmentsExcel(){
   if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
 
   const columns = [
+    {header:'№', key:'num', width:6},
     {header:'Дата', key:'date', width:11},
     {header:'Клієнт', key:'customer', width:24},
     {header:'Телефон', key:'phone', width:14},
     {header:'Товари', key:'items', width:36},
     {header:'Сума', key:'total', width:10},
     {header:'Служба доставки', key:'method', width:14},
+    {header:'За наш рахунок', key:'ourExpense', width:14},
     {header:'Місто', key:'city', width:18},
     {header:'Відділення', key:'warehouse', width:24},
     {header:'ТТН', key:'ttn', width:16},
@@ -3463,6 +3465,7 @@ async function exportTodayShipmentsExcel(){
   const GREEN = {type:'pattern', pattern:'solid', fgColor:{argb:'FFC6E8C6'}};
   const RED = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF3C6C0'}};
   const YELLOW = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF5E3A8'}};
+  const BLUE = {type:'pattern', pattern:'solid', fgColor:{argb:'FFC6DCF0'}};
 
   const headerRow = ws.getRow(1);
   headerRow.font = {bold:true};
@@ -3471,19 +3474,22 @@ async function exportTodayShipmentsExcel(){
     cell.border = THIN_BORDER;
   });
 
-  list.forEach(o => {
+  list.forEach((o, idx) => {
     const c = calcOrder(o);
     const itemsText = o.items.map(it => {
       const k = kitById(it.kitId);
       return `${k ? k.name : '(товар)'} x${it.qty}`;
     }).join('; ');
+    const ourExpense = o.payerType === 'Відправник';
     const row = ws.addRow({
+      num: idx+1,
       date: o.date || '',
       customer: o.customer || '',
       phone: o.phone || '',
       items: itemsText,
       total: c.total,
       method: o.deliveryMethod || '',
+      ourExpense: ourExpense ? 'так' : '',
       city: o.city || o.ukrCity || o.address || '',
       warehouse: o.warehouseDesc || '',
       ttn: o.ttnNumber || o.ukrTtnNumber || '',
@@ -3494,14 +3500,20 @@ async function exportTodayShipmentsExcel(){
     });
     // Промальовуємо межі клітинок, щоб вийшла справжня таблиця
     row.eachCell({includeEmpty:true}, cell => { cell.border = THIN_BORDER; });
-    // Підсвічуємо статусні колонки: зелений — виконано, червоний — ще ні
-    row.getCell('paid').fill = o.paid ? GREEN : RED;
-    row.getCell('shipped').fill = o.shipped ? GREEN : RED;
-    row.getCell('delivered').fill = o.delivered ? GREEN : RED;
-    // Прострочені по контролю оплати (доставлено, гроші ще не підтверджені) — жовтим
-    if(o.delivered && !o.paid && Number(o.codAmount) > 0){
-      row.getCell('paid').fill = YELLOW;
+    if(o.paid){
+      // оплачено — підсвічуємо салатовим увесь рядок, а не лише клітинку «Оплачено»
+      row.eachCell({includeEmpty:true}, cell => { cell.fill = GREEN; });
+    } else {
+      row.getCell('paid').fill = RED;
+      row.getCell('shipped').fill = o.shipped ? GREEN : RED;
+      row.getCell('delivered').fill = o.delivered ? GREEN : RED;
+      // Прострочені по контролю оплати (доставлено, гроші ще не підтверджені) — жовтим
+      if(o.delivered && Number(o.codAmount) > 0){
+        row.getCell('paid').fill = YELLOW;
+      }
     }
+    // доставка за наш рахунок — окремо підсвічуємо цю клітинку синім, незалежно від оплати
+    if(ourExpense) row.getCell('ourExpense').fill = BLUE;
   });
 
   ws.views = [{state:'frozen', ySplit:1}];
