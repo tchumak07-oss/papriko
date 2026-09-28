@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.19.2 · 28.09.2026 11:22</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.19.3 · 28.09.2026 12:42</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -2587,6 +2587,12 @@ let nextOrderId = 1;
 let orders = [];
 let npApiKey = '';
 let npCitySuggestions = {}; // orderId -> array of {ref, name}
+// orderId -> {cityRef, list:[{Ref,Description}]} — кеш завантаженого списку відділень НП для картки замовлення.
+// Тримаємо його окремо від даних замовлення (не пишемо в orders/Firestore), щоб коли прийде echo власного
+// збереження або оновлення з іншого пристрою/вкладки через onSnapshot і renderOrders() перемалює список —
+// select "Відділення" міг відбудуватись з тим самим переліком варіантів, а не скинутись у "Спершу оберіть
+// місто", поки користувач ще не встиг клікнути потрібне відділення.
+let npWarehousesCache = {};
 
 function toggleDeliverySettings(){
   const body = document.getElementById('deliverySettingsBody');
@@ -5044,6 +5050,7 @@ function selectNpCity(orderId, index){
   o.cityRef = c.ref;
   o.warehouseRef = '';
   o.warehouseDesc = '';
+  delete npWarehousesCache[orderId]; // місто змінилось — старий список відділень більше не актуальний
   // Оновлюємо лише конкретні елементи цієї картки замовлення напряму, БЕЗ повного renderOrders():
   // якщо десь у застосунку (а таких місць багато) список замовлень перемалюється, поки ми чекаємо
   // відповідь НП нижче (loadNpWarehouses), повний renderOrders() тут замінив би DOM-елемент
@@ -5064,10 +5071,16 @@ async function loadNpWarehouses(orderId, cityRef){
     const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
     const list = data || [];
     const o = orderById(orderId);
+    if(!o) return;
+    // Кешуємо завантажений список окремо від стану замовлення: якщо поки користувач вибирає
+    // відділення прийде echo збереження чи оновлення з іншого пристрою/вкладки й renderOrders()
+    // перемалює картку замовлення, deliveryBlockHtml() відбудує select із цього кешу — а не скине
+    // його в "Спершу оберіть місто", і вибір відділення не "зникатиме" на очах.
+    npWarehousesCache[orderId] = {cityRef, list};
     // ПОВТОРНО шукаємо елемент після await: якщо список замовлень встиг перемалюватись, поки чекали
     // відповідь від НП, старий DOM-вузол вже видалено зі сторінки — писати треба в актуальний.
     const select = document.getElementById(`np-warehouse-select-${orderId}`);
-    if(!select || !o) return;
+    if(!select) return;
     select.innerHTML = '<option value="">Оберіть відділення/поштомат…</option>' +
       list.map(w => `<option value="${escapeAttr(w.Ref)}" ${o.warehouseRef===w.Ref?'selected':''}>${escapeAttr(w.Description)}</option>`).join('');
   }catch(err){
@@ -6120,7 +6133,9 @@ function deliveryBlockHtml(o){
         <div>
           <label>Відділення / поштомат</label>
           <select id="np-warehouse-select-${o.id}" onchange="selectNpWarehouse(${o.id}, this.value, this.options[this.selectedIndex].text)">
-            <option value="${escapeAttr(o.warehouseRef||'')}">${o.warehouseDesc ? escapeAttr(o.warehouseDesc) : 'Спершу оберіть місто'}</option>
+            ${(npWarehousesCache[o.id] && npWarehousesCache[o.id].cityRef === o.cityRef)
+              ? '<option value="">Оберіть відділення/поштомат…</option>' + npWarehousesCache[o.id].list.map(w => `<option value="${escapeAttr(w.Ref)}" ${o.warehouseRef===w.Ref?'selected':''}>${escapeAttr(w.Description)}</option>`).join('')
+              : `<option value="${escapeAttr(o.warehouseRef||'')}">${o.warehouseDesc ? escapeAttr(o.warehouseDesc) : 'Спершу оберіть місто'}</option>`}
           </select>
         </div>
       </div>
