@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.18.0 · 27.09.2026 21:50</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.19.0 · 28.09.2026 11:02</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1215,7 +1215,17 @@
     </div>
 
     <div id="invoiceItemsList"></div>
-    <div class="fb-row" style="justify-content:flex-end;margin-top:10px;">
+    <div class="delivery-grid" style="margin-top:10px;">
+      <div><label>Знижка покупцю</label><select id="invoiceDiscountType" onchange="renderInvoiceItemsList()">
+        <option value="none">Без знижки</option>
+        <option value="percent">Відсоток, %</option>
+        <option value="amount">Сума, грн</option>
+      </select></div>
+      <div><label>Розмір знижки</label><input type="number" step="0.1" min="0" id="invoiceDiscountValue" placeholder="0" oninput="renderInvoiceItemsList()"></div>
+    </div>
+    <div class="fb-row" style="justify-content:flex-end;margin-top:10px;flex-direction:column;align-items:flex-end;gap:2px;">
+      <span id="invoiceSubtotalLabel" class="hint" style="display:none;"></span>
+      <span id="invoiceDiscountLabel" class="hint" style="display:none;color:var(--saffron);"></span>
       <strong id="invoiceTotalLabel">Разом: 0 грн</strong>
     </div>
     <div style="margin-top:10px;"><label>Примітка в рахунку</label><input type="text" id="invoiceNotes" placeholder="напр. Оплата протягом 3 банківських днів"></div>
@@ -6996,6 +7006,21 @@ function initInvoicesSection(){
   renderInvoicesHistory();
 }
 
+// та сама логіка знижки, що й у замовленнях (calcOrder): відсоток або фіксована сума, не більша за суму.
+function calcInvoiceDiscount(subtotal){
+  const typeEl = document.getElementById('invoiceDiscountType');
+  const valEl = document.getElementById('invoiceDiscountValue');
+  const type = typeEl ? typeEl.value : 'none';
+  const dVal = valEl ? (Number(valEl.value) || 0) : 0;
+  let discount = 0;
+  if(dVal > 0){
+    if(type === 'percent') discount = subtotal * Math.min(dVal, 100) / 100;
+    else if(type === 'amount') discount = Math.min(dVal, subtotal);
+  }
+  const total = Math.max(0, subtotal - discount);
+  return {discount, total};
+}
+
 function addInvoiceItem(){
   const sel = document.getElementById('invoice-item-select');
   const qtyInput = document.getElementById('invoice-item-qty');
@@ -7038,15 +7063,19 @@ function renderInvoiceItemsList(){
   if(active && el.contains(active) && active.dataset && active.dataset.idx !== undefined){
     focusInfo = {idx: active.dataset.idx, field: active.dataset.field, selStart: active.selectionStart, selEnd: active.selectionEnd};
   }
+  const subtotalEl = document.getElementById('invoiceSubtotalLabel');
+  const discountLabelEl = document.getElementById('invoiceDiscountLabel');
   if(invoiceDraftItems.length === 0){
     el.innerHTML = '<div class="comp-empty">Ще немає позицій — додайте товар вище.</div>';
     if(totalEl) totalEl.textContent = 'Разом: 0 грн';
+    if(subtotalEl) subtotalEl.style.display = 'none';
+    if(discountLabelEl) discountLabelEl.style.display = 'none';
     return;
   }
-  let total = 0;
+  let subtotal = 0;
   el.innerHTML = invoiceDraftItems.map((it,idx) => {
     const sum = (it.qty||0) * (it.price||0);
-    total += sum;
+    subtotal += sum;
     return `
       <div class="wh-row" style="grid-template-columns:1fr 70px 70px 100px 90px 32px;align-items:center;gap:6px;">
         <input type="text" data-idx="${idx}" data-field="name" value="${escapeAttr(it.name)}" placeholder="Назва товару/послуги" oninput="updateInvoiceItemField(${idx},'name',this.value)">
@@ -7058,6 +7087,14 @@ function renderInvoiceItemsList(){
       </div>
     `;
   }).join('');
+  const {discount, total} = calcInvoiceDiscount(subtotal);
+  if(discount > 0){
+    if(subtotalEl){ subtotalEl.style.display = ''; subtotalEl.textContent = `Проміжна сума: ${fmt1(subtotal)} грн`; }
+    if(discountLabelEl){ discountLabelEl.style.display = ''; discountLabelEl.textContent = `Знижка: −${fmt1(discount)} грн`; }
+  } else {
+    if(subtotalEl) subtotalEl.style.display = 'none';
+    if(discountLabelEl) discountLabelEl.style.display = 'none';
+  }
   if(totalEl) totalEl.textContent = `Разом: ${fmt1(total)} грн`;
   if(focusInfo){
     const restored = el.querySelector(`input[data-idx="${focusInfo.idx}"][data-field="${focusInfo.field}"]`);
@@ -7075,6 +7112,8 @@ function clearInvoiceDraft(){
   document.getElementById('invoiceDueDate').value = '';
   document.getElementById('invoiceNotes').value = '';
   document.getElementById('invoiceDate').value = todayStr();
+  document.getElementById('invoiceDiscountType').value = 'none';
+  document.getElementById('invoiceDiscountValue').value = '';
   renderInvoiceItemsList();
   const titleEl = document.getElementById('invoiceDraftTitle');
   if(titleEl) titleEl.textContent = 'Новий рахунок';
@@ -7149,7 +7188,11 @@ function buildInvoiceHtml(inv){
   <table>
     <thead><tr><th>№</th><th>Найменування</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr></thead>
     <tbody>${itemsRows}</tbody>
-    <tfoot><tr class="total-row"><td colspan="5" style="text-align:right;">Разом до сплати:</td><td style="text-align:right;">${fmt1(inv.total)} грн</td></tr></tfoot>
+    <tfoot>
+      ${inv.discount > 0 ? `<tr><td colspan="5" style="text-align:right;border:none;background:none;">Проміжна сума:</td><td style="text-align:right;border:none;background:none;">${fmt1(inv.subtotal)} грн</td></tr>
+      <tr><td colspan="5" style="text-align:right;border:none;background:none;">Знижка${inv.discountType==='percent' ? ` (${fmt1(inv.discountValue)}%)` : ''}:</td><td style="text-align:right;border:none;background:none;">−${fmt1(inv.discount)} грн</td></tr>` : ''}
+      <tr class="total-row"><td colspan="5" style="text-align:right;">Разом до сплати:</td><td style="text-align:right;">${fmt1(inv.total)} грн</td></tr>
+    </tfoot>
   </table>
   <p class="notes">Сума прописом: ${escapeHtml(numberToUaWords(inv.total))}</p>
   ${inv.notes ? `<p class="notes">${escapeHtml(inv.notes)}</p>` : ''}
@@ -7166,7 +7209,10 @@ function generateInvoice(){
   const date = document.getElementById('invoiceDate').value || todayStr();
   const dueDate = document.getElementById('invoiceDueDate').value || '';
   const notes = (document.getElementById('invoiceNotes').value || '').trim();
-  const total = invoiceDraftItems.reduce((s,it) => s + (it.qty||0)*(it.price||0), 0);
+  const subtotal = invoiceDraftItems.reduce((s,it) => s + (it.qty||0)*(it.price||0), 0);
+  const discountType = document.getElementById('invoiceDiscountType').value || 'none';
+  const discountValue = Number(document.getElementById('invoiceDiscountValue').value) || 0;
+  const {discount, total} = calcInvoiceDiscount(subtotal);
 
   const seller = {name:sellerName, edrpou:sellerEdrpou, ipn:sellerIpn, address:sellerAddress, bankName:sellerBankName, iban:sellerIban, phone:sellerPhone};
   const buyer = cp ? {name:cp.name, edrpou:cp.edrpou, ipn:cp.ipn, address:cp.address, contactPerson:cp.contactPerson, contactPhone:cp.contactPhone, phone:cp.phone} : {name:'', edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'', phone:''};
@@ -7178,6 +7224,7 @@ function generateInvoice(){
     if(!inv){ alert('Рахунок для редагування не знайдено — можливо, його вже видалили.'); editingInvoiceId = null; clearInvoiceDraft(); return; }
     // номер і дату створення лишаємо як були — редагування не має "з'їдати" наскрізну нумерацію
     inv.date = date; inv.dueDate = dueDate; inv.notes = notes; inv.total = total;
+    inv.subtotal = subtotal; inv.discountType = discountType; inv.discountValue = discountValue; inv.discount = discount;
     inv.counterpartyId = cp ? cp.id : null;
     inv.seller = seller; inv.buyer = buyer; inv.items = items;
     inv.editedAt = new Date().toISOString();
@@ -7186,6 +7233,7 @@ function generateInvoice(){
       id: nextInvoiceId++,
       number: nextInvoiceNumber++,
       date, dueDate, notes, total,
+      subtotal, discountType, discountValue, discount,
       counterpartyId: cp ? cp.id : null,
       seller, buyer, items,
       createdAt: new Date().toISOString()
@@ -7210,6 +7258,8 @@ function editInvoiceDraft(id){
   document.getElementById('invoiceDate').value = inv.date || '';
   document.getElementById('invoiceDueDate').value = inv.dueDate || '';
   document.getElementById('invoiceNotes').value = inv.notes || '';
+  document.getElementById('invoiceDiscountType').value = inv.discountType || 'none';
+  document.getElementById('invoiceDiscountValue').value = inv.discountValue || '';
   invoiceDraftItems = inv.items.map(it => ({...it}));
   renderInvoiceItemsList();
   const titleEl = document.getElementById('invoiceDraftTitle');
@@ -7272,9 +7322,9 @@ function exportInvoicesHistoryExcel(){
     sheetName: 'Рахунки',
     headers: [
       {header:'№', width:8}, {header:'Контрагент', width:26}, {header:'Дата', width:12},
-      {header:'Дійсний до', width:12}, {header:'Позицій', width:10}, {header:'Сума', width:14}
+      {header:'Дійсний до', width:12}, {header:'Позицій', width:10}, {header:'Знижка', width:12}, {header:'Сума', width:14}
     ],
-    rows: sorted.map(inv => [inv.number, inv.buyer.name || '(без контрагента)', inv.date||'', inv.dueDate||'', inv.items.length, fmt1(inv.total)])
+    rows: sorted.map(inv => [inv.number, inv.buyer.name || '(без контрагента)', inv.date||'', inv.dueDate||'', inv.items.length, inv.discount > 0 ? fmt1(inv.discount) : '', fmt1(inv.total)])
   });
 }
 
