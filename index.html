@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.19.0 · 28.09.2026 11:02</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.19.1 · 28.09.2026 11:15</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1200,6 +1200,7 @@
         <label>Контрагент (покупець)</label>
         <select id="invoiceCounterparty"></select>
       </div>
+      <div><label>№ рахунку</label><input type="number" step="1" min="1" id="invoiceNumber"></div>
       <div><label>Дата рахунку</label><input type="date" id="invoiceDate"></div>
       <div><label>Дійсний до (необов'язково)</label><input type="date" id="invoiceDueDate"></div>
     </div>
@@ -7002,6 +7003,8 @@ function initInvoicesSection(){
   if(itemSel) itemSel.innerHTML = orderKitOptionsHtml();
   const dateEl = document.getElementById('invoiceDate');
   if(dateEl && !dateEl.value) dateEl.value = todayStr();
+  const numEl = document.getElementById('invoiceNumber');
+  if(numEl && !numEl.value) numEl.value = nextInvoiceNumber;
   renderInvoiceItemsList();
   renderInvoicesHistory();
 }
@@ -7112,6 +7115,7 @@ function clearInvoiceDraft(){
   document.getElementById('invoiceDueDate').value = '';
   document.getElementById('invoiceNotes').value = '';
   document.getElementById('invoiceDate').value = todayStr();
+  document.getElementById('invoiceNumber').value = nextInvoiceNumber;
   document.getElementById('invoiceDiscountType').value = 'none';
   document.getElementById('invoiceDiscountValue').value = '';
   renderInvoiceItemsList();
@@ -7206,6 +7210,10 @@ function generateInvoice(){
 
   const cpId = document.getElementById('invoiceCounterparty').value;
   const cp = cpId ? counterpartyById(cpId) : null;
+  const number = Number(document.getElementById('invoiceNumber').value) || 0;
+  if(!number || number < 1){ alert('Вкажіть коректний номер рахунку (більше 0).'); return; }
+  const dup = invoices.find(i => i.number === number && i.id !== editingInvoiceId);
+  if(dup){ alert(`Рахунок з номером ${number} вже існує (для контрагента «${dup.buyer.name||'без контрагента'}» від ${dup.date}). Вкажіть інший номер.`); return; }
   const date = document.getElementById('invoiceDate').value || todayStr();
   const dueDate = document.getElementById('invoiceDueDate').value || '';
   const notes = (document.getElementById('invoiceNotes').value || '').trim();
@@ -7222,8 +7230,8 @@ function generateInvoice(){
   if(editingInvoiceId){
     inv = invoices.find(i => i.id === editingInvoiceId);
     if(!inv){ alert('Рахунок для редагування не знайдено — можливо, його вже видалили.'); editingInvoiceId = null; clearInvoiceDraft(); return; }
-    // номер і дату створення лишаємо як були — редагування не має "з'їдати" наскрізну нумерацію
-    inv.date = date; inv.dueDate = dueDate; inv.notes = notes; inv.total = total;
+    // дату створення (createdAt) лишаємо як була, а номер і дату рахунку тепер можна міняти вручну
+    inv.number = number; inv.date = date; inv.dueDate = dueDate; inv.notes = notes; inv.total = total;
     inv.subtotal = subtotal; inv.discountType = discountType; inv.discountValue = discountValue; inv.discount = discount;
     inv.counterpartyId = cp ? cp.id : null;
     inv.seller = seller; inv.buyer = buyer; inv.items = items;
@@ -7231,7 +7239,7 @@ function generateInvoice(){
   } else {
     inv = {
       id: nextInvoiceId++,
-      number: nextInvoiceNumber++,
+      number,
       date, dueDate, notes, total,
       subtotal, discountType, discountValue, discount,
       counterpartyId: cp ? cp.id : null,
@@ -7240,6 +7248,7 @@ function generateInvoice(){
     };
     invoices.push(inv);
   }
+  if(number >= nextInvoiceNumber) nextInvoiceNumber = number + 1;
   editingInvoiceId = null;
   invoiceDraftItems = [];
   clearInvoiceDraft();
@@ -7248,13 +7257,14 @@ function generateInvoice(){
   openInvoiceWindow(inv);
 }
 
-// підвантажує вже сформований рахунок назад у форму вище для правки (напр. виправити назву SKU) —
-// при повторному "Сформувати рахунок" оновлює той самий рахунок (номер і дата створення не змінюються)
+// підвантажує вже сформований рахунок назад у форму вище для правки (напр. виправити назву SKU, номер чи дату) —
+// при повторному "Сформувати рахунок" оновлює той самий рахунок (дата створення (createdAt) не змінюється)
 function editInvoiceDraft(id){
   const inv = invoices.find(i => i.id === id);
   if(!inv) return;
   editingInvoiceId = id;
   document.getElementById('invoiceCounterparty').value = inv.counterpartyId || '';
+  document.getElementById('invoiceNumber').value = inv.number;
   document.getElementById('invoiceDate').value = inv.date || '';
   document.getElementById('invoiceDueDate').value = inv.dueDate || '';
   document.getElementById('invoiceNotes').value = inv.notes || '';
@@ -7265,7 +7275,7 @@ function editInvoiceDraft(id){
   const titleEl = document.getElementById('invoiceDraftTitle');
   if(titleEl) titleEl.textContent = `Редагування рахунку № ${inv.number}`;
   const noticeEl = document.getElementById('invoiceEditingNotice');
-  if(noticeEl){ noticeEl.style.display = ''; noticeEl.textContent = `Ви редагуєте вже сформований рахунок № ${inv.number} — номер і дата створення не зміняться.`; }
+  if(noticeEl){ noticeEl.style.display = ''; noticeEl.textContent = `Ви редагуєте вже сформований рахунок № ${inv.number} — за потреби можете змінити номер і дату рахунку нижче.`; }
   const btnEl = document.getElementById('invoiceSubmitBtn');
   if(btnEl) btnEl.textContent = 'Зберегти зміни (друк / PDF)';
   document.getElementById('invoiceCounterparty').scrollIntoView({behavior:'smooth', block:'center'});
