@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.20.0 · 29.09.2026 12:24</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.20.1 · 29.09.2026 13:26</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -2729,8 +2729,11 @@ async function recognizeOcrImage(){
     const form = new URLSearchParams();
     form.set('apikey', ocrApiKey);
     form.set('base64Image', dataUrl);
-    form.set('language', 'ukr');
-    form.set('OCREngine', '2');
+    // Engine 3 з auto-визначенням мови — Engine 2 (попередній варіант) офіційно розрахований в основному
+    // на латиницю й давав помилку "E201: language is invalid" на кирилиці; Engine 3 підтримує 200+ мов
+    // саме через language=auto, без явного коду мови.
+    form.set('language', 'auto');
+    form.set('OCREngine', '3');
     form.set('scale', 'true');
     const resp = await fetch('https://api.ocr.space/parse/image', {method:'POST', body: form});
     const json = await resp.json();
