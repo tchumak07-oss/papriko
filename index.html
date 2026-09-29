@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.19.3 · 28.09.2026 12:42</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.20.0 · 29.09.2026 12:24</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -313,7 +313,41 @@
   </header>
   <div id="quickOrderBar" style="position:fixed;top:16px;right:24px;z-index:200;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
     <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()" style="box-shadow:0 4px 14px rgba(0,0,0,0.4);">+ Нове замовлення</button>
+    <button class="btn btn-sm" onclick="openOcrModal()" style="box-shadow:0 4px 14px rgba(0,0,0,0.4);">📷 Зі скріншота</button>
     <select id="quickOrderKitSelect" onchange="setQuickOrderKit(this.value)" title="Цей набір автоматично додаватиметься в кожне нове замовлення, поки ви не зміните вибір тут" style="width:220px;font-size:12px;padding:4px 8px;box-shadow:0 4px 14px rgba(0,0,0,0.4);"></select>
+  </div>
+
+  <div id="ocrModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;align-items:center;justify-content:center;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;">Замовлення зі скріншота</h3>
+        <button class="btn-ghost" onclick="closeOcrModal()" aria-label="Закрити">×</button>
+      </div>
+      <p class="hint" style="margin:0 0 14px;">Завантажте скріншот переписки чи допису (Instagram/Viber/Telegram тощо) — текст розпізнається автоматично через безкоштовний сервіс OCR.space, а нижче можна перевірити й виправити його перед створенням замовлення.</p>
+      <div id="ocrKeyMissingBlock" style="display:none;margin-bottom:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+        <p class="hint" style="margin:0 0 8px;">Спершу вкажіть безкоштовний API-ключ OCR.space (реєстрація на <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener">ocr.space/ocrapi</a>, лист із ключем приходить одразу).</p>
+        <div class="fb-row">
+          <input type="text" id="ocrApiKeyInputModal" placeholder="API-ключ OCR.space">
+          <button class="btn btn-sm" onclick="saveOcrApiKeyFromModal()">Зберегти ключ</button>
+        </div>
+        <div class="hint" id="ocrKeyStatusModal" style="margin-top:6px;"></div>
+      </div>
+      <div class="fb-row" style="margin-bottom:10px;">
+        <input type="file" id="ocrFileInput" accept="image/*">
+        <button class="btn btn-sm" id="ocrRecognizeBtn" onclick="recognizeOcrImage()">Розпізнати</button>
+      </div>
+      <div id="ocrPreviewWrap" style="display:none;margin-bottom:10px;">
+        <img id="ocrPreviewImg" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--border);">
+      </div>
+      <p class="hint" id="ocrStatus" style="margin:0 0 8px;"></p>
+      <div id="ocrResultWrap" style="display:none;">
+        <label>Розпізнаний текст (перевірте й виправте за потреби)</label>
+        <textarea id="ocrResultText" rows="8" style="width:100%;font-family:inherit;font-size:13px;"></textarea>
+        <div class="fb-row" style="margin-top:10px;">
+          <button class="btn btn-primary btn-sm" onclick="createOrderFromOcrText()">Створити замовлення з цього тексту</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="app-layout">
@@ -639,6 +673,16 @@
           <button class="btn btn-sm" onclick="saveNpApiKey()">Зберегти ключ</button>
         </div>
         <div class="hint" id="npKeyStatus" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Розпізнавання скріншотів (OCR.space)</div>
+        <p class="hint" style="margin:0 0 8px;">Безкоштовний ключ — реєстрація на <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener">ocr.space/ocrapi</a> (лист приходить одразу). Використовується для кнопки «📷 Зі скріншота» — розпізнає текст замовлення з фото переписки.</p>
+        <div class="fb-row">
+          <input type="text" id="ocrApiKeyInput" placeholder="API-ключ OCR.space">
+          <button class="btn btn-sm" onclick="saveOcrApiKey()">Зберегти ключ</button>
+        </div>
+        <div class="hint" id="ocrKeyStatus2" style="margin-top:6px;"></div>
       </div>
 
       <div class="catalog-group">
@@ -1523,7 +1567,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 
 function buildStatePayload(){
   return {
-    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
+    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
@@ -1554,6 +1598,7 @@ function applyRemoteData(data){
   supplierOrderHistory = data.supplierOrderHistory || [];
   npCityOblastCache = data.npCityOblastCache || {};
   npApiKey = data.npApiKey || '';
+  ocrApiKey = data.ocrApiKey || '';
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
   tgBotToken = data.tgBotToken || '';
   tgChatId = data.tgChatId || '';
@@ -1617,6 +1662,8 @@ function applyRemoteData(data){
   renderReports();
   const npInput = document.getElementById('npApiKeyInput');
   if(npInput) npInput.value = npApiKey;
+  const ocrInput = document.getElementById('ocrApiKeyInput');
+  if(ocrInput) ocrInput.value = ocrApiKey;
   const tgTokenInput = document.getElementById('tgBotTokenInput');
   if(tgTokenInput) tgTokenInput.value = tgBotToken;
   const tgChatInput = document.getElementById('tgChatIdInput');
@@ -2586,6 +2633,7 @@ function renderCostsPanel(){
 let nextOrderId = 1;
 let orders = [];
 let npApiKey = '';
+let ocrApiKey = '';
 let npCitySuggestions = {}; // orderId -> array of {ref, name}
 // orderId -> {cityRef, list:[{Ref,Description}]} — кеш завантаженого списку відділень НП для картки замовлення.
 // Тримаємо його окремо від даних замовлення (не пишемо в orders/Firestore), щоб коли прийде echo власного
@@ -2615,6 +2663,128 @@ function saveNpApiKey(){
   npApiKey = document.getElementById('npApiKeyInput').value.trim();
   document.getElementById('npKeyStatus').textContent = npApiKey ? 'Ключ збережено.' : 'Ключ очищено.';
   scheduleSave();
+}
+
+/* ---------- OCR.space: розпізнавання скріншотів замовлень ---------- */
+
+function saveOcrApiKey(){
+  ocrApiKey = document.getElementById('ocrApiKeyInput').value.trim();
+  document.getElementById('ocrKeyStatus2').textContent = ocrApiKey ? 'Ключ збережено.' : 'Ключ очищено.';
+  scheduleSave();
+}
+
+function saveOcrApiKeyFromModal(){
+  ocrApiKey = document.getElementById('ocrApiKeyInputModal').value.trim();
+  document.getElementById('ocrKeyStatusModal').textContent = ocrApiKey ? 'Ключ збережено.' : 'Ключ очищено.';
+  const npInput = document.getElementById('ocrApiKeyInput');
+  if(npInput) npInput.value = ocrApiKey;
+  scheduleSave();
+  updateOcrKeyMissingBlock();
+}
+
+function updateOcrKeyMissingBlock(){
+  const block = document.getElementById('ocrKeyMissingBlock');
+  if(block) block.style.display = ocrApiKey ? 'none' : '';
+}
+
+function openOcrModal(){
+  document.getElementById('ocrFileInput').value = '';
+  document.getElementById('ocrPreviewWrap').style.display = 'none';
+  document.getElementById('ocrResultWrap').style.display = 'none';
+  document.getElementById('ocrStatus').textContent = '';
+  const modalKeyInput = document.getElementById('ocrApiKeyInputModal');
+  if(modalKeyInput) modalKeyInput.value = ocrApiKey;
+  updateOcrKeyMissingBlock();
+  document.getElementById('ocrModal').style.display = 'flex';
+}
+
+function closeOcrModal(){
+  document.getElementById('ocrModal').style.display = 'none';
+}
+
+// читає файл як base64 data URL (для OCR.space API, поле base64Image)
+function fileToDataUrl(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function recognizeOcrImage(){
+  if(!ocrApiKey){ alert('Спочатку вкажіть і збережіть API-ключ OCR.space вище.'); return; }
+  const fileInput = document.getElementById('ocrFileInput');
+  const file = fileInput.files && fileInput.files[0];
+  if(!file){ alert('Оберіть файл зі скріншотом.'); return; }
+  const statusEl = document.getElementById('ocrStatus');
+  const btn = document.getElementById('ocrRecognizeBtn');
+  btn.disabled = true;
+  statusEl.textContent = 'Розпізнаю...';
+  try{
+    const dataUrl = await fileToDataUrl(file);
+    const previewImg = document.getElementById('ocrPreviewImg');
+    previewImg.src = dataUrl;
+    document.getElementById('ocrPreviewWrap').style.display = '';
+    const form = new URLSearchParams();
+    form.set('apikey', ocrApiKey);
+    form.set('base64Image', dataUrl);
+    form.set('language', 'ukr');
+    form.set('OCREngine', '2');
+    form.set('scale', 'true');
+    const resp = await fetch('https://api.ocr.space/parse/image', {method:'POST', body: form});
+    const json = await resp.json();
+    if(json.IsErroredOnProcessing){
+      const msg = Array.isArray(json.ErrorMessage) ? json.ErrorMessage.join('; ') : (json.ErrorMessage || 'Невідома помилка OCR.space');
+      statusEl.textContent = 'Помилка розпізнавання: ' + msg;
+      return;
+    }
+    const text = (json.ParsedResults || []).map(r => r.ParsedText || '').join('\n').trim();
+    if(!text){
+      statusEl.textContent = 'Текст не знайдено на фото — спробуйте чіткіший скріншот.';
+      return;
+    }
+    document.getElementById('ocrResultText').value = text;
+    document.getElementById('ocrResultWrap').style.display = '';
+    statusEl.textContent = 'Готово — перевірте текст нижче й виправте за потреби.';
+  }catch(err){
+    statusEl.textContent = 'Помилка запиту до OCR.space: ' + (err && err.message ? err.message : err);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+// з розпізнаного тексту робимо best-effort здогадки (телефон, ім'я) і кладемо весь текст у примітку —
+// для товарів/адреси автоматичного розпізнавання нема, тому подальше редагування замовлення вручну.
+function createOrderFromOcrText(){
+  const text = (document.getElementById('ocrResultText').value || '').trim();
+  if(!text){ alert('Немає розпізнаного тексту.'); return; }
+  const phoneMatch = text.match(/(\+?38)?0\d{9}\b|\+?380\d{9}\b/);
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  // ім'я — перший рядок, що не схожий на номер телефону й не надто довгий
+  const nameLine = lines.find(l => !/\d{5,}/.test(l) && l.length <= 60) || '';
+
+  showSection('orders');
+  resetOrderFilters();
+  const id = nextOrderId++;
+  const o = newOrderDefaults(id);
+  if(quickOrderKitId){
+    const k = kitById(quickOrderKitId);
+    if(k) o.items.push({kitId: k.id, qty: 1, price: k.price || 0});
+  }
+  if(phoneMatch) o.phone = phoneMatch[0];
+  if(nameLine) o.customer = nameLine;
+  o.notes = 'Розпізнано зі скріншота:\n' + text;
+  orders.push(o);
+  if(quickOrderKitId){
+    autoUpdateWeightSilently(id);
+    autoUpdateCodAmountSilently(id);
+  }
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+  closeOcrModal();
+  scrollToOrderCard(id);
 }
 
 /* ---------- telegram notifications ---------- */
