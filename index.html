@@ -182,6 +182,8 @@
   .np-suggestion{padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border-soft);}
   .np-suggestion:last-child{border-bottom:none;}
   .np-suggestion:hover{background:var(--surface);color:var(--saffron);}
+  .kb-chip:hover{border-color:var(--saffron);background:var(--surface-2);}
+  .kb-chip:active{cursor:grabbing;}
   .delivery-summary{font-size:12px;color:var(--text-faint);margin-top:6px;}
 
   /* --- navigation --- */
@@ -227,6 +229,8 @@
     /* ширкі таблиці (звіти, каса, склад) — горизонтальний скрол замість зламаного вигляду */
     .catalog-panel > div{overflow-x:auto;-webkit-overflow-scrolling:touch;}
     .wh-row-head, .wh-row{min-width:560px;}
+
+    #kbPalette{grid-template-columns:repeat(2,1fr)!important;}
 
     /* шапка сайту — менше місця, без накладання на кнопку замовлення */
     header h1{font-size:22px;}
@@ -302,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.22.0 · 29.09.2026 22:57</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.22.2 · 29.09.2026 23:09</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -457,11 +461,11 @@
     Конструктор наборів
     <span class="btns"><button class="btn btn-sm" onclick="kbClearDraft()">Очистити</button></span>
   </div>
-  <p class="hint" style="margin:-8px 0 14px;">Перетягніть інгредієнт чи упаковку з переліку нижче в поле «Ваш набір» — собівартість порахується одразу. Це чорновий розрахунок для прикидки (не зберігається як товар для продажу і не зберігається між сеансами — оновите сторінку, і поле очиститься).</p>
+  <p class="hint" style="margin:-8px 0 14px;">Перетягніть інгредієнт чи упаковку в поле «Ваш набір» (або двічі торкніться/клікніть — додасться одразу) — собівартість порахується одразу. Це чорновий розрахунок для прикидки (не зберігається як товар для продажу і не зберігається між сеансами — оновите сторінку, і поле очиститься).</p>
 
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
-    <div class="catalog-group-title">Інгредієнти та упаковка — перетягніть звідси</div>
-    <div id="kbPalette" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+    <div class="catalog-group-title">Інгредієнти та упаковка — перетягніть або двічі клікніть</div>
+    <div id="kbPalette" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;"></div>
   </div></div>
 
   <div id="kbDropZone" class="catalog-panel" style="margin-bottom:14px;border:2px dashed var(--border);transition:border-color .15s,background .15s;">
@@ -2227,7 +2231,10 @@ function updateCatalog(id, field, value){
   const c = catalogItem(id);
   if(!c) return;
   c[field] = (field === 'cost') ? (parseFloat(value) || 0) : value;
-  if(field !== 'cost'){ renderCatalog(); } // name/unit change -> refresh labels in kits too
+  // Повне renderCatalog() потрібне лише коли міняється категорія (рядок має "переїхати" між списками
+  // «Упаковка»/«Спеції») — для назви чи одиниці виміру воно тільки шкодить: перемальовує <input> на
+  // кожну літеру і скидає курсор/фокус, через що набрати назву нормально було неможливо.
+  if(field === 'category'){ renderCatalog(); }
   renderKits();
   renderSummary();
   renderChart();
@@ -2445,13 +2452,14 @@ function renderKbPalette(){
   if(!el) return;
   const items = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка');
   if(items.length === 0){
-    el.innerHTML = '<div class="comp-empty">Довідник порожній — додайте спеції чи упаковку в «Товари» → «Довідник собівартостей» (або імпортуйте з Excel).</div>';
+    el.innerHTML = '<div class="comp-empty" style="grid-column:1/-1;">Довідник порожній — додайте спеції чи упаковку в «Товари» → «Довідник собівартостей» (або імпортуйте з Excel).</div>';
     return;
   }
   el.innerHTML = items.map(c => `
-    <div class="kb-chip" onpointerdown="kbPaletteDragStart(event, ${c.id})"
-      style="padding:5px 10px;border:1px solid var(--border);border-radius:14px;background:var(--surface);cursor:grab;font-size:11px;user-select:none;touch-action:none;">
-      ${escapeHtml(c.name)} <span class="hint" style="font-size:10px;">· ${fmt1(c.cost||0)} грн/${escapeHtml(c.unit)}</span>
+    <div class="kb-chip" onpointerdown="kbPaletteDragStart(event, ${c.id})" ondblclick="kbAddOrIncrement(${c.id})"
+      style="padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:grab;user-select:none;touch-action:none;transition:border-color .15s,background .15s;">
+      <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.name)}</div>
+      <div class="hint" style="font-size:10px;margin-top:2px;">${fmt1(c.cost||0)} грн/${escapeHtml(c.unit)}</div>
     </div>
   `).join('');
 }
