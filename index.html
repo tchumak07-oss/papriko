@@ -302,7 +302,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.20.1 · 29.09.2026 13:26</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.21.0 · 29.09.2026 17:40</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -354,6 +354,7 @@
     <nav class="app-sidebar">
       <button class="app-nav-btn" id="nav-orders" onclick="showSection('orders')"><span class="nav-icon">🧾</span>Замовлення</button>
       <button class="app-nav-btn" id="nav-products" onclick="showSection('products')"><span class="nav-icon">📦</span>Товари</button>
+      <button class="app-nav-btn" id="nav-kitbuilder" onclick="showSection('kitbuilder')"><span class="nav-icon">🧪</span>Конструктор наборів</button>
       <button class="app-nav-btn" id="nav-clients" onclick="showSection('clients')"><span class="nav-icon">👥</span>Клієнти</button>
       <button class="app-nav-btn" id="nav-warehouse" onclick="showSection('warehouse')"><span class="nav-icon">🏬</span>Склад</button>
       <button class="app-nav-btn" id="nav-supplierorder" onclick="showSection('supplierorder')"><span class="nav-icon">📝</span>Замовлення постачальнику</button>
@@ -449,6 +450,36 @@
   <div id="chart"></div>
 
   </div><!-- /section-products -->
+
+  <div id="section-kitbuilder" class="app-section">
+
+  <div class="section-title" style="margin-top:0;">
+    Конструктор наборів
+    <span class="btns"><button class="btn btn-sm" onclick="kbClearDraft()">Очистити</button></span>
+  </div>
+  <p class="hint" style="margin:-8px 0 14px;">Перетягніть інгредієнт чи упаковку з переліку нижче в поле «Ваш набір» — собівартість порахується одразу. Це чорновий розрахунок для прикидки (не зберігається як товар для продажу і не зберігається між сеансами — оновите сторінку, і поле очиститься).</p>
+
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="catalog-group-title">Інгредієнти та упаковка — перетягніть звідси</div>
+    <div id="kbPalette" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+  </div></div>
+
+  <div id="kbDropZone" class="catalog-panel" style="margin-bottom:14px;border:2px dashed var(--border);transition:border-color .15s,background .15s;">
+    <div style="padding:14px 16px;">
+      <div class="catalog-group-title">Ваш набір</div>
+      <div id="kbDraftList" style="margin-top:8px;"></div>
+      <div id="kbEmptyHint" class="comp-empty">Перетягніть сюди інгредієнт з переліку вище, щоб додати його в набір.</div>
+    </div>
+  </div>
+
+  <div id="kbTrashZone" style="display:none;text-align:center;padding:14px;border:2px dashed var(--border);border-radius:8px;color:var(--text-faint);margin-bottom:14px;transition:background .15s;">🗑 Відпустіть тут, щоб прибрати позицію з набору</div>
+
+  <div class="catalog-panel"><div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+    <div class="hint">Позицій у наборі: <strong id="kbItemCount">0</strong></div>
+    <div style="font-size:18px;"><strong>Собівартість набору: <span id="kbTotalCost" style="color:var(--saffron);">0 грн</span></strong></div>
+  </div></div>
+
+  </div><!-- /section-kitbuilder -->
 
   <div id="section-orders" class="app-section">
 
@@ -2394,6 +2425,175 @@ function catalogOptionsHtml(currentKitId){
     <optgroup label="Спеції та інгредієнти">${spices.map(opt).join('')}</optgroup>
     ${readyKits.length ? `<optgroup label="Готові набори (SKU)">${readyKits.map(kitOpt).join('')}</optgroup>` : ''}
   `;
+}
+
+/* ---------- Конструктор наборів: чорновий drag&drop розрахунок собівартості ---------- */
+// Живе лише в пам'яті цієї вкладки (не пишеться в Firestore) — це швидкий "накидати й порахувати"
+// інструмент для прикидки, а не редактор товарів/SKU (той — у «Товари»).
+
+let kbDraft = []; // [{catalogId, amount}]
+
+function renderKitBuilder(){
+  renderKbPalette();
+  renderKbDraft();
+}
+
+function renderKbPalette(){
+  const el = document.getElementById('kbPalette');
+  if(!el) return;
+  const items = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка');
+  if(items.length === 0){
+    el.innerHTML = '<div class="comp-empty">Довідник порожній — додайте спеції чи упаковку в «Товари» → «Довідник собівартостей» (або імпортуйте з Excel).</div>';
+    return;
+  }
+  el.innerHTML = items.map(c => `
+    <div class="kb-chip" onpointerdown="kbPaletteDragStart(event, ${c.id})"
+      style="padding:7px 12px;border:1px solid var(--border);border-radius:16px;background:var(--surface);cursor:grab;font-size:12px;user-select:none;touch-action:none;">
+      ${escapeHtml(c.name)} <span class="hint">· ${fmt1(c.cost||0)} грн/${escapeHtml(c.unit)}</span>
+    </div>
+  `).join('');
+}
+
+function renderKbDraft(){
+  const listEl = document.getElementById('kbDraftList');
+  const emptyEl = document.getElementById('kbEmptyHint');
+  if(!listEl) return;
+  if(kbDraft.length === 0){
+    listEl.innerHTML = '';
+    if(emptyEl) emptyEl.style.display = '';
+  } else {
+    if(emptyEl) emptyEl.style.display = 'none';
+    listEl.innerHTML = kbDraft.map((row, idx) => {
+      const c = catalogItem(row.catalogId);
+      const name = c ? c.name : '(видалено з довідника)';
+      const unit = c ? c.unit : '';
+      const unitCost = c ? (c.cost||0) : 0;
+      const lineCost = unitCost * (row.amount||0);
+      return `
+        <div data-kb-row="${idx}" onpointerdown="kbRowDragStart(event, ${idx})"
+          style="display:grid;grid-template-columns:20px 1fr 90px 40px 100px 32px;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-soft);cursor:grab;touch-action:none;">
+          <span class="hint">⠿</span>
+          <div>${escapeHtml(name)}</div>
+          <input type="number" step="any" value="${row.amount}" oninput="kbUpdateAmount(${idx}, this.value)" onpointerdown="event.stopPropagation()" style="width:80px;">
+          <div class="hint">${escapeHtml(unit)}</div>
+          <div style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(lineCost)} грн</div>
+          <button class="btn-ghost" onclick="kbRemoveRow(${idx})" onpointerdown="event.stopPropagation()" aria-label="Прибрати">×</button>
+        </div>
+      `;
+    }).join('');
+  }
+  const totalCost = kbDraft.reduce((s, row) => {
+    const c = catalogItem(row.catalogId);
+    return s + (c ? (c.cost||0)*(row.amount||0) : 0);
+  }, 0);
+  const countEl = document.getElementById('kbItemCount');
+  const totalEl = document.getElementById('kbTotalCost');
+  if(countEl) countEl.textContent = kbDraft.length;
+  if(totalEl) totalEl.textContent = fmt1(totalCost) + ' грн';
+}
+
+function kbAddOrIncrement(catalogId){
+  const c = catalogItem(catalogId);
+  if(!c) return;
+  const existing = kbDraft.find(r => r.catalogId === catalogId);
+  const step = c.unit === 'шт' ? 1 : 10; // для штучного — по 1, для ваги/об'єму (г/мл) — по 10 за раз, поправити можна вручну
+  if(existing) existing.amount += step;
+  else kbDraft.push({catalogId, amount: step});
+  renderKbDraft();
+}
+
+function kbUpdateAmount(idx, value){
+  const row = kbDraft[idx];
+  if(!row) return;
+  const v = parseFloat(value);
+  row.amount = isNaN(v) ? 0 : v;
+  renderKbDraft();
+}
+
+function kbRemoveRow(idx){
+  kbDraft.splice(idx, 1);
+  renderKbDraft();
+}
+
+function kbClearDraft(){
+  if(kbDraft.length && !confirm('Очистити поточний чорновий набір?')) return;
+  kbDraft = [];
+  renderKbDraft();
+}
+
+// чи є el нащадком (або самим) елемента з даним id — використовується, щоб визначити, над якою
+// зоною відпустили перетягуваний "чіп"
+function kbElIsInside(el, ancestorId){
+  while(el){
+    if(el.id === ancestorId) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
+// плаваюча "бульбашка", яка йде за пальцем/курсором під час перетягування
+function kbCreateFloating(text, x, y){
+  const el = document.createElement('div');
+  el.id = 'kbFloatingChip';
+  el.textContent = text;
+  el.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;padding:7px 12px;border-radius:16px;background:var(--saffron);color:#1a1208;font-size:12px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,0.4);transform:translate(-50%,-50%);left:'+x+'px;top:'+y+'px;';
+  document.body.appendChild(el);
+  return el;
+}
+
+// перетягування чіпа з палітри інгредієнтів у "Ваш набір" (миша й дотик — через Pointer Events)
+function kbPaletteDragStart(e, catalogId){
+  e.preventDefault();
+  const c = catalogItem(catalogId);
+  const floating = kbCreateFloating(c ? c.name : '…', e.clientX, e.clientY);
+  const dropZone = document.getElementById('kbDropZone');
+
+  function onMove(ev){
+    floating.style.left = ev.clientX+'px';
+    floating.style.top = ev.clientY+'px';
+    const over = kbElIsInside(document.elementFromPoint(ev.clientX, ev.clientY), 'kbDropZone');
+    if(dropZone){
+      dropZone.style.borderColor = over ? 'var(--saffron)' : 'var(--border)';
+      dropZone.style.background = over ? 'rgba(224,168,64,0.08)' : '';
+    }
+  }
+  function onUp(ev){
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    floating.remove();
+    if(dropZone){ dropZone.style.borderColor = ''; dropZone.style.background = ''; }
+    const target = document.elementFromPoint(ev.clientX, ev.clientY);
+    if(kbElIsInside(target, 'kbDropZone')) kbAddOrIncrement(catalogId);
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+// перетягування вже доданої позиції з "Вашого набору" на кошик, щоб прибрати (альтернатива кнопці «×»)
+function kbRowDragStart(e, idx){
+  e.preventDefault();
+  const row = kbDraft[idx];
+  const c = row ? catalogItem(row.catalogId) : null;
+  const floating = kbCreateFloating(c ? c.name : '…', e.clientX, e.clientY);
+  const trashZone = document.getElementById('kbTrashZone');
+  if(trashZone) trashZone.style.display = '';
+
+  function onMove(ev){
+    floating.style.left = ev.clientX+'px';
+    floating.style.top = ev.clientY+'px';
+    const over = kbElIsInside(document.elementFromPoint(ev.clientX, ev.clientY), 'kbTrashZone');
+    if(trashZone) trashZone.style.background = over ? 'rgba(200,90,74,0.2)' : '';
+  }
+  function onUp(ev){
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    floating.remove();
+    if(trashZone){ trashZone.style.display = 'none'; trashZone.style.background = ''; }
+    const target = document.elementFromPoint(ev.clientX, ev.clientY);
+    if(kbElIsInside(target, 'kbTrashZone')) kbRemoveRow(idx);
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
 }
 
 function renderKits(){
@@ -8749,12 +8949,13 @@ function syncQtyFromOrders(){
 
 /* ---------- navigation ---------- */
 
-const SECTIONS = ['products','orders','clients','warehouse','supplierorder','archive','cash','invoices','reports'];
+const SECTIONS = ['products','kitbuilder','orders','clients','warehouse','supplierorder','archive','cash','invoices','reports'];
 function showSection(name){
   SECTIONS.forEach(s => {
     document.getElementById('section-'+s).classList.toggle('active', s===name);
     document.getElementById('nav-'+s).classList.toggle('active', s===name);
   });
+  if(name === 'kitbuilder') renderKitBuilder();
   if(name === 'clients') renderClients();
   if(name === 'warehouse'){ renderBalances(); renderMovements(); renderInventory(); populateMovementItemSelect(); }
   if(name === 'supplierorder') renderSupplierOrder();
