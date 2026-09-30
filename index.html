@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.23.0 · 30.09.2026 11:34</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.24.0 · 30.09.2026 16:45</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -3722,6 +3722,7 @@ function newOrderDefaults(id){
     stockDeducted:false, manualArchive:false,
     deliveryMethod: 'Нова Пошта', region:'',
     city:'', cityRef:'', warehouseRef:'', warehouseDesc:'',
+    npDeliveryType: 'warehouse', npStreet:'', npStreetRef:'', npHouse:'', npFlat:'', npRecipientAddressRef:'',
     ukrIndex:'', address:'', ukrCity:'', ukrOfficeDesc:'', ukrStreet:'', ukrHouse:'', ukrApartment:'', ukrTtnNumber:'', ukrShipmentUuid:'',
     weight:'', seatsAmount:1, cost:'', description:'Спеції', payerType:'Отримувач', paymentMethod:'Готівка',
     codAmount:'', codReceivedAmount:'', codPaymentDate:'',
@@ -5575,6 +5576,91 @@ function selectNpWarehouse(orderId, ref, desc){
   scheduleSave();
 }
 
+// перемикає замовлення між "у відділення" (як раніше) і "кур'єром за адресою" (нове) — саме поле
+// оновлюється через updateOrderField, тут лише перемальовуємо картку, щоб показати потрібні поля.
+function setNpDeliveryType(orderId, value){
+  const o = orderById(orderId);
+  if(!o) return;
+  o.npDeliveryType = value;
+  o.npRecipientAddressRef = ''; // спосіб отримання змінився — кешоване посилання на адресу більше не актуальне
+  renderOrders();
+  scheduleSave();
+}
+
+let npStreetSuggestions = {}; // orderId -> array of {ref, name}
+
+async function searchNpStreet(orderId){
+  if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти в «Налаштування доставки» вище.'); return; }
+  const o = orderById(orderId);
+  if(!o || !o.cityRef){ alert('Спочатку оберіть місто.'); return; }
+  const input = document.getElementById(`np-street-input-${orderId}`);
+  const query = input.value.trim();
+  if(query.length < 2) return;
+  const box = document.getElementById(`np-street-suggestions-${orderId}`);
+  box.innerHTML = '<div class="np-suggestion">Шукаю...</div>';
+  box.style.display = 'block';
+  try{
+    const data = await npApiCall('Address', 'searchSettlementStreets', {StreetName: query, SettlementRef: o.cityRef, Limit: 8});
+    const addresses = (data && data[0] && data[0].Addresses) || [];
+    npStreetSuggestions[orderId] = addresses.map(a => ({ref: a.SettlementStreetRef || a.Ref, name: a.Present || a.SettlementStreetDescription}));
+    if(npStreetSuggestions[orderId].length === 0){
+      box.innerHTML = '<div class="np-suggestion">Нічого не знайдено</div>';
+    } else {
+      box.innerHTML = npStreetSuggestions[orderId].map((s, i) =>
+        `<div class="np-suggestion" onclick="selectNpStreet(${orderId}, ${i})">${escapeAttr(s.name)}</div>`
+      ).join('');
+    }
+  }catch(err){
+    box.innerHTML = `<div class="np-suggestion">Помилка: ${escapeAttr(err.message)}</div>`;
+  }
+}
+
+function selectNpStreet(orderId, index){
+  const s = (npStreetSuggestions[orderId] || [])[index];
+  if(!s) return;
+  const o = orderById(orderId);
+  o.npStreet = s.name;
+  o.npStreetRef = s.ref;
+  o.npRecipientAddressRef = ''; // вулиця змінилась — раніше створена (якщо була) адреса отримувача більше не актуальна
+  const streetInput = document.getElementById(`np-street-input-${orderId}`);
+  if(streetInput) streetInput.value = s.name;
+  const suggBox = document.getElementById(`np-street-suggestions-${orderId}`);
+  if(suggBox) suggBox.style.display = 'none';
+  scheduleSave();
+}
+
+// повертає (створюючи за потреби через Counterparty/save + Address/save) Ref адреси отримувача
+// для кур'єрської доставки — потрібен НП саме як RecipientAddress при ServiceType з "Doors".
+// Кешується в o.npRecipientAddressRef, щоб не створювати нову адресу в кабінеті НП щоразу повторно.
+async function resolveNpRecipientAddressRef(o){
+  if(o.npRecipientAddressRef) return o.npRecipientAddressRef;
+  if(!o.npStreetRef) throw new Error('Спочатку виберіть вулицю зі списку підказок.');
+  if(!o.npHouse) throw new Error('Вкажіть номер будинку.');
+  const name = splitFullName(o.customer);
+  const cpData = await npApiCall('Counterparty', 'save', {
+    CounterpartyType: 'PrivatePerson',
+    CounterpartyProperty: 'Recipient',
+    FirstName: name.FirstName,
+    MiddleName: name.MiddleName,
+    LastName: name.LastName,
+    Phone: o.phone
+  });
+  const cp = cpData && cpData[0];
+  if(!cp || !cp.Ref) throw new Error('Не вдалося створити отримувача (Counterparty) в НП');
+  const addrData = await npApiCall('Address', 'save', {
+    CounterpartyRef: cp.Ref,
+    StreetRef: o.npStreetRef,
+    BuildingNumber: o.npHouse,
+    Flat: o.npFlat || '',
+    Note: 'Адреса отримувача'
+  });
+  const addr = addrData && addrData[0];
+  if(!addr || !addr.Ref) throw new Error('Не вдалося зберегти адресу отримувача в НП');
+  o.npRecipientAddressRef = addr.Ref;
+  scheduleSave();
+  return addr.Ref;
+}
+
 /* ---------- TTN (waybill) creation ---------- */
 
 function unlinkTtn(orderId){
@@ -5718,7 +5804,13 @@ async function createNpWaybill(orderId){
   if(!npSender.citySenderRef || !npSender.senderAddressRef){
     alert('Спочатку оберіть місто й відділення відправлення в «Налаштування доставки».'); return;
   }
-  if(!o.cityRef || !o.warehouseRef){ alert('Спочатку оберіть місто й відділення отримувача в цьому замовленні.'); return; }
+  if(!o.cityRef){ alert('Спочатку оберіть місто отримувача в цьому замовленні.'); return; }
+  if(o.npDeliveryType === 'courier'){
+    if(!o.npStreetRef){ alert('Спочатку виберіть вулицю зі списку підказок у цьому замовленні.'); return; }
+    if(!o.npHouse){ alert('Вкажіть номер будинку отримувача.'); return; }
+  } else if(!o.warehouseRef){
+    alert('Спочатку оберіть відділення/поштомат отримувача в цьому замовленні.'); return;
+  }
   if(!o.customer){ alert('Вкажіть ПІБ отримувача.'); return; }
   if(!o.phone){ alert('Вкажіть телефон отримувача.'); return; }
   if(!o.weight || Number(o.weight) <= 0){ alert('Вкажіть вагу відправлення (кг).'); return; }
@@ -5748,6 +5840,12 @@ async function createNpWaybill(orderId){
       weight: weightPerSeat.toFixed(2)
     }));
 
+    // кур'єрська доставка (адреса отримувача) вимагає окремо створеного в кабінеті НП Counterparty +
+    // Address (на відміну від відправлення у відділення, де досить рядкових RecipientName/Phone) —
+    // resolveNpRecipientAddressRef() робить це й кешує результат в o.npRecipientAddressRef.
+    const isCourier = o.npDeliveryType === 'courier';
+    const recipientAddress = isCourier ? await resolveNpRecipientAddressRef(o) : o.warehouseRef;
+
     const docParams = {
       PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
       PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
@@ -5755,7 +5853,7 @@ async function createNpWaybill(orderId){
       CargoType: 'Cargo',
       Weight: String(o.weight),
       OptionsSeat: optionsSeat,
-      ServiceType: 'WarehouseWarehouse',
+      ServiceType: isCourier ? 'WarehouseDoors' : 'WarehouseWarehouse',
       SeatsAmount: String(o.seatsAmount || 1),
       Description: o.description || 'Товар',
       Cost: String(o.cost || calcOrder(o).total || 100),
@@ -5765,7 +5863,7 @@ async function createNpWaybill(orderId){
       ContactSender: npSender.contactSenderRef,
       SendersPhone: npSender.sendersPhone,
       CityRecipient: o.cityRef,
-      RecipientAddress: o.warehouseRef,
+      RecipientAddress: recipientAddress,
       RecipientType: 'PrivatePerson',
       RecipientName: fullName,
       RecipientContactName: fullName,
@@ -6610,6 +6708,29 @@ function deliveryBlockHtml(o){
         </div>
         <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchNpCity(${o.id})" type="button">Знайти місто</button></div>
         <div>
+          <label>Спосіб отримання</label>
+          <select onchange="setNpDeliveryType(${o.id}, this.value)">
+            <option value="warehouse" ${o.npDeliveryType!=='courier'?'selected':''}>У відділення/поштомат</option>
+            <option value="courier" ${o.npDeliveryType==='courier'?'selected':''}>Кур'єром за адресою</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="delivery-grid" style="margin-top:10px;">
+        ${o.npDeliveryType === 'courier' ? `
+        <div class="np-city-wrap">
+          <label>Вулиця</label>
+          <input type="text" id="np-street-input-${o.id}" value="${escapeAttr(o.npStreet||'')}"
+            placeholder="Почніть вводити назву вулиці"
+            oninput="updateOrderField(${o.id},'npStreet',this.value)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();searchNpStreet(${o.id});}">
+          <div class="np-suggestions" id="np-street-suggestions-${o.id}" style="display:none;"></div>
+        </div>
+        <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchNpStreet(${o.id})" type="button">Знайти вулицю</button></div>
+        <div><label>Будинок</label><input type="text" value="${escapeAttr(o.npHouse||'')}" oninput="updateOrderField(${o.id},'npHouse',this.value)" placeholder="напр. 12"></div>
+        <div><label>Квартира (якщо є)</label><input type="text" value="${escapeAttr(o.npFlat||'')}" oninput="updateOrderField(${o.id},'npFlat',this.value)" placeholder="напр. 5"></div>
+        ` : `
+        <div>
           <label>Відділення / поштомат</label>
           <select id="np-warehouse-select-${o.id}" onchange="selectNpWarehouse(${o.id}, this.value, this.options[this.selectedIndex].text)">
             ${(npWarehousesCache[o.id] && npWarehousesCache[o.id].cityRef === o.cityRef)
@@ -6617,6 +6738,7 @@ function deliveryBlockHtml(o){
               : `<option value="${escapeAttr(o.warehouseRef||'')}">${o.warehouseDesc ? escapeAttr(o.warehouseDesc) : 'Спершу оберіть місто'}</option>`}
           </select>
         </div>
+        `}
       </div>
 
       <div class="delivery-grid" style="margin-top:10px;">
