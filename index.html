@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.22.2 · 29.09.2026 23:09</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.23.0 · 30.09.2026 11:34</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1780,7 +1780,18 @@ function scheduleSave(){
     }).then(payload => {
       lastKnownRemoteUpdatedAt = payload.updatedAt;
     }).catch(err => {
-      setSyncBadge('err', 'Помилка збереження: ' + err.message);
+      // "failed-precondition"/"aborted" — це сигнал від Firestore, що документ на сервері змінився
+      // саме в момент запису (інша вкладка/пристрій зберігались одночасно) і транзакцію відхилено,
+      // щоб нічого не затерти мовчки. Це очікувана, тимчасова ситуація — не помилка в даних, а захист
+      // від них; SDK сам уже пробував повторити кілька разів, тож якщо не вдалось — пробуємо ще раз
+      // самі за 2с, а не просто показуємо застряглу помилку.
+      const transient = err && (err.code === 'failed-precondition' || err.code === 'aborted' || err.code === 'unavailable' || err.code === 'deadline-exceeded');
+      if(transient){
+        setSyncBadge('warn', 'Тимчасовий конфлікт запису (хтось зберігався одночасно) — повторюю збереження...');
+        setTimeout(scheduleSave, 2000);
+      } else {
+        setSyncBadge('err', 'Помилка збереження: ' + err.message);
+      }
     }).finally(() => {
       fbSaveInFlight = false;
     });
@@ -4458,6 +4469,44 @@ function orderKitOptionsHtml(placeholder){
   return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>${sorted.map(opt).join('')}`;
 }
 
+// те саме, що orderKitOptionsHtml(), але з додатковим підменю «Товари» — окремі спеції/упаковка
+// з довідника, які можна додати в замовлення напряму, без попереднього створення набору вручну.
+// Вибір такого товару в addOrderItem() автоматично створює (або перевикористовує) для нього
+// простий набір-обгортку з одним компонентом — решта коду замовлень і далі працює лише з kitId,
+// нічого більше міняти не довелось.
+function orderItemOptionsHtml(placeholder){
+  const sortedKits = [...kits].sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+  const kitOpt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
+  const catItems = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка').sort((a,b) => a.name.localeCompare(b.name));
+  const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${fmt1(c.cost||0)} грн/${escapeAttr(c.unit)})</option>`;
+  return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>`
+    + `<optgroup label="Набори">${sortedKits.map(kitOpt).join('')}</optgroup>`
+    + (catItems.length ? `<optgroup label="Товари (з довідника)">${catItems.map(catOpt).join('')}</optgroup>` : '');
+}
+
+// повертає (створюючи за потреби) простий набір-обгортку з одним компонентом для окремого товару
+// з довідника — щоб такий товар можна було додати в замовлення так само, як звичайний SKU.
+// Повторний вибір того самого товару перевикористовує вже створену обгортку, а не плодить дублікати.
+function findOrCreateKitForCatalogItem(catalogId){
+  let k = kits.find(kk => kk.sourceCatalogId === catalogId);
+  if(k) return k;
+  const c = catalogItem(catalogId);
+  if(!c) return null;
+  const id = nextKitId++;
+  k = {
+    id, sku: nextSku(), name: c.name, type: 'Набір',
+    components: [{catalogId: c.id, refType: 'catalog', amount: 1}],
+    weight: (c.unit === 'г' || c.unit === 'мл') ? 1 : 0,
+    logistics: 0, marketing: 0, price: c.cost||0, qty: 0, collapsed: true,
+    sourceCatalogId: c.id
+  };
+  kits.push(k);
+  renderKits();
+  renderSummary();
+  renderChart();
+  return k;
+}
+
 /* ---------- «швидкий набір» — фіксований вибір набору, який автоматично додається в кожне нове замовлення ---------- */
 
 let quickOrderKitId = '';
@@ -4544,16 +4593,29 @@ function createSkuFromOrder(orderId){
   renderOrdersSummary();
   // оновлюємо список вибору товару в цій картці, щоб новий SKU теж туди потрапив
   const select = document.getElementById(`order-item-select-${orderId}`);
-  if(select) select.innerHTML = orderKitOptionsHtml();
+  if(select) select.innerHTML = orderItemOptionsHtml();
   scheduleSave();
 }
 
 function addOrderItem(orderId){
   const select = document.getElementById(`order-item-select-${orderId}`);
   const qtyInput = document.getElementById(`order-item-qty-${orderId}`);
-  const kitId = parseInt(select.value, 10);
+  const raw = select.value;
   const qty = parseFloat(qtyInput.value) || 0;
-  if(!kitId || qty <= 0) return;
+  if(!raw || qty <= 0) return;
+  let kitId;
+  if(raw.startsWith('cat:')){
+    const catalogId = parseInt(raw.slice(4), 10);
+    const k = findOrCreateKitForCatalogItem(catalogId);
+    if(!k) return;
+    kitId = k.id;
+    // щойно створена (чи вже наявна) обгортка з'явилась у списку наборів — оновлюємо select цієї
+    // картки, щоб «Набори» одразу показували її, якщо товар вибиратимуть звідси ще раз
+    select.innerHTML = orderItemOptionsHtml();
+  } else {
+    kitId = parseInt(raw, 10);
+  }
+  if(!kitId) return;
   const k = kitById(kitId);
   const o = orderById(orderId);
   const existing = o.items.find(it => it.kitId === kitId);
@@ -8826,7 +8888,7 @@ function orderExpandedHtml(o, num){
       <div class="comp-list" id="order-items-${o.id}" style="margin-top:14px;"></div>
 
       <div class="add-order-item-row">
-        <select id="order-item-select-${o.id}">${orderKitOptionsHtml()}</select>
+        <select id="order-item-select-${o.id}">${orderItemOptionsHtml()}</select>
         <input type="number" step="1" placeholder="к-сть" id="order-item-qty-${o.id}">
         <button class="btn btn-sm" onclick="addOrderItem(${o.id})">Додати</button>
       </div>
