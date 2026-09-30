@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.24.0 · 30.09.2026 16:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.24.1 · 30.09.2026 16:55</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -5504,17 +5504,22 @@ async function searchNpCity(orderId){
   box.innerHTML = '<div class="np-suggestion">Шукаю...</div>';
   box.style.display = 'block';
   try{
-    const data = await npApiCall('Address', 'searchSettlements', {CityName: query, Limit: 8, Page: 1});
+    const data = await npApiCall('Address', 'searchSettlements', {CityName: query, Limit: 12, Page: 1});
     const addresses = (data && data[0] && data[0].Addresses) || [];
-    npCitySuggestions[orderId] = addresses.map(a => ({
-      ref: a.DeliveryCity || a.Ref,
-      name: a.MainDescription || a.Present
-    }));
+    npCitySuggestions[orderId] = addresses.map(a => {
+      const base = a.MainDescription || a.Present || '';
+      // Одна назва міста часто зустрічається в кількох областях/районах — щоб не переплутати,
+      // показуємо повну "Present" (вона від НП вже містить область/район), а якщо її нема — збираємо самі.
+      const full = a.Present && a.Present.length > base.length
+        ? a.Present
+        : base + (a.Area ? `, ${a.Area} обл.` : '') + (a.Region ? `, ${a.Region} р-н` : '');
+      return { ref: a.DeliveryCity || a.Ref, name: base, fullName: full };
+    });
     if(npCitySuggestions[orderId].length === 0){
       box.innerHTML = '<div class="np-suggestion">Нічого не знайдено</div>';
     } else {
       box.innerHTML = npCitySuggestions[orderId].map((c, i) =>
-        `<div class="np-suggestion" onclick="selectNpCity(${orderId}, ${i})">${escapeAttr(c.name)}</div>`
+        `<div class="np-suggestion" onclick="selectNpCity(${orderId}, ${i})">${escapeAttr(c.fullName)}</div>`
       ).join('');
     }
   }catch(err){
@@ -5526,7 +5531,7 @@ function selectNpCity(orderId, index){
   const c = (npCitySuggestions[orderId] || [])[index];
   if(!c) return;
   const o = orderById(orderId);
-  o.city = c.name;
+  o.city = c.fullName || c.name;
   o.cityRef = c.ref;
   o.warehouseRef = '';
   o.warehouseDesc = '';
@@ -5536,7 +5541,7 @@ function selectNpCity(orderId, index){
   // відповідь НП нижче (loadNpWarehouses), повний renderOrders() тут замінив би DOM-елемент
   // <select> відділення на новий — а асинхронна відповідь потім писала б у вже видалений старий елемент.
   const cityInput = document.getElementById(`np-city-input-${orderId}`);
-  if(cityInput) cityInput.value = c.name;
+  if(cityInput) cityInput.value = o.city;
   const suggBox = document.getElementById(`np-city-suggestions-${orderId}`);
   if(suggBox) suggBox.style.display = 'none';
   scheduleSave();
