@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.25.1 · 02.10.2026 15:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.26.0 · 02.10.2026 15:42</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -517,7 +517,7 @@
   <div id="screenshotStatus" class="scan-status"></div>
   <div id="orderTextForm" style="display:none;margin:-8px 0 14px;">
     <p class="hint" style="margin:0 0 6px;">
-      Встав сюди текст сповіщення про нове замовлення — з Telegram (напр. від бота <code>@papriko_spise_bot</code>, якщо він надсилає сповіщення з сайту) чи просто скопійований з адмінки сайту. Claude сам розпізнає ім'я, телефон, місто й товари та створить чернетку замовлення внизу списку.
+      Встав сюди текст сповіщення про нове замовлення — з Telegram (напр. від бота <code>@papriko_spise_bot</code>) чи скопійований з адмінки сайту. Якщо товари в тексті написані у форматі «Назва × кількість» — програма сама розбере їх і додасть у замовлення БЕЗКОШТОВНО, без жодного API (ім'я/телефон/доставку впишіть вручну). Якщо в «Налаштуванні доставки» вказано платний ключ Anthropic — замість цього спрацює повне розпізнавання (й ім'я, і телефон, і місто теж).
     </p>
     <textarea id="orderTextInput" rows="6" placeholder="Встав текст сповіщення про замовлення…" style="width:100%;"></textarea>
     <div class="fb-row" style="margin-top:8px;">
@@ -9862,12 +9862,17 @@ function applyExtractedToOrder(order, extracted, opts){
   if(extracted.notes) noteParts.push(extracted.notes);
   order.notes = noteParts.join(' · ');
 
-  // намагаємось одразу перетворити розпізнані позиції на реальні рядки замовлення: якщо назва
-  // збігається з наявним товаром/набором у довіднику — додаємо його; якщо ні — питаємо по кожній
-  // окремо, чи створити для неї новий SKU (той самий принцип, що й при завантаженні замовлень з Excel).
   const items = Array.isArray(extracted.items) ? extracted.items : [];
+  return addRecognizedItemsToOrder(order, items, interactive);
+}
+
+// спільне для всіх джерел розпізнавання (скрін/текст/бот): намагається перетворити розпізнані
+// позиції на реальні рядки замовлення. Якщо назва збігається з наявним товаром/набором у довіднику —
+// додає його; якщо ні — питає (чи, у фоновому режимі, створює одразу), чи створити новий SKU —
+// той самий принцип, що й при завантаженні замовлень з Excel.
+function addRecognizedItemsToOrder(order, items, interactive){
   let unmatchedCount = 0, createdCount = 0;
-  items.forEach(it => {
+  (items || []).forEach(it => {
     const name = String((it && it.name) || '').trim();
     if(!name) return;
     const qty = (it && Number(it.qty) > 0) ? Number(it.qty) : 1;
@@ -9898,7 +9903,37 @@ function applyExtractedToOrder(order, extracted, opts){
     renderSummary();
     renderChart();
   }
-  return {unmatchedCount, createdCount, itemsFound: items.length};
+  return {unmatchedCount, createdCount, itemsFound: (items || []).length};
+}
+
+// безкоштовний розбір переліку товарів з простого тексту (без жодного API) — шукає рядки/фрагменти
+// виду "Назва (деталі) × кількість" (роздільники — перенос рядка або крапка з комою), усе інше
+// (номер замовлення, дату, суму, спосіб оплати) просто ігнорує, бо там немає позначки "× N".
+function parseOrderItemsFreeText(text){
+  let raw = String(text || '').trim();
+  // деякі сайти/боти шлють усе одним рядком через " · " (номер · дата · сума · спосіб оплати ТОВАРИ...) —
+  // без переносів рядків. У такому разі товари завжди йдуть після ОСТАННЬОГО " · ", тож відсікаємо все
+  // до нього, а потім прибираємо типові слова способу оплати, що могли лишитись приклеєними спереду.
+  // УВАГА: \b тут не можна — у JS він не бачить кириличні літери як «буквені», тож межу слова не ловить.
+  if(raw.includes(' · ')){
+    const parts = raw.split(' · ');
+    raw = parts[parts.length - 1];
+    raw = raw.replace(/^\s*(при\s+отриманні|оплачено|накладений\s+платіж|готівка|картка|передоплата|безготівка)[:,-]?\s*/i, '');
+  }
+  const chunks = raw
+    .split(/\r?\n|;/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  const items = [];
+  chunks.forEach(chunk => {
+    const m = chunk.match(/^(.+?)\s*[×xX]\s*(\d+(?:[.,]\d+)?)\s*$/);
+    if(m){
+      const name = m[1].trim().replace(/[,\s]+$/, '');
+      const qty = parseFloat(m[2].replace(',', '.'));
+      if(name) items.push({name, qty: qty > 0 ? qty : 1});
+    }
+  });
+  return items;
 }
 
 async function handleOrderScreenshot(file){
@@ -9991,6 +10026,33 @@ async function handleOrderTextRecognize(){
   if(!text){
     statusEl.className = 'scan-status error';
     statusEl.textContent = 'Встав текст сповіщення у поле вище.';
+    return;
+  }
+  // якщо немає платного ключа Anthropic — розбираємо товари безкоштовно, локально, по шаблону
+  // «Назва × кількість» (так, як їх надсилає сайт/бот); ім'я, телефон, місто й місто доставки
+  // в цьому режимі НЕ підтягуються — їх треба вписати вручну. Якщо ключ є, лишаємо повне
+  // розпізнавання через Claude (ім'я/телефон/місто/товари все одразу).
+  if(!anthropicApiKey){
+    const freeItems = parseOrderItemsFreeText(text);
+    if(freeItems.length === 0){
+      statusEl.className = 'scan-status error';
+      statusEl.textContent = 'Не знайшов жодної позиції виду «Назва × кількість» у тексті. Перевірте формат, або вкажіть API-ключ Anthropic для повного розпізнавання (ім\'я/телефон/місто теж).';
+      return;
+    }
+    statusEl.className = 'scan-status loading';
+    statusEl.textContent = 'Розбираю товари з тексту...';
+    const id = nextOrderId++;
+    const order = newOrderDefaults(id);
+    const itemsRes = addRecognizedItemsToOrder(order, freeItems, true);
+    orders.push(order);
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+    statusEl.className = 'scan-status ok';
+    statusEl.textContent = `Знайдено позицій: ${freeItems.length}, додано в замовлення: ${order.items.length}${itemsRes.unmatchedCount ? `, не додано (відмовились створювати SKU): ${itemsRes.unmatchedCount}` : ''}. ` +
+      'Клієнта, доставку й оплату впишіть вручну в картці внизу списку.';
+    ta.value = '';
+    scrollToOrderCard(id);
     return;
   }
   statusEl.className = 'scan-status loading';
