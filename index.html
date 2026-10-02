@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.25.0 · 02.10.2026 15:01</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.25.1 · 02.10.2026 15:15</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -3456,14 +3456,14 @@ async function handleTelegramOrderPhoto(message){
     const extracted = await extractOrderFromImageBase64(base64, mediaType);
     const id = nextOrderId++;
     const order = newOrderDefaults(id);
-    applyExtractedToOrder(order, extracted);
+    const itemsRes = applyExtractedToOrder(order, extracted, {interactive: false});
     orders.push(order);
     renderOrders();
     renderOrdersSummary();
     scheduleSave();
 
     await sendTelegramMessage(
-      `✅ <b>Розпізнано зі скріншота</b>\nКлієнт: ${escapeHtml(order.customer||'—')}\nТелефон: ${escapeHtml(order.phone||'—')}\nМісто: ${escapeHtml(order.city||order.ukrCity||'—')}\n${extracted.itemsText ? 'Товари: '+escapeHtml(extracted.itemsText)+'\n' : ''}${extracted.specialRequest ? '⚠️ Побажання: '+escapeHtml(extracted.specialRequest)+'\n' : ''}${extracted.paymentPreference ? '💳 Оплата: '+escapeHtml(extracted.paymentPreference)+'\n' : ''}\nПеревірте й додайте товари у вкладці «Замовлення».`
+      `✅ <b>Розпізнано зі скріншота</b>\nКлієнт: ${escapeHtml(order.customer||'—')}\nТелефон: ${escapeHtml(order.phone||'—')}\nМісто: ${escapeHtml(order.city||order.ukrCity||'—')}\n${extracted.itemsText ? 'Товари: '+escapeHtml(extracted.itemsText)+'\n' : ''}${itemsRes.createdCount ? `🆕 Створено нових SKU: ${itemsRes.createdCount} (перевірте склад і ціну у «Товари»)\n` : ''}${extracted.specialRequest ? '⚠️ Побажання: '+escapeHtml(extracted.specialRequest)+'\n' : ''}${extracted.paymentPreference ? '💳 Оплата: '+escapeHtml(extracted.paymentPreference)+'\n' : ''}\nПеревірте замовлення у вкладці «Замовлення».`
     );
   }catch(err){
     await sendTelegramMessage(`⚠️ Не вдалося розпізнати скріншот: ${escapeHtml(err.message)}`);
@@ -9820,11 +9820,12 @@ async function extractOrderFromImageBase64(base64, mediaType){
             'Це скріншот переписки з клієнтом інтернет-магазину спецій (Instagram, Viber, WhatsApp тощо). ' +
             'Витягни: ПІБ отримувача, номер телефону, місто, відділення/адресу доставки, спосіб доставки (якщо згадано «Нова Пошта», «Укрпошта» чи самовивіз), ' +
             'перелік товарів/побажань клієнта звичайним текстом (як він сам написав, не намагайся підбирати точні назви з каталогу), ' +
+            'окремо — той самий перелік ЯК СПИСОК окремих позицій (назва й кількість кожної, кількість за замовчуванням 1, якщо не вказано інше), ' +
             'окремо — будь-яке ОСОБЛИВЕ ПОБАЖАННЯ чи ЗАМІНУ складу набору (наприклад «замінити насіння на приправу до риби»), ' +
             'і окремо — спосіб оплати, якщо клієнт його згадав (напр. «накладений платіж», «оплата при отриманні», «оплачу на карту заздалегідь»). ' +
             'Відповідай ЛИШЕ JSON без пояснень, без markdown-огорожі, у форматі: ' +
-            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","specialRequest":"","paymentPreference":"","notes":""}. ' +
-            'Якщо якесь поле не вдалось знайти в переписці — постав порожній рядок. Нічого не вигадуй.'
+            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","items":[{"name":"","qty":1}],"specialRequest":"","paymentPreference":"","notes":""}. ' +
+            'Якщо якесь поле не вдалось знайти в переписці — постав порожній рядок (для items — порожній масив []). Нічого не вигадуй.'
           }
         ]
       }]
@@ -9839,7 +9840,8 @@ async function extractOrderFromImageBase64(base64, mediaType){
   return extracted;
 }
 
-function applyExtractedToOrder(order, extracted){
+function applyExtractedToOrder(order, extracted, opts){
+  const interactive = !opts || opts.interactive !== false; // false лише для фонового Telegram-бота — там нікому відповідати на confirm()
   order.customer = extracted.name || '';
   order.phone = extracted.phone ? cleanPhone(extracted.phone) : '';
   if(extracted.deliveryMethod === 'Укрпошта'){
@@ -9859,6 +9861,44 @@ function applyExtractedToOrder(order, extracted){
   if(extracted.paymentPreference) noteParts.push('💳 Оплата: ' + extracted.paymentPreference);
   if(extracted.notes) noteParts.push(extracted.notes);
   order.notes = noteParts.join(' · ');
+
+  // намагаємось одразу перетворити розпізнані позиції на реальні рядки замовлення: якщо назва
+  // збігається з наявним товаром/набором у довіднику — додаємо його; якщо ні — питаємо по кожній
+  // окремо, чи створити для неї новий SKU (той самий принцип, що й при завантаженні замовлень з Excel).
+  const items = Array.isArray(extracted.items) ? extracted.items : [];
+  let unmatchedCount = 0, createdCount = 0;
+  items.forEach(it => {
+    const name = String((it && it.name) || '').trim();
+    if(!name) return;
+    const qty = (it && Number(it.qty) > 0) ? Number(it.qty) : 1;
+    let kit = findKitBySkuOrName(name, name);
+    if(!kit){
+      // у фоновому режимі (Telegram-бот) питати нема кого — створюємо одразу, щоб замовлення не загубилось;
+      // в інтерактивному (кнопки в самій програмі) — питаємо, як і при завантаженні замовлень з Excel.
+      const create = interactive
+        ? confirm(`Товар «${name}» не знайдено в довіднику «Товари».\n\nСтворити для нього новий набір (SKU)? Склад і ціну можна буде донастроїти пізніше у вкладці «Товари».`)
+        : true;
+      if(create){
+        const kitId = nextKitId++;
+        kit = {id: kitId, sku: nextSku(), name, type: 'Набір', components: [], weight: 0, logistics: 0, marketing: 0, price: 0, qty: 0, collapsed: true};
+        kits.push(kit);
+        createdCount++;
+      } else {
+        unmatchedCount++;
+        return;
+      }
+    }
+    const existing = order.items.find(oi => oi.kitId === kit.id);
+    if(existing) existing.qty += qty;
+    else order.items.push({kitId: kit.id, qty, price: kit.price || 0});
+  });
+  if(createdCount > 0){
+    renderKits();
+    renderCostsPanel();
+    renderSummary();
+    renderChart();
+  }
+  return {unmatchedCount, createdCount, itemsFound: items.length};
 }
 
 async function handleOrderScreenshot(file){
@@ -9872,13 +9912,15 @@ async function handleOrderScreenshot(file){
     const extracted = await extractOrderFromImageBase64(base64, mediaType);
     const id = nextOrderId++;
     const order = newOrderDefaults(id);
-    applyExtractedToOrder(order, extracted);
+    const itemsRes = applyExtractedToOrder(order, extracted);
     orders.push(order);
     renderOrders();
     renderOrdersSummary();
     scheduleSave();
     statusEl.className = 'scan-status ok';
-    statusEl.textContent = `Розпізнано: ${order.customer || '(ім\'я не знайдено)'}, ${order.phone || '(телефон не знайдено)'}. Перевірте картку внизу списку й додайте товари вручну.`;
+    statusEl.textContent = `Розпізнано: ${order.customer || '(ім\'я не знайдено)'}, ${order.phone || '(телефон не знайдено)'}.` +
+      (itemsRes.itemsFound > 0 ? ` Товарів додано в замовлення: ${order.items.length}${itemsRes.unmatchedCount ? `, не додано (відмовились створювати SKU): ${itemsRes.unmatchedCount}` : ''}.` : ' Товари не розпізнано — додайте вручну.') +
+      ' Перевірте картку внизу списку.';
   }catch(err){
     statusEl.className = 'scan-status error';
     statusEl.textContent = 'Помилка: ' + err.message;
@@ -9921,11 +9963,12 @@ async function extractOrderFromText(text){
             'або текст, скопійований з адмін-панелі сайту. Витягни: ПІБ отримувача, номер телефону, місто, відділення/адресу доставки, ' +
             'спосіб доставки (якщо згадано «Нова Пошта», «Укрпошта» чи самовивіз), ' +
             'перелік товарів/побажань клієнта звичайним текстом (як написано, не намагайся підбирати точні назви з каталогу), ' +
+            'окремо — той самий перелік ЯК СПИСОК окремих позицій (назва й кількість кожної, кількість за замовчуванням 1, якщо не вказано інше), ' +
             'окремо — будь-яке ОСОБЛИВЕ ПОБАЖАННЯ чи ЗАМІНУ складу набору (наприклад «замінити насіння на приправу до риби»), ' +
             'і окремо — спосіб оплати, якщо згадано (напр. «накладений платіж», «оплата при отриманні», «оплачено на карту»). ' +
             'Відповідай ЛИШЕ JSON без пояснень, без markdown-огорожі, у форматі: ' +
-            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","specialRequest":"","paymentPreference":"","notes":""}. ' +
-            'Якщо якесь поле не вдалось знайти в тексті — постав порожній рядок. Нічого не вигадуй.\n\n' +
+            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","items":[{"name":"","qty":1}],"specialRequest":"","paymentPreference":"","notes":""}. ' +
+            'Якщо якесь поле не вдалось знайти в тексті — постав порожній рядок (для items — порожній масив []). Нічого не вигадуй.\n\n' +
             'Текст сповіщення:\n' + text
           }
         ]
@@ -9956,13 +9999,15 @@ async function handleOrderTextRecognize(){
     const extracted = await extractOrderFromText(text);
     const id = nextOrderId++;
     const order = newOrderDefaults(id);
-    applyExtractedToOrder(order, extracted);
+    const itemsRes = applyExtractedToOrder(order, extracted);
     orders.push(order);
     renderOrders();
     renderOrdersSummary();
     scheduleSave();
     statusEl.className = 'scan-status ok';
-    statusEl.textContent = `Розпізнано: ${order.customer || '(ім\'я не знайдено)'}, ${order.phone || '(телефон не знайдено)'}. Перевірте картку внизу списку й додайте товари вручну.`;
+    statusEl.textContent = `Розпізнано: ${order.customer || '(ім\'я не знайдено)'}, ${order.phone || '(телефон не знайдено)'}.` +
+      (itemsRes.itemsFound > 0 ? ` Товарів додано в замовлення: ${order.items.length}${itemsRes.unmatchedCount ? `, не додано (відмовились створювати SKU): ${itemsRes.unmatchedCount}` : ''}.` : ' Товари не розпізнано — додайте вручну.') +
+      ' Перевірте картку внизу списку.';
     ta.value = '';
     scrollToOrderCard(id);
   }catch(err){
