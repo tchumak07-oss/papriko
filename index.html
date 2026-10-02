@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.24.1 · 30.09.2026 16:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.25.0 · 02.10.2026 15:01</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -500,6 +500,7 @@
       <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Відправити в Telegram відправлення за сьогодні</button>
       <button class="btn btn-sm" onclick="sendSmsToTodayClients()">Відправити повідомлення клієнтам за сьогодні</button>
       <button class="btn btn-sm" onclick="document.getElementById('orderScreenshotInput').click()">Розпізнати замовлення зі скріншота</button>
+      <button class="btn btn-sm" onclick="toggleOrderTextForm()">📋 Розпізнати замовлення з тексту</button>
       <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
       <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
       <button class="btn btn-sm" onclick="document.getElementById('ukrPaymentsInput').click()">Завантажити реєстр оплат Укрпошти (Excel)</button>
@@ -514,6 +515,17 @@
 
   <input type="file" id="orderScreenshotInput" accept="image/*" style="display:none" onchange="handleOrderScreenshot(this.files[0])">
   <div id="screenshotStatus" class="scan-status"></div>
+  <div id="orderTextForm" style="display:none;margin:-8px 0 14px;">
+    <p class="hint" style="margin:0 0 6px;">
+      Встав сюди текст сповіщення про нове замовлення — з Telegram (напр. від бота <code>@papriko_spise_bot</code>, якщо він надсилає сповіщення з сайту) чи просто скопійований з адмінки сайту. Claude сам розпізнає ім'я, телефон, місто й товари та створить чернетку замовлення внизу списку.
+    </p>
+    <textarea id="orderTextInput" rows="6" placeholder="Встав текст сповіщення про замовлення…" style="width:100%;"></textarea>
+    <div class="fb-row" style="margin-top:8px;">
+      <button class="btn btn-primary btn-sm" type="button" onclick="handleOrderTextRecognize()">Розпізнати й створити замовлення</button>
+      <button class="btn-ghost" type="button" onclick="toggleOrderTextForm()">Скасувати</button>
+    </div>
+    <div id="orderTextStatus" class="scan-status"></div>
+  </div>
   <input type="file" id="ordersExcelInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleOrdersExcelFile(this.files[0])">
   <div id="ordersExcelStatus" class="scan-status" style="margin-bottom:14px;"></div>
   <details class="hint-details" style="margin:-8px 0 14px;" id="ordersExcelFormatHint">
@@ -1839,6 +1851,14 @@ function doConnect(config){
           // зроблені локальні зміни (напр. вибір відділення НП відразу після вибору міста).
           // Коли поточний локальний запис таки виконається, він сам звірить свіжість даних перед записом.
           if(fbSaveTimer || fbSaveInFlight) return;
+          // якщо цей знімок — лише сервер підтвердив ТОЙ САМИЙ запис, який ми щойно самі зробили
+          // (updatedAt співпадає з тим, що зафіксували одразу після власного успішного запису в
+          // scheduleSave) — у пам'яті й так вже актуальні дані, реально нічого не змінилось.
+          // Пропускаємо важкий повний перемальовок (applyRemoteData + renderOrders): саме він
+          // «зривав» фокус/прокрутку під час заповнення замовлення, коли людина робила паузу між
+          // полями довшу за 600мс дебаунсу збереження — виглядало так, ніби сторінка «перескакує»
+          // з одного замовлення на інше.
+          if(remoteData.updatedAt && remoteData.updatedAt === lastKnownRemoteUpdatedAt) return;
           const remoteOrders = Array.isArray(remoteData.orders) ? remoteData.orders : [];
           // самозахист: якщо у ЦІЄЇ вкладки в пам'яті є замовлення, яких нема у щойно отриманому стані з
           // сервера — це майже напевно застарілий запис з іншого пристрою/вкладки (зі старою версією
@@ -9864,6 +9884,90 @@ async function handleOrderScreenshot(file){
     statusEl.textContent = 'Помилка: ' + err.message;
   }finally{
     document.getElementById('orderScreenshotInput').value = '';
+  }
+}
+
+/* ---------- розпізнавання замовлення з ВСТАВЛЕНОГО ТЕКСТУ (напр. сповіщення з сайту в Telegram) ---------- */
+
+function toggleOrderTextForm(){
+  const el = document.getElementById('orderTextForm');
+  if(!el) return;
+  const show = el.style.display === 'none';
+  el.style.display = show ? 'block' : 'none';
+  if(show){
+    const ta = document.getElementById('orderTextInput');
+    if(ta) ta.focus();
+  }
+}
+
+async function extractOrderFromText(text){
+  if(!anthropicApiKey) throw new Error('Не вказано API-ключ Anthropic (Налаштування доставки → «Ключ для розпізнавання»)');
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text:
+            'Це текст сповіщення про нове замовлення в інтернет-магазині спецій — наприклад, сповіщення від сайту в Telegram, ' +
+            'або текст, скопійований з адмін-панелі сайту. Витягни: ПІБ отримувача, номер телефону, місто, відділення/адресу доставки, ' +
+            'спосіб доставки (якщо згадано «Нова Пошта», «Укрпошта» чи самовивіз), ' +
+            'перелік товарів/побажань клієнта звичайним текстом (як написано, не намагайся підбирати точні назви з каталогу), ' +
+            'окремо — будь-яке ОСОБЛИВЕ ПОБАЖАННЯ чи ЗАМІНУ складу набору (наприклад «замінити насіння на приправу до риби»), ' +
+            'і окремо — спосіб оплати, якщо згадано (напр. «накладений платіж», «оплата при отриманні», «оплачено на карту»). ' +
+            'Відповідай ЛИШЕ JSON без пояснень, без markdown-огорожі, у форматі: ' +
+            '{"name":"","phone":"","city":"","warehouse":"","deliveryMethod":"Нова Пошта|Укрпошта|Самовивіз|","itemsText":"","specialRequest":"","paymentPreference":"","notes":""}. ' +
+            'Якщо якесь поле не вдалось знайти в тексті — постав порожній рядок. Нічого не вигадуй.\n\n' +
+            'Текст сповіщення:\n' + text
+          }
+        ]
+      }]
+    })
+  });
+  const data = await response.json();
+  if(!response.ok){ throw new Error(data?.error?.message || 'Помилка розпізнавання'); }
+  const respText = (data.content || []).map(b => b.text || '').join('\n');
+  const clean = respText.replace(/```json|```/g, '').trim();
+  let extracted;
+  try{ extracted = JSON.parse(clean); } catch(e){ throw new Error('Не вдалося розпізнати структуру тексту'); }
+  return extracted;
+}
+
+async function handleOrderTextRecognize(){
+  const ta = document.getElementById('orderTextInput');
+  const text = (ta.value || '').trim();
+  const statusEl = document.getElementById('orderTextStatus');
+  if(!text){
+    statusEl.className = 'scan-status error';
+    statusEl.textContent = 'Встав текст сповіщення у поле вище.';
+    return;
+  }
+  statusEl.className = 'scan-status loading';
+  statusEl.textContent = 'Розпізнаю текст замовлення...';
+  try{
+    const extracted = await extractOrderFromText(text);
+    const id = nextOrderId++;
+    const order = newOrderDefaults(id);
+    applyExtractedToOrder(order, extracted);
+    orders.push(order);
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+    statusEl.className = 'scan-status ok';
+    statusEl.textContent = `Розпізнано: ${order.customer || '(ім\'я не знайдено)'}, ${order.phone || '(телефон не знайдено)'}. Перевірте картку внизу списку й додайте товари вручну.`;
+    ta.value = '';
+    scrollToOrderCard(id);
+  }catch(err){
+    statusEl.className = 'scan-status error';
+    statusEl.textContent = 'Помилка: ' + err.message;
   }
 }
 
