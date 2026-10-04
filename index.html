@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.31.0 · 04.10.2026 17:43</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.31.1 · 04.10.2026 19:24</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1637,6 +1637,12 @@ let fbDocRef = null;
 // й комплектація набору — новий запис), тож прибравши його звідси, звільняємо основний
 // документ і відсуваємо момент, коли знову впремось у ліміт.
 let fbAuxDocRef = null;
+// якщо запис/читання aux-документа хоч раз не вдалось (напр. через застарілі правила безпеки
+// Firestore) — вмикаємо запобіжник: тимчасово повертаємось до запису stockMovements/
+// npCityOblastCache ПРЯМО в основний документ (як було до розділення), щоб ці дані не загубились
+// назавжди, поки aux недоступний. Так ризикуємо знову впертись у ліміт розміру документа — але
+// це вже відомий, видимий і виправний симптом, а не тиха втрата даних.
+let auxSaveBroken = false;
 let fbConnected = false;
 let fbSaveTimer = null;
 let fbSaveInFlight = false;
@@ -1685,7 +1691,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 };
 
 function buildStatePayload(){
-  return {
+  const payload = {
     catalog, kits, orders, clients, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
@@ -1694,6 +1700,14 @@ function buildStatePayload(){
     activeSessionId: mySessionId,
     updatedAt: new Date().toISOString()
   };
+  // запобіжник: якщо aux-документ виявився недоступним (див. auxSaveBroken) — пишемо ці дані й
+  // сюди теж, щоб не загубити їх, поки проблему з aux не усунуто (навіть ціною ризику знову
+  // наблизитись до ліміту розміру документа — це видимий і виправний симптом).
+  if(auxSaveBroken){
+    payload.stockMovements = stockMovements;
+    payload.npCityOblastCache = npCityOblastCache;
+  }
+  return payload;
 }
 
 // окремий, менш критичний документ — рух товарів (склад) і кеш міст НП. Винесено з основного
@@ -1851,7 +1865,7 @@ function applyRemoteAuxData(data){
 
 function scheduleSave(){
   if(sessionLocked) return; // цю вкладку витіснено іншою активною — не пишемо в базу
-  if(!fbConnected || !fbDocRef || !fbAuxDocRef) return;
+  if(!fbConnected || !fbDocRef) return;
   clearTimeout(fbSaveTimer);
   fbSaveTimer = setTimeout(() => {
     fbSaveTimer = null;
@@ -1862,10 +1876,12 @@ function scheduleSave(){
     // Це закриває прогалину, яку мав попередній варіант (окремі get() і set() з проміжком між ними,
     // куди міг встрягнути чужий запис і бути мовчки затертим) — саме так одного разу губились
     // замовлення, створені в іншій вкладці за кілька секунд до збереження в цій.
+    // ВАЖЛИВО: тут транзакція стосується лише основного документа (товари/замовлення/клієнти) —
+    // навмисно НЕ auxDocRef (рух товарів/кеш міст). Збереження aux робиться окремо, нижче, і НЕ
+    // блокує збереження основних даних, якщо з якоїсь причини (напр. застарілі правила безпеки
+    // Firestore, які ще не дозволяють новий документ "aux") aux недоступний.
     fbDb.runTransaction(t => {
-      // усі читання транзакції мають відбутись ДО будь-яких записів — тож читаємо обидва
-      // документи (основний і aux) разом, перед тим як рахувати payload-и й писати.
-      return Promise.all([t.get(fbDocRef), t.get(fbAuxDocRef)]).then(([snap, auxSnap]) => {
+      return t.get(fbDocRef).then(snap => {
         const remote = snap.exists ? snap.data() : null;
         if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
           const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
@@ -1881,14 +1897,24 @@ function scheduleSave(){
           setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
         }
         const payload = buildStatePayload();
-        const auxPayload = buildAuxPayload();
         t.set(fbDocRef, payload);
-        t.set(fbAuxDocRef, auxPayload);
-        return {payload, auxPayload};
+        return payload;
       });
-    }).then(({payload, auxPayload}) => {
+    }).then(payload => {
       lastKnownRemoteUpdatedAt = payload.updatedAt;
-      lastKnownRemoteAuxUpdatedAt = auxPayload.updatedAt;
+      setSyncBadge('on', 'Синхронізовано');
+      // aux — окремо й best-effort, поза транзакцією: якщо недоступний (права доступу тощо),
+      // це НЕ повинно заважати збереженню основних даних вище (товари/замовлення вже збережено).
+      if(fbAuxDocRef){
+        const auxPayload = buildAuxPayload();
+        fbAuxDocRef.set(auxPayload).then(() => {
+          lastKnownRemoteAuxUpdatedAt = auxPayload.updatedAt;
+        }).catch(err => {
+          console.warn('Aux save error:', err.message);
+          auxSaveBroken = true;
+          setSyncBadge('warn', 'Основні дані збережено, але рух товарів/кеш міст — ні (' + err.message + '). Якщо це повторюється, перевірте правила безпеки Firestore для документа "spice-app/aux".');
+        });
+      }
     }).catch(err => {
       // "failed-precondition"/"aborted" — це сигнал від Firestore, що документ на сервері змінився
       // саме в момент запису (інша вкладка/пристрій зберігались одночасно) і транзакцію відхилено,
@@ -1916,51 +1942,68 @@ function doConnect(config){
       try{ fbStorage = firebase.storage(); }catch(e){ fbStorage = null; } // не критично, якщо Storage не увімкнено в проєкті
       fbDocRef = fbDb.collection('spice-app').doc('data');
       fbAuxDocRef = fbDb.collection('spice-app').doc('aux');
-      Promise.all([fbDocRef.get(), fbAuxDocRef.get()]).then(([snap, auxSnap]) => {
+      // ВАЖЛИВО: основний документ ("data" — товари/замовлення/клієнти) і aux-документ ("aux" —
+      // рух товарів/кеш міст) завантажуються НЕЗАЛЕЖНО один від одного. Якщо їх завантажувати
+      // разом одним Promise.all і aux виявиться недоступним (напр. застарілі правила безпеки
+      // Firestore, прописані конкретно під документ "data", ще не дозволяють новий документ
+      // "aux") — провалювався б ЦІЛИЙ Promise.all, і програма взагалі не підключалась би,
+      // показуючи замість реальних даних вшиті в код демо-товари. Тепер аналогічна відмова aux
+      // лише лишає рух товарів тимчасово не синхронізованим — основні дані працюють як завжди.
+      fbDocRef.get().then(snap => {
         if(snap.exists){
           const mainData = snap.data();
           applyRemoteData(mainData);
           lastKnownRemoteUpdatedAt = mainData.updatedAt || null;
           seenSessionId = mainData.activeSessionId || null;
+          // тимчасовий фолбек: якщо в основному документі ще лишились вбудовані рух товарів/кеш
+          // міст (з часів до розділення 04.10.2026) — підхоплюємо їх одразу, щоб склад не виглядав
+          // порожнім, поки окремий aux-документ (нижче) або ще не підтягнувся, або недоступний.
+          if(mainData.stockMovements || mainData.npCityOblastCache){
+            stockMovements = mainData.stockMovements || [];
+            npCityOblastCache = mainData.npCityOblastCache || {};
+          }
+          return null;
+        } else {
+          const payload = buildStatePayload();
+          return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; });
+        }
+      }).then(() => {
+        fbConnected = true;
+        setSyncBadge('on', 'Синхронізовано');
+
+        // aux — окремим, НЕ блокуючим потоком: похибка тут (права доступу, відсутній документ
+        // тощо) лише лишає рух товарів тимчасово несинхронізованим, не заважаючи основним даним.
+        fbAuxDocRef.get().then(auxSnap => {
           if(auxSnap.exists){
             applyRemoteAuxData(auxSnap.data());
             lastKnownRemoteAuxUpdatedAt = auxSnap.data().updatedAt || null;
             return null;
           }
-          // міграція (одноразово): aux-документа ще нема — якщо старий основний документ ще
-          // тримає вбудовані рух товарів/кеш міст (з часів до розділення на два документи 04.10.2026,
-          // яке усунуло помилку "document ... exceeds the maximum allowed size of 1 048 576 bytes") —
-          // підхоплюємо їх звідти один раз і одразу створюємо для них окремий документ.
-          stockMovements = mainData.stockMovements || [];
-          npCityOblastCache = mainData.npCityOblastCache || {};
           const auxPayload = buildAuxPayload();
           return fbAuxDocRef.set(auxPayload).then(() => { lastKnownRemoteAuxUpdatedAt = auxPayload.updatedAt; });
-        } else {
-          const payload = buildStatePayload();
-          const auxPayload = buildAuxPayload();
-          return Promise.all([
-            fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; }),
-            fbAuxDocRef.set(auxPayload).then(() => { lastKnownRemoteAuxUpdatedAt = auxPayload.updatedAt; })
-          ]);
-        }
-      }).then(() => {
-        fbConnected = true;
-        setSyncBadge('on', 'Синхронізовано');
-        fbAuxDocRef.onSnapshot(auxSnap => {
-          if(!auxSnap.exists || auxSnap.metadata.hasPendingWrites) return;
-          const auxData = auxSnap.data();
-          if(sessionLocked){
+        }).then(() => {
+          fbAuxDocRef.onSnapshot(auxSnap => {
+            if(!auxSnap.exists || auxSnap.metadata.hasPendingWrites) return;
+            const auxData = auxSnap.data();
+            if(sessionLocked){
+              applyRemoteAuxData(auxData);
+              lastKnownRemoteAuxUpdatedAt = auxData.updatedAt || null;
+              return;
+            }
+            if(fbSaveTimer || fbSaveInFlight) return;
+            if(auxData.updatedAt && auxData.updatedAt === lastKnownRemoteAuxUpdatedAt) return;
             applyRemoteAuxData(auxData);
             lastKnownRemoteAuxUpdatedAt = auxData.updatedAt || null;
-            return;
-          }
-          if(fbSaveTimer || fbSaveInFlight) return;
-          if(auxData.updatedAt && auxData.updatedAt === lastKnownRemoteAuxUpdatedAt) return;
-          applyRemoteAuxData(auxData);
-          lastKnownRemoteAuxUpdatedAt = auxData.updatedAt || null;
-        }, err => {
-          console.warn('Aux sync error:', err.message);
+          }, err => {
+            console.warn('Aux sync error:', err.message);
+            auxSaveBroken = true;
+          });
+        }).catch(err => {
+          console.warn('Aux connect error:', err.message);
+          auxSaveBroken = true;
+          setSyncBadge('warn', 'Товари й замовлення підключено, але рух товарів/склад — ні (' + err.message + '). Якщо помилка про права доступу — перевірте правила безпеки Firestore: вони мають дозволяти документ "spice-app/aux", а не лише "spice-app/data".');
         });
+
         fbDocRef.onSnapshot(snap => {
           if(!snap.exists || snap.metadata.hasPendingWrites) return;
           const remoteData = snap.data();
