@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.29.0 · 03.10.2026 09:08</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.30.0 · 04.10.2026 16:55</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -350,6 +350,21 @@
         <div class="fb-row" style="margin-top:10px;">
           <button class="btn btn-primary btn-sm" onclick="createOrderFromOcrText()">Створити замовлення з цього тексту</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="itemResolveModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;align-items:center;justify-content:center;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;">Не впізнані позиції</h3>
+        <button class="btn-ghost" onclick="itemResolveCancel()" aria-label="Закрити">×</button>
+      </div>
+      <p class="hint" style="margin:0 0 14px;">Ці позиції не вдалось однозначно зіставити з довідником «Товари» — можливо, вони там уже є, просто під трохи іншою назвою. Для кожної — підставте наявний товар зі списку, створіть новий SKU, або пропустіть.</p>
+      <div id="itemResolveList"></div>
+      <div class="fb-row" style="margin-top:14px;">
+        <button class="btn btn-primary btn-sm" onclick="itemResolveApply()">Застосувати й продовжити</button>
+        <button class="btn-ghost" onclick="itemResolveCancel()">Скасувати все (пропустити всі)</button>
       </div>
     </div>
   </div>
@@ -3640,11 +3655,11 @@ async function handleTelegramOrderText(message){
     let itemsRes, summaryLines = [];
     if(anthropicApiKey){
       const extracted = await extractOrderFromText(text);
-      itemsRes = applyExtractedToOrder(order, extracted, {interactive: false});
+      itemsRes = await applyExtractedToOrder(order, extracted, {interactive: false});
       if(extracted.itemsText) summaryLines.push('Товари: ' + escapeHtml(extracted.itemsText));
       if(extracted.paymentPreference) summaryLines.push('💳 Оплата: ' + escapeHtml(extracted.paymentPreference));
     } else {
-      itemsRes = applyFreeTextToOrder(order, text, false);
+      itemsRes = await applyFreeTextToOrder(order, text, false);
     }
     orders.push(order);
     renderOrders();
@@ -3679,7 +3694,7 @@ async function handleTelegramOrderPhoto(message){
     const extracted = await extractOrderFromImageBase64(base64, mediaType);
     const id = nextOrderId++;
     const order = newOrderDefaults(id);
-    const itemsRes = applyExtractedToOrder(order, extracted, {interactive: false});
+    const itemsRes = await applyExtractedToOrder(order, extracted, {interactive: false});
     orders.push(order);
     renderOrders();
     renderOrdersSummary();
@@ -3974,6 +3989,7 @@ function newOrderDefaults(id){
     importedFromNp:false,
     sendToTelegram:false,
     sendSms:false,
+    fromSite:false,
     ttnNumber:'', ttnRef:''
   };
 }
@@ -9241,6 +9257,10 @@ function orderExpandedHtml(o, num){
             <input type="checkbox" ${o.sendSms?'checked':''} onchange="updateOrderField(${o.id},'sendSms',this.checked)" style="width:auto;accent-color:var(--saffron);">
             Відправити SMS
           </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
+            <input type="checkbox" ${o.fromSite?'checked':''} onchange="updateOrderField(${o.id},'fromSite',this.checked)" style="width:auto;accent-color:var(--saffron);">
+            Замовлено з сайту
+          </label>
         </div>
       </div>
 
@@ -10090,36 +10110,150 @@ function applyExtractedToOrder(order, extracted, opts){
   return addRecognizedItemsToOrder(order, items, interactive);
 }
 
+function addKitToOrderItems(order, kit, qty){
+  const existing = order.items.find(oi => oi.kitId === kit.id);
+  if(existing) existing.qty += qty;
+  else order.items.push({kitId: kit.id, qty, price: kit.price || 0});
+}
+
+function createNewKitFromName(name){
+  const kitId = nextKitId++;
+  const kit = {id: kitId, sku: nextSku(), name, type: 'Набір', components: [], composition: [], weight: 0, logistics: 0, marketing: 0, price: 0, qty: 0, collapsed: true};
+  kits.push(kit);
+  return kit;
+}
+
 // спільне для всіх джерел розпізнавання (скрін/текст/бот): намагається перетворити розпізнані
 // позиції на реальні рядки замовлення. Якщо назва збігається з наявним товаром/набором у довіднику —
-// додає його; якщо ні — питає (чи, у фоновому режимі, створює одразу), чи створити новий SKU —
-// той самий принцип, що й при завантаженні замовлень з Excel.
+// додає його одразу; якщо ні — у фоновому режимі (Telegram-бот, питати нема кого) створює новий SKU
+// одразу, щоб замовлення не загубилось; в інтерактивному (кнопки в самій програмі) — відкриває
+// віконце, де для кожної нерозпізнаної позиції можна підставити вже наявний товар (можливо, він є,
+// просто записаний трохи інакше, ніж прийшло з сайту/переписки), створити новий SKU, або пропустити.
+// Повертає Promise — в інтерактивному режимі результат приходить лише після того, як людина
+// закриє віконце (кнопкою «Застосувати» чи «Скасувати»).
 function addRecognizedItemsToOrder(order, items, interactive){
-  let unmatchedCount = 0, createdCount = 0;
-  (items || []).forEach(it => {
-    const name = String((it && it.name) || '').trim();
-    if(!name) return;
-    const qty = (it && Number(it.qty) > 0) ? Number(it.qty) : 1;
-    let kit = findKitBySkuOrName(name, name);
-    if(!kit){
-      // у фоновому режимі (Telegram-бот) питати нема кого — створюємо одразу, щоб замовлення не загубилось;
-      // в інтерактивному (кнопки в самій програмі) — питаємо, як і при завантаженні замовлень з Excel.
-      const create = interactive
-        ? confirm(`Товар «${name}» не знайдено в довіднику «Товари».\n\nСтворити для нього новий набір (SKU)? Склад і ціну можна буде донастроїти пізніше у вкладці «Товари».`)
-        : true;
-      if(create){
-        const kitId = nextKitId++;
-        kit = {id: kitId, sku: nextSku(), name, type: 'Набір', components: [], weight: 0, logistics: 0, marketing: 0, price: 0, qty: 0, collapsed: true};
-        kits.push(kit);
+  return new Promise(resolve => {
+    let unmatchedCount = 0, createdCount = 0;
+    const toResolve = [];
+    (items || []).forEach(it => {
+      const name = String((it && it.name) || '').trim();
+      if(!name) return;
+      const qty = (it && Number(it.qty) > 0) ? Number(it.qty) : 1;
+      const kit = findKitBySkuOrName(name, name);
+      if(kit){
+        addKitToOrderItems(order, kit, qty);
+      } else if(!interactive){
+        const newKit = createNewKitFromName(name);
         createdCount++;
+        addKitToOrderItems(order, newKit, qty);
       } else {
-        unmatchedCount++;
-        return;
+        toResolve.push({name, qty});
       }
+    });
+    if(createdCount > 0){
+      renderKits();
+      renderCostsPanel();
+      renderSummary();
+      renderChart();
     }
-    const existing = order.items.find(oi => oi.kitId === kit.id);
-    if(existing) existing.qty += qty;
-    else order.items.push({kitId: kit.id, qty, price: kit.price || 0});
+    if(toResolve.length === 0){
+      resolve({unmatchedCount, createdCount, itemsFound: (items || []).length});
+      return;
+    }
+    openItemResolveModal(order, toResolve, result => {
+      resolve({
+        unmatchedCount: unmatchedCount + result.skippedCount,
+        createdCount: createdCount + result.createdCount,
+        itemsFound: (items || []).length
+      });
+    });
+  });
+}
+
+/* ---------- віконце «Не впізнані позиції»: підставити наявний товар / створити SKU / пропустити ---------- */
+
+let itemResolveOrder = null;
+let itemResolveRows = []; // [{name, qty, action: null|'match'|'create'|'skip', chosenKitId}]
+let itemResolveCallback = null;
+
+function openItemResolveModal(order, rows, callback){
+  itemResolveOrder = order;
+  itemResolveRows = rows.map(r => ({...r, action: null, chosenKitId: null}));
+  itemResolveCallback = callback;
+  renderItemResolveModal();
+  document.getElementById('itemResolveModal').style.display = 'flex';
+}
+
+function kitSelectOptionsForResolve(){
+  const sorted = [...kits].sort((a,b) => a.name.localeCompare(b.name));
+  return sorted.map(k => `<option value="${k.id}">${escapeAttr(k.name)} (${escapeAttr(k.sku)})</option>`).join('');
+}
+
+function itemResolveStatusText(r){
+  if(r.action === 'match'){ const k = kitById(r.chosenKitId); return `✓ Підставлено: ${k ? escapeHtml(k.name) : '?'}`; }
+  if(r.action === 'create') return '✓ Буде створено новий SKU';
+  if(r.action === 'skip') return '— пропущено, не буде додано в замовлення';
+  return 'Оберіть дію нижче';
+}
+
+function renderItemResolveModal(){
+  const el = document.getElementById('itemResolveList');
+  if(!el) return;
+  const kitOptionsHtml = kitSelectOptionsForResolve();
+  el.innerHTML = itemResolveRows.map((r, idx) => `
+    <div class="catalog-panel" style="margin-bottom:10px;"><div style="padding:10px 12px;">
+      <div style="font-weight:600;margin-bottom:6px;">${escapeHtml(r.name)} <span class="hint">× ${r.qty}</span></div>
+      <div class="fb-row">
+        <select style="flex:1;min-width:160px;" onchange="itemResolvePick(${idx}, this.value)">
+          <option value="">— підставити наявний товар —</option>
+          ${kitOptionsHtml}
+        </select>
+        <button class="btn btn-sm" onclick="itemResolveCreate(${idx})">+ Створити новий SKU</button>
+        <button class="btn-ghost" onclick="itemResolveSkip(${idx})">Пропустити</button>
+      </div>
+      <div class="hint" id="itemResolveStatus-${idx}" style="margin-top:4px;">${itemResolveStatusText(r)}</div>
+    </div></div>
+  `).join('');
+}
+
+function itemResolvePick(idx, value){
+  const r = itemResolveRows[idx];
+  r.chosenKitId = value ? parseInt(value, 10) : null;
+  r.action = r.chosenKitId ? 'match' : null;
+  const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
+  if(statusEl) statusEl.textContent = itemResolveStatusText(r);
+}
+
+function itemResolveCreate(idx){
+  const r = itemResolveRows[idx];
+  r.action = 'create';
+  r.chosenKitId = null;
+  const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
+  if(statusEl) statusEl.textContent = itemResolveStatusText(r);
+}
+
+function itemResolveSkip(idx){
+  const r = itemResolveRows[idx];
+  r.action = 'skip';
+  r.chosenKitId = null;
+  const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
+  if(statusEl) statusEl.textContent = itemResolveStatusText(r);
+}
+
+function itemResolveFinish(rowsToApply){
+  let createdCount = 0, skippedCount = 0;
+  rowsToApply.forEach(r => {
+    if(r.action === 'match' && r.chosenKitId){
+      const kit = kitById(r.chosenKitId);
+      if(kit) addKitToOrderItems(itemResolveOrder, kit, r.qty);
+      else skippedCount++;
+    } else if(r.action === 'create'){
+      const kit = createNewKitFromName(r.name);
+      addKitToOrderItems(itemResolveOrder, kit, r.qty);
+      createdCount++;
+    } else {
+      skippedCount++;
+    }
   });
   if(createdCount > 0){
     renderKits();
@@ -10127,7 +10261,24 @@ function addRecognizedItemsToOrder(order, items, interactive){
     renderSummary();
     renderChart();
   }
-  return {unmatchedCount, createdCount, itemsFound: (items || []).length};
+  document.getElementById('itemResolveModal').style.display = 'none';
+  const cb = itemResolveCallback;
+  itemResolveOrder = null;
+  itemResolveRows = [];
+  itemResolveCallback = null;
+  if(cb) cb({createdCount, skippedCount});
+}
+
+function itemResolveApply(){
+  const unresolved = itemResolveRows.filter(r => !r.action);
+  if(unresolved.length && !confirm(`${unresolved.length} поз. ще не визначено — пропустити їх і продовжити?`)) return;
+  itemResolveFinish(itemResolveRows);
+}
+
+function itemResolveCancel(){
+  // кнопка явно каже «пропустити всі» — тож ігноруємо всі позиції без винятку, навіть ті,
+  // для яких уже встигли щось обрати.
+  itemResolveFinish(itemResolveRows.map(r => ({...r, action: 'skip'})));
 }
 
 // безкоштовний розбір переліку товарів з простого тексту (без жодного API) — шукає рядки/фрагменти
@@ -10232,7 +10383,7 @@ async function handleOrderScreenshot(file){
     const extracted = await extractOrderFromImageBase64(base64, mediaType);
     const id = nextOrderId++;
     const order = newOrderDefaults(id);
-    const itemsRes = applyExtractedToOrder(order, extracted);
+    const itemsRes = await applyExtractedToOrder(order, extracted);
     orders.push(order);
     renderOrders();
     renderOrdersSummary();
@@ -10328,7 +10479,7 @@ async function handleOrderTextRecognize(){
     statusEl.textContent = 'Розбираю текст замовлення...';
     const id = nextOrderId++;
     const order = newOrderDefaults(id);
-    const res = applyFreeTextToOrder(order, text);
+    const res = await applyFreeTextToOrder(order, text);
     orders.push(order);
     renderOrders();
     renderOrdersSummary();
@@ -10347,7 +10498,7 @@ async function handleOrderTextRecognize(){
     const extracted = await extractOrderFromText(text);
     const id = nextOrderId++;
     const order = newOrderDefaults(id);
-    const itemsRes = applyExtractedToOrder(order, extracted);
+    const itemsRes = await applyExtractedToOrder(order, extracted);
     orders.push(order);
     renderOrders();
     renderOrdersSummary();
