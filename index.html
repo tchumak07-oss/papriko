@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.31.1 · 04.10.2026 19:24</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.31.2 · 04.10.2026 19:39</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -362,6 +362,7 @@
       </div>
       <p class="hint" style="margin:0 0 14px;">Ці позиції не вдалось однозначно зіставити з довідником «Товари» — можливо, вони там уже є, просто під трохи іншою назвою. Для кожної — підставте наявний товар зі списку, створіть новий SKU, або пропустіть.</p>
       <div id="itemResolveList"></div>
+      <div id="itemResolveWarning" style="display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.35);color:#dc2626;font-size:13px;"></div>
       <div class="fb-row" style="margin-top:14px;">
         <button class="btn btn-primary btn-sm" onclick="itemResolveApply()">Застосувати й продовжити</button>
         <button class="btn-ghost" onclick="itemResolveCancel()">Скасувати все (пропустити всі)</button>
@@ -10293,6 +10294,8 @@ function openItemResolveModal(order, rows, callback){
   itemResolveRows = rows.map(r => ({...r, action: null, chosenKitId: null, chosenCatalogId: null}));
   itemResolveCallback = callback;
   renderItemResolveModal();
+  const warnEl = document.getElementById('itemResolveWarning');
+  if(warnEl) warnEl.style.display = 'none';
   document.getElementById('itemResolveModal').style.display = 'flex';
 }
 
@@ -10325,7 +10328,7 @@ function renderItemResolveModal(){
   if(!el) return;
   const optionsHtml = itemResolveSelectOptionsHtml();
   el.innerHTML = itemResolveRows.map((r, idx) => `
-    <div class="catalog-panel" style="margin-bottom:10px;"><div style="padding:10px 12px;">
+    <div class="catalog-panel" id="itemResolveRow-${idx}" style="margin-bottom:10px;border:${r.action ? '1px solid var(--border)' : '1px solid rgba(220,38,38,0.4)'};"><div style="padding:10px 12px;">
       <div style="font-weight:600;margin-bottom:6px;">${escapeHtml(r.name)} <span class="hint">× ${r.qty}</span></div>
       <div class="fb-row">
         <select style="flex:1;min-width:160px;" onchange="itemResolvePick(${idx}, this.value)">
@@ -10334,9 +10337,25 @@ function renderItemResolveModal(){
         <button class="btn btn-sm" onclick="itemResolveCreate(${idx})">+ Створити новий SKU</button>
         <button class="btn-ghost" onclick="itemResolveSkip(${idx})">Пропустити</button>
       </div>
-      <div class="hint" id="itemResolveStatus-${idx}" style="margin-top:4px;">${itemResolveStatusText(r)}</div>
+      <div class="hint" id="itemResolveStatus-${idx}" style="margin-top:4px;${r.action ? '' : 'color:#dc2626;'}">${itemResolveStatusText(r)}</div>
     </div></div>
   `).join('');
+}
+
+function itemResolveRefreshRow(idx){
+  const r = itemResolveRows[idx];
+  const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
+  if(statusEl){
+    statusEl.textContent = itemResolveStatusText(r);
+    statusEl.style.color = r.action ? '' : '#dc2626';
+  }
+  const rowEl = document.getElementById(`itemResolveRow-${idx}`);
+  if(rowEl) rowEl.style.border = r.action ? '1px solid var(--border)' : '1px solid rgba(220,38,38,0.4)';
+  // якщо всі позиції вже опрацьовані — ховаємо попередження про неопрацьовані рядки.
+  if(itemResolveRows.every(row => row.action)){
+    const warnEl = document.getElementById('itemResolveWarning');
+    if(warnEl) warnEl.style.display = 'none';
+  }
 }
 
 function itemResolvePick(idx, value){
@@ -10352,8 +10371,7 @@ function itemResolvePick(idx, value){
   } else {
     r.action = null;
   }
-  const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
-  if(statusEl) statusEl.textContent = itemResolveStatusText(r);
+  itemResolveRefreshRow(idx);
 }
 
 function itemResolveCreate(idx){
@@ -10361,8 +10379,7 @@ function itemResolveCreate(idx){
   r.action = 'create';
   r.chosenKitId = null;
   r.chosenCatalogId = null;
-  const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
-  if(statusEl) statusEl.textContent = itemResolveStatusText(r);
+  itemResolveRefreshRow(idx);
 }
 
 function itemResolveSkip(idx){
@@ -10370,8 +10387,7 @@ function itemResolveSkip(idx){
   r.action = 'skip';
   r.chosenKitId = null;
   r.chosenCatalogId = null;
-  const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
-  if(statusEl) statusEl.textContent = itemResolveStatusText(r);
+  itemResolveRefreshRow(idx);
 }
 
 // якщо для інгредієнта з довідника вже є товар-«обгортка» (набір лише з цього одного компонента) —
@@ -10430,8 +10446,18 @@ function itemResolveFinish(rowsToApply){
 }
 
 function itemResolveApply(){
-  const unresolved = itemResolveRows.filter(r => !r.action);
-  if(unresolved.length && !confirm(`${unresolved.length} поз. ще не визначено — пропустити їх і продовжити?`)) return;
+  const unresolvedIdx = itemResolveRows.map((r, idx) => r.action ? null : idx).filter(idx => idx !== null);
+  if(unresolvedIdx.length){
+    const warnEl = document.getElementById('itemResolveWarning');
+    if(warnEl){
+      warnEl.style.display = 'block';
+      warnEl.textContent = `Спочатку оберіть дію (підставити / створити / пропустити) для ${unresolvedIdx.length} позначених позицій нижче — жодна з них не додасться в замовлення, доки ви не вкажете, що з нею робити.`;
+    }
+    unresolvedIdx.forEach(idx => itemResolveRefreshRow(idx));
+    const firstRow = document.getElementById(`itemResolveRow-${unresolvedIdx[0]}`);
+    if(firstRow) firstRow.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
   itemResolveFinish(itemResolveRows);
 }
 
