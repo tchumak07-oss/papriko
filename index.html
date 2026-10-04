@@ -306,7 +306,7 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.30.0 · 04.10.2026 16:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.31.0 · 04.10.2026 17:43</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
@@ -1630,6 +1630,13 @@ let chartMode = 'profit';
 /* ---------- firebase sync ---------- */
 let fbDb = null;
 let fbDocRef = null;
+// окремий документ для сировини, яка сама по собі не критична для звірки конфліктів (рух
+// товарів/склад, кеш міст НП) — винесено з основного документа, бо Firestore обмежує розмір
+// ОДНОГО документа 1 МіБ, а основний документ (замовлення + довідники + налаштування) з часом
+// до нього впритул наближався. Рух товарів зазвичай росте швидше за все інше (кожна відправка
+// й комплектація набору — новий запис), тож прибравши його звідси, звільняємо основний
+// документ і відсуваємо момент, коли знову впремось у ліміт.
+let fbAuxDocRef = null;
 let fbConnected = false;
 let fbSaveTimer = null;
 let fbSaveInFlight = false;
@@ -1638,6 +1645,7 @@ let fbStorage = null;
 // потрібно, щоб виявити ситуацію, коли ІНША вкладка/пристрій зберегли зміни, поки ця вкладка "спала"
 // з застарілими даними в пам'яті: інакше збереження з цієї вкладки тихо затре свіжіші зміни.
 let lastKnownRemoteUpdatedAt = null;
+let lastKnownRemoteAuxUpdatedAt = null;
 // унікальний ідентифікатор ЦІЄЇ вкладки/сеансу — потрібен для механізму "єдиної активної вкладки":
 // коли якась вкладка зберігає дані (або натиснута кнопка "зробити активною"), вона записує свій id
 // у полі activeSessionId. Усі ІНШІ відкриті вкладки, побачивши, що це поле змінилось на чужий id,
@@ -1678,12 +1686,21 @@ const HARDCODED_FIREBASE_CONFIG = {
 
 function buildStatePayload(){
   return {
-    catalog, kits, orders, clients, stockMovements, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npCityOblastCache, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
+    catalog, kits, orders, clients, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
     quickOrderKitId,
     activeSessionId: mySessionId,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+// окремий, менш критичний документ — рух товарів (склад) і кеш міст НП. Винесено з основного
+// документа 04.10.2026, щоб звільнити місце під ліміт Firestore в 1 МіБ (див. коментар біля fbAuxDocRef).
+function buildAuxPayload(){
+  return {
+    stockMovements, npCityOblastCache,
     updatedAt: new Date().toISOString()
   };
 }
@@ -1702,12 +1719,13 @@ function applyRemoteData(data){
   // «зникло» та дублювала його. Для старих записів (без uid) звірка й далі йде за числовим id;
   // uid є лише в замовленнях, створених після цього оновлення — там він один, з моменту створення.
   clients = data.clients || [];
-  stockMovements = data.stockMovements || [];
   cashTransactions = data.cashTransactions || [];
   counterparties = data.counterparties || [];
   supplierOrder = data.supplierOrder || {supplier:'', counterpartyId:'', date:'', number:'', items:[]};
   supplierOrderHistory = data.supplierOrderHistory || [];
-  npCityOblastCache = data.npCityOblastCache || {};
+  // stockMovements і npCityOblastCache від 04.10.2026 більше НЕ зберігаються в цьому документі
+  // (див. applyRemoteAuxData/fbAuxDocRef) — тут їх свідомо не читаємо, інакше кожен знімок цього
+  // документа (напр. після того, як хтось просто зберіг замовлення) обнуляв би їх у пам'яті.
   npApiKey = data.npApiKey || '';
   ocrApiKey = data.ocrApiKey || '';
   if(data.npSender) npSender = Object.assign(npSender, data.npSender);
@@ -1818,9 +1836,22 @@ function applyRemoteData(data){
   if(payoutCardInput) payoutCardInput.value = npSender.payoutCard || '';
 }
 
+// застосовує дані з окремого "aux"-документа (рух товарів/склад + кеш міст НП, див. fbAuxDocRef) —
+// на відміну від applyRemoteData, його НЕ викликають з кожного знімка основного документа, лише
+// зі свого власного — інакше кожне збереження замовлення (яке не чіпає рух товарів) обнуляло б їх.
+function applyRemoteAuxData(data){
+  if(!data) return;
+  stockMovements = data.stockMovements || [];
+  npCityOblastCache = data.npCityOblastCache || {};
+  renderBalances();
+  renderMovements();
+  renderInventory();
+  populateMovementItemSelect();
+}
+
 function scheduleSave(){
   if(sessionLocked) return; // цю вкладку витіснено іншою активною — не пишемо в базу
-  if(!fbConnected || !fbDocRef) return;
+  if(!fbConnected || !fbDocRef || !fbAuxDocRef) return;
   clearTimeout(fbSaveTimer);
   fbSaveTimer = setTimeout(() => {
     fbSaveTimer = null;
@@ -1832,7 +1863,9 @@ function scheduleSave(){
     // куди міг встрягнути чужий запис і бути мовчки затертим) — саме так одного разу губились
     // замовлення, створені в іншій вкладці за кілька секунд до збереження в цій.
     fbDb.runTransaction(t => {
-      return t.get(fbDocRef).then(snap => {
+      // усі читання транзакції мають відбутись ДО будь-яких записів — тож читаємо обидва
+      // документи (основний і aux) разом, перед тим як рахувати payload-и й писати.
+      return Promise.all([t.get(fbDocRef), t.get(fbAuxDocRef)]).then(([snap, auxSnap]) => {
         const remote = snap.exists ? snap.data() : null;
         if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
           const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
@@ -1848,11 +1881,14 @@ function scheduleSave(){
           setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
         }
         const payload = buildStatePayload();
+        const auxPayload = buildAuxPayload();
         t.set(fbDocRef, payload);
-        return payload;
+        t.set(fbAuxDocRef, auxPayload);
+        return {payload, auxPayload};
       });
-    }).then(payload => {
+    }).then(({payload, auxPayload}) => {
       lastKnownRemoteUpdatedAt = payload.updatedAt;
+      lastKnownRemoteAuxUpdatedAt = auxPayload.updatedAt;
     }).catch(err => {
       // "failed-precondition"/"aborted" — це сигнал від Firestore, що документ на сервері змінився
       // саме в момент запису (інша вкладка/пристрій зберігались одночасно) і транзакцію відхилено,
@@ -1879,19 +1915,52 @@ function doConnect(config){
       fbDb = firebase.firestore();
       try{ fbStorage = firebase.storage(); }catch(e){ fbStorage = null; } // не критично, якщо Storage не увімкнено в проєкті
       fbDocRef = fbDb.collection('spice-app').doc('data');
-      fbDocRef.get().then(snap => {
+      fbAuxDocRef = fbDb.collection('spice-app').doc('aux');
+      Promise.all([fbDocRef.get(), fbAuxDocRef.get()]).then(([snap, auxSnap]) => {
         if(snap.exists){
-          applyRemoteData(snap.data());
-          lastKnownRemoteUpdatedAt = snap.data().updatedAt || null;
-          seenSessionId = snap.data().activeSessionId || null;
-          return null;
+          const mainData = snap.data();
+          applyRemoteData(mainData);
+          lastKnownRemoteUpdatedAt = mainData.updatedAt || null;
+          seenSessionId = mainData.activeSessionId || null;
+          if(auxSnap.exists){
+            applyRemoteAuxData(auxSnap.data());
+            lastKnownRemoteAuxUpdatedAt = auxSnap.data().updatedAt || null;
+            return null;
+          }
+          // міграція (одноразово): aux-документа ще нема — якщо старий основний документ ще
+          // тримає вбудовані рух товарів/кеш міст (з часів до розділення на два документи 04.10.2026,
+          // яке усунуло помилку "document ... exceeds the maximum allowed size of 1 048 576 bytes") —
+          // підхоплюємо їх звідти один раз і одразу створюємо для них окремий документ.
+          stockMovements = mainData.stockMovements || [];
+          npCityOblastCache = mainData.npCityOblastCache || {};
+          const auxPayload = buildAuxPayload();
+          return fbAuxDocRef.set(auxPayload).then(() => { lastKnownRemoteAuxUpdatedAt = auxPayload.updatedAt; });
         } else {
           const payload = buildStatePayload();
-          return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; });
+          const auxPayload = buildAuxPayload();
+          return Promise.all([
+            fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; }),
+            fbAuxDocRef.set(auxPayload).then(() => { lastKnownRemoteAuxUpdatedAt = auxPayload.updatedAt; })
+          ]);
         }
       }).then(() => {
         fbConnected = true;
         setSyncBadge('on', 'Синхронізовано');
+        fbAuxDocRef.onSnapshot(auxSnap => {
+          if(!auxSnap.exists || auxSnap.metadata.hasPendingWrites) return;
+          const auxData = auxSnap.data();
+          if(sessionLocked){
+            applyRemoteAuxData(auxData);
+            lastKnownRemoteAuxUpdatedAt = auxData.updatedAt || null;
+            return;
+          }
+          if(fbSaveTimer || fbSaveInFlight) return;
+          if(auxData.updatedAt && auxData.updatedAt === lastKnownRemoteAuxUpdatedAt) return;
+          applyRemoteAuxData(auxData);
+          lastKnownRemoteAuxUpdatedAt = auxData.updatedAt || null;
+        }, err => {
+          console.warn('Aux sync error:', err.message);
+        });
         fbDocRef.onSnapshot(snap => {
           if(!snap.exists || snap.metadata.hasPendingWrites) return;
           const remoteData = snap.data();
@@ -10173,24 +10242,36 @@ function addRecognizedItemsToOrder(order, items, interactive){
 /* ---------- віконце «Не впізнані позиції»: підставити наявний товар / створити SKU / пропустити ---------- */
 
 let itemResolveOrder = null;
-let itemResolveRows = []; // [{name, qty, action: null|'match'|'create'|'skip', chosenKitId}]
+let itemResolveRows = []; // [{name, qty, action: null|'match'|'matchCatalog'|'create'|'skip', chosenKitId, chosenCatalogId}]
 let itemResolveCallback = null;
 
 function openItemResolveModal(order, rows, callback){
   itemResolveOrder = order;
-  itemResolveRows = rows.map(r => ({...r, action: null, chosenKitId: null}));
+  itemResolveRows = rows.map(r => ({...r, action: null, chosenKitId: null, chosenCatalogId: null}));
   itemResolveCallback = callback;
   renderItemResolveModal();
   document.getElementById('itemResolveModal').style.display = 'flex';
 }
 
-function kitSelectOptionsForResolve(){
-  const sorted = [...kits].sort((a,b) => a.name.localeCompare(b.name));
-  return sorted.map(k => `<option value="${k.id}">${escapeAttr(k.name)} (${escapeAttr(k.sku)})</option>`).join('');
+// випадний список для підстановки — показує і вже готові товари/набори (kits), і сирі
+// інгредієнти/упаковку з довідника (catalog): позицію з довідника могли ще не оформити як
+// окремий товар, тож підставити напряму звідти теж має бути можливо. Значення закодовано як
+// "k<id>" для товару чи "c<id>" для інгредієнта, щоб відрізнити один список від іншого.
+function itemResolveSelectOptionsHtml(){
+  const sortedKits = [...kits].sort((a,b) => a.name.localeCompare(b.name));
+  const sortedCatalog = [...catalog].sort((a,b) => a.name.localeCompare(b.name));
+  const kitOpts = sortedKits.map(k => `<option value="k${k.id}">${escapeAttr(k.name)} (${escapeAttr(k.sku)})</option>`).join('');
+  const catOpts = sortedCatalog.map(c => `<option value="c${c.id}">${escapeAttr(c.name)}</option>`).join('');
+  return `
+    <option value="">— підставити наявну позицію —</option>
+    <optgroup label="Товари / набори">${kitOpts}</optgroup>
+    <optgroup label="Інгредієнти / упаковка">${catOpts}</optgroup>
+  `;
 }
 
 function itemResolveStatusText(r){
-  if(r.action === 'match'){ const k = kitById(r.chosenKitId); return `✓ Підставлено: ${k ? escapeHtml(k.name) : '?'}`; }
+  if(r.action === 'match'){ const k = kitById(r.chosenKitId); return `✓ Підставлено товар: ${k ? escapeHtml(k.name) : '?'}`; }
+  if(r.action === 'matchCatalog'){ const c = catalogItem(r.chosenCatalogId); return `✓ Підставлено інгредієнт: ${c ? escapeHtml(c.name) : '?'}`; }
   if(r.action === 'create') return '✓ Буде створено новий SKU';
   if(r.action === 'skip') return '— пропущено, не буде додано в замовлення';
   return 'Оберіть дію нижче';
@@ -10199,14 +10280,13 @@ function itemResolveStatusText(r){
 function renderItemResolveModal(){
   const el = document.getElementById('itemResolveList');
   if(!el) return;
-  const kitOptionsHtml = kitSelectOptionsForResolve();
+  const optionsHtml = itemResolveSelectOptionsHtml();
   el.innerHTML = itemResolveRows.map((r, idx) => `
     <div class="catalog-panel" style="margin-bottom:10px;"><div style="padding:10px 12px;">
       <div style="font-weight:600;margin-bottom:6px;">${escapeHtml(r.name)} <span class="hint">× ${r.qty}</span></div>
       <div class="fb-row">
         <select style="flex:1;min-width:160px;" onchange="itemResolvePick(${idx}, this.value)">
-          <option value="">— підставити наявний товар —</option>
-          ${kitOptionsHtml}
+          ${optionsHtml}
         </select>
         <button class="btn btn-sm" onclick="itemResolveCreate(${idx})">+ Створити новий SKU</button>
         <button class="btn-ghost" onclick="itemResolveSkip(${idx})">Пропустити</button>
@@ -10218,8 +10298,17 @@ function renderItemResolveModal(){
 
 function itemResolvePick(idx, value){
   const r = itemResolveRows[idx];
-  r.chosenKitId = value ? parseInt(value, 10) : null;
-  r.action = r.chosenKitId ? 'match' : null;
+  r.chosenKitId = null;
+  r.chosenCatalogId = null;
+  if(value && value[0] === 'k'){
+    r.chosenKitId = parseInt(value.slice(1), 10);
+    r.action = 'match';
+  } else if(value && value[0] === 'c'){
+    r.chosenCatalogId = parseInt(value.slice(1), 10);
+    r.action = 'matchCatalog';
+  } else {
+    r.action = null;
+  }
   const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
   if(statusEl) statusEl.textContent = itemResolveStatusText(r);
 }
@@ -10228,6 +10317,7 @@ function itemResolveCreate(idx){
   const r = itemResolveRows[idx];
   r.action = 'create';
   r.chosenKitId = null;
+  r.chosenCatalogId = null;
   const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
   if(statusEl) statusEl.textContent = itemResolveStatusText(r);
 }
@@ -10236,8 +10326,30 @@ function itemResolveSkip(idx){
   const r = itemResolveRows[idx];
   r.action = 'skip';
   r.chosenKitId = null;
+  r.chosenCatalogId = null;
   const statusEl = document.getElementById(`itemResolveStatus-${idx}`);
   if(statusEl) statusEl.textContent = itemResolveStatusText(r);
+}
+
+// якщо для інгредієнта з довідника вже є товар-«обгортка» (набір лише з цього одного компонента) —
+// використовуємо його замість того, щоб плодити дублікати SKU щоразу, як цей інгредієнт підставляють.
+function findKitWrappingCatalogItem(catalogId){
+  return kits.find(k => Array.isArray(k.components) && k.components.length === 1 &&
+    k.components[0].catalogId === catalogId && (k.components[0].refType || 'catalog') === 'catalog');
+}
+
+function createKitWrappingCatalogItem(catalogId, qty){
+  const c = catalogItem(catalogId);
+  if(!c) return null;
+  const kitId = nextKitId++;
+  const kit = {
+    id: kitId, sku: nextSku(), name: c.name, type: 'Набір',
+    components: [{catalogId: c.id, refType: 'catalog', amount: 1}], composition: [],
+    weight: (c.unit === 'г' || c.unit === 'мл') ? 1 : 0,
+    logistics: 0, marketing: 0, price: c.cost || 0, qty: 0, collapsed: true
+  };
+  kits.push(kit);
+  return kit;
 }
 
 function itemResolveFinish(rowsToApply){
@@ -10245,6 +10357,11 @@ function itemResolveFinish(rowsToApply){
   rowsToApply.forEach(r => {
     if(r.action === 'match' && r.chosenKitId){
       const kit = kitById(r.chosenKitId);
+      if(kit) addKitToOrderItems(itemResolveOrder, kit, r.qty);
+      else skippedCount++;
+    } else if(r.action === 'matchCatalog' && r.chosenCatalogId){
+      let kit = findKitWrappingCatalogItem(r.chosenCatalogId);
+      if(!kit){ kit = createKitWrappingCatalogItem(r.chosenCatalogId, r.qty); createdCount++; }
       if(kit) addKitToOrderItems(itemResolveOrder, kit, r.qty);
       else skippedCount++;
     } else if(r.action === 'create'){
