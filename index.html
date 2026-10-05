@@ -282,7 +282,10 @@
 
     /* картки замовлень — менше горизонтальних відступів на вузькому екрані */
     .order-card{padding:0.9rem 0.9rem;}
-    .order-collapsed-info{flex-basis:100%;}
+    .order-collapsed-info{flex-basis:100%;flex-wrap:wrap;overflow:visible;}
+    .order-collapsed-info strong{white-space:normal;max-width:none;flex:1 1 100%;font-size:15px;overflow:visible;text-overflow:clip;word-break:break-word;}
+    .order-collapsed-info .hint{flex:1 1 100%;white-space:normal;}
+    .order-wide-field{grid-column:1 / -1;}
 
     .summary{grid-template-columns:1fr 1fr;}
   }
@@ -334,7 +337,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.35.0 · 05.10.2026 20:21</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.38.0 · 05.10.2026 20:29</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -347,6 +350,7 @@
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
         <div id="authUserBox" class="hint" style="display:none;font-size:11px;"><span id="authUserEmail"></span> · <a href="#" onclick="authSignOut();return false;" style="color:var(--saffron);">Вийти</a></div>
         <button class="btn-ghost" id="dbSizeChip" onclick="showDbSizeDetails()" title="Скільки місця зайнято в базі (ліміт Firestore — 1 МБ на документ). Натисніть, щоб побачити, що саме займає місце.">База: …</button>
+        <button class="btn-ghost" onclick="openGlobalSearch()" title="Глобальний пошук (Ctrl+K)">🔍 Пошук</button>
         <button class="btn-ghost hdr-tb-toggle" onclick="document.getElementById('hdrToolbar').classList.toggle('open')">⚙ Сервіс</button>
       </div>
       <div class="hdr-tb-group hdr-tools-group">
@@ -406,6 +410,17 @@
       <div style="margin-top:14px;text-align:center;"><a href="#" onclick="authBypass();return false;" class="hint" style="font-size:11px;">Продовжити без входу (працює, лише поки правила Firestore відкриті)</a></div>
     </div>
   </div>
+
+  <div id="globalSearchOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:800;align-items:flex-start;justify-content:center;padding-top:8vh;" onclick="if(event.target===this)closeGlobalSearch()">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:94%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:12px;border-bottom:1px solid var(--border-soft);">
+        <input type="text" id="globalSearchInput" placeholder="Пошук: клієнт, телефон, ТТН, товар, місто…" autocomplete="off" style="width:100%;font-size:15px;" oninput="globalSearchRun(this.value)" onkeydown="globalSearchKey(event)">
+      </div>
+      <div id="globalSearchResults" style="overflow-y:auto;padding:6px 0;"></div>
+      <div class="hint" style="padding:6px 12px;font-size:11px;border-top:1px solid var(--border-soft);">Enter — відкрити перший результат · Esc — закрити · Ctrl+Z — скасувати останнє видалення</div>
+    </div>
+  </div>
+  <div id="undoToast" style="display:none;position:fixed;left:16px;bottom:16px;z-index:850;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,0.5);font-size:13px;max-width:calc(100vw - 32px);"></div>
 
   <div id="itemResolveModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;align-items:center;justify-content:center;">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
@@ -1068,11 +1083,13 @@
     База клієнтів <span class="n" id="clientCount"></span>
     <span class="btns">
       <button class="btn btn-sm" onclick="extractClientsFromOrders()">Вигрузити клієнтів із замовлень</button>
+      <button class="btn btn-sm" onclick="findClientDuplicates()">Знайти дублікати</button>
       <button class="btn btn-sm" onclick="exportClientsExcel()">⬇ Excel</button>
       <button class="btn btn-primary btn-sm" onclick="addClient()">+ Новий клієнт</button>
     </span>
   </div>
   <p class="hint" style="margin:-8px 0 14px;">Скановує всі замовлення (і активні, і в архіві), звіряє за телефоном, щоб не дублювати, і рахує кількість відправок на кожного клієнта.</p>
+  <div id="clientDupPanel" style="display:none;margin-bottom:14px;"></div>
   <input type="text" id="clientSearch" placeholder="Пошук за іменем або телефоном…" oninput="renderClients()" style="margin-bottom:14px;">
   <div id="clientList"></div>
 
@@ -1481,6 +1498,46 @@
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
       <div class="wh-row-head" style="grid-template-columns:1fr 100px 120px 120px;"><div>День тижня</div><div style="text-align:right;">Замовлень</div><div style="text-align:right;">Сума</div><div style="text-align:right;">Середній чек</div></div>
       <div id="reportWeekday"></div>
+    </div></div>
+  </div>
+
+  <div class="section-title">
+    <span id="rb-sources-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-sources')">▸ Джерела замовлень і доставка</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportSourcesReportExcel()">⬇ Excel</button></span>
+  </div>
+  <div id="rb-sources" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Порівняння «Замовлено з сайту» і решти (Instagram, Viber, дзвінки…), а також за способом доставки. Виручка й прибуток — за оплаченими замовленнями періоду; кількість — усі, крім скасованих і повернених.</p>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:1fr 80px 80px 110px 110px 80px 100px;"><div>Група</div><div style="text-align:right;">Замовл.</div><div style="text-align:right;">Оплачено</div><div style="text-align:right;">Виручка</div><div style="text-align:right;">Прибуток</div><div style="text-align:right;">Маржа</div><div style="text-align:right;">Сер. чек</div></div>
+      <div id="reportSources"></div>
+    </div></div>
+  </div>
+
+  <div class="section-title">
+    <span id="rb-pairs-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-pairs')">▸ Що купують разом</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportPairsReportExcel()">⬇ Excel</button></span>
+  </div>
+  <div id="rb-pairs" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Пари товарів, які найчастіше потрапляють в одне замовлення за період. Корисно для готових наборів і підказок «додайте ще».</p>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:1fr 1fr 90px 120px;"><div>Товар А</div><div>Товар Б</div><div style="text-align:right;">Разом</div><div style="text-align:right;">% замовлень з А</div></div>
+      <div id="reportPairs"></div>
+    </div></div>
+  </div>
+
+  <div class="section-title">
+    <span id="rb-forecast-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-forecast')">▸ Прогноз закупівлі</span>
+    <span class="btns"><button class="btn btn-sm" onclick="exportForecastReportExcel()">⬇ Excel</button></span>
+  </div>
+  <div id="rb-forecast" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Темп витрати інгредієнтів і упаковки рахується з замовлень за останні N днів (набори розкладаються на складові), порівнюється з поточним залишком складу. Якщо залишки на складі не ведуться, колонка «Вистачить на» буде 0 — орієнтуйтесь тоді на «Витрата в день». Період звіту вище на цей блок не впливає.</p>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="delivery-grid" style="margin-bottom:10px;">
+        <div><label>Рахувати темп за останні</label><select id="fc-window" onchange="renderForecastReport()"><option value="30">30 днів</option><option value="60">60 днів</option><option value="90">90 днів</option></select></div>
+        <div><label>Закупити на наперед</label><select id="fc-horizon" onchange="renderForecastReport()"><option value="14">14 днів</option><option value="30" selected>30 днів</option><option value="60">60 днів</option></select></div>
+      </div>
+      <div class="wh-row-head" style="grid-template-columns:1fr 110px 100px 100px 110px 120px;"><div>Позиція</div><div style="text-align:right;">Витрата за період</div><div style="text-align:right;">В день</div><div style="text-align:right;">Залишок</div><div style="text-align:right;">Вистачить на</div><div style="text-align:right;">Закупити</div></div>
+      <div id="reportForecast"></div>
     </div></div>
   </div>
 
@@ -2143,6 +2200,169 @@ function placeQuickKitSelect(){
 }
 window.addEventListener('resize', placeQuickKitSelect);
 
+/* ---------- скасування останнього видалення (Ctrl+Z / кнопка у спливаючій панелі) ---------- */
+
+let undoStack = [];
+let undoToastTimer = null;
+
+function pushUndo(label, restoreFn){
+  undoStack.push({label, restoreFn});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`Видалено: ${label}`, true);
+}
+
+function showUndoToast(text, withButton){
+  const el = document.getElementById('undoToast');
+  if(!el) return;
+  el.innerHTML = `<span>${escapeHtml(text)}</span>` + (withButton ? `<button class="btn btn-sm" onclick="undoLast()">⟲ Скасувати</button>` : '');
+  el.style.display = 'flex';
+  clearTimeout(undoToastTimer);
+  undoToastTimer = setTimeout(() => { el.style.display = 'none'; }, withButton ? 12000 : 3000);
+}
+
+function undoLast(){
+  const u = undoStack.pop();
+  if(!u){ showUndoToast('Немає чого скасовувати', false); return; }
+  try{ u.restoreFn(); }catch(e){ showUndoToast('Не вдалося скасувати: ' + e.message, false); return; }
+  renderCatalog(); renderKits(); renderOrders(); renderOrdersSummary(); renderClients();
+  renderSummary(); renderChart(); renderBalances(); renderMovements();
+  if(typeof renderCash === 'function') renderCash();
+  if(typeof renderInvoicesHistory === 'function') renderInvoicesHistory();
+  if(typeof renderCounterparties === 'function') renderCounterparties();
+  scheduleSave();
+  showUndoToast(`Повернуто: ${u.label}`, false);
+}
+
+document.addEventListener('keydown', e => {
+  const tag = (e.target && e.target.tagName || '').toLowerCase();
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable);
+  if((e.ctrlKey || e.metaKey) && (e.code === 'KeyK')){
+    e.preventDefault();
+    openGlobalSearch();
+    return;
+  }
+  if((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !typing && undoStack.length){
+    e.preventDefault();
+    undoLast();
+  }
+});
+
+/* ---------- глобальний пошук (Ctrl+K) ---------- */
+
+let gsResults = [];
+
+function openGlobalSearch(){
+  const ov = document.getElementById('globalSearchOverlay');
+  const inp = document.getElementById('globalSearchInput');
+  if(!ov || !inp) return;
+  ov.style.display = 'flex';
+  inp.value = '';
+  globalSearchRun('');
+  setTimeout(() => inp.focus(), 30);
+}
+
+function closeGlobalSearch(){
+  const ov = document.getElementById('globalSearchOverlay');
+  if(ov) ov.style.display = 'none';
+}
+
+function gsDigits(s){ return String(s || '').replace(/\D/g, ''); }
+
+function gsMatch(hay, q, qDigits){
+  const h = hay.toLowerCase();
+  if(h.includes(q)) return true;
+  return qDigits.length >= 4 && gsDigits(hay).includes(qDigits);
+}
+
+function globalSearchRun(raw){
+  const q = String(raw || '').trim().toLowerCase();
+  const qDigits = gsDigits(q);
+  const el = document.getElementById('globalSearchResults');
+  gsResults = [];
+  if(q.length < 2){
+    el.innerHTML = '<div class="hint" style="padding:12px;">Введіть щонайменше 2 символи.</div>';
+    return;
+  }
+  const groups = [];
+
+  const ords = orders.filter(o => {
+    const itemNames = (o.items || []).map(it => { const k = kitById(it.kitId); return k ? k.name : ''; }).join(' ');
+    const hay = [o.id, o.customer, o.phone, o.city, o.ukrCity, o.ttnNumber, o.ukrTtnNumber, o.notes, o.warehouseDesc, itemNames].join(' | ');
+    return gsMatch(hay, q, qDigits);
+  }).sort((a,b) => b.id - a.id).slice(0, 8);
+  groups.push({title: 'Замовлення', rows: ords.map(o => ({
+    type:'order', id:o.id,
+    main: `№${o.id} · ${o.customer || 'без імені'} · ${o.phone || ''}`,
+    sub: `${o.date || ''} · ${o.status || ''}${(o.ttnNumber||o.ukrTtnNumber) ? ' · ТТН ' + (o.ttnNumber||o.ukrTtnNumber) : ''}${o.city ? ' · ' + o.city : ''}`
+  }))});
+
+  const cls = clients.filter(c => gsMatch([c.name, c.phone, c.city, c.address, c.notes].join(' | '), q, qDigits)).slice(0, 6);
+  groups.push({title: 'Клієнти', rows: cls.map(c => ({type:'client', id:c.id, main: `${c.name || 'Без імені'} · ${c.phone || ''}`, sub: c.city || ''}))});
+
+  const kts = kits.filter(k => gsMatch([k.name, k.sku].join(' | '), q, '')).slice(0, 6);
+  groups.push({title: 'Товари / набори', rows: kts.map(k => ({type:'kit', id:k.id, main: `${k.name}`, sub: k.sku || ''}))});
+
+  const cats = catalog.filter(ci => gsMatch(ci.name || '', q, '')).slice(0, 5);
+  groups.push({title: 'Інгредієнти / упаковка', rows: cats.map(ci => ({type:'catalog', id:ci.id, main: ci.name, sub: ci.category || ''}))});
+
+  let html = '', idx = 0;
+  groups.forEach(g => {
+    if(!g.rows.length) return;
+    html += `<div class="hint" style="padding:8px 12px 2px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;">${g.title}</div>`;
+    g.rows.forEach(r => {
+      gsResults.push(r);
+      html += `<div onclick="globalSearchGo(${idx})" style="padding:8px 12px;cursor:pointer;" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background=''">
+        <div style="font-size:14px;">${escapeHtml(r.main)}</div>
+        <div class="hint" style="font-size:11px;">${escapeHtml(r.sub)}</div>
+      </div>`;
+      idx++;
+    });
+  });
+  el.innerHTML = html || '<div class="hint" style="padding:12px;">Нічого не знайдено.</div>';
+}
+
+function globalSearchKey(e){
+  if(e.key === 'Escape'){ closeGlobalSearch(); }
+  else if(e.key === 'Enter'){ e.preventDefault(); if(gsResults.length) globalSearchGo(0); }
+}
+
+function goToOrder(id){
+  const o = orderById(id);
+  if(!o) return;
+  showSection('orders');
+  resetOrderFilters();
+  const key = o.ttnNumber || o.ukrTtnNumber || o.phone || o.customer || '';
+  document.getElementById('shf-search').value = key;
+  renderOrders();
+  editOrder(id);
+  scrollToOrderCard(id);
+}
+
+function globalSearchGo(idx){
+  const r = gsResults[idx];
+  if(!r) return;
+  closeGlobalSearch();
+  if(r.type === 'order'){
+    goToOrder(r.id);
+  } else if(r.type === 'client'){
+    const cl = clientById(r.id);
+    if(!cl) return;
+    showSection('clients');
+    document.getElementById('clientSearch').value = cl.phone || cl.name || '';
+    cl.collapsed = false;
+    renderClients();
+    setTimeout(() => { const el = document.querySelector(`[data-client="${cl.id}"]`); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 50);
+  } else if(r.type === 'kit'){
+    showSection('products');
+    jumpToEditKit(r.id);
+  } else if(r.type === 'catalog'){
+    showSection('products');
+    const body = document.getElementById('catalogBody');
+    if(body && !body.classList.contains('open')) toggleCatalog();
+    if(body) body.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+}
+
 /* ---------- заповненість бази (ліміт Firestore — 1 МБ на документ) ---------- */
 
 const FIRESTORE_DOC_LIMIT = 1048576;
@@ -2692,6 +2912,15 @@ function addCatalogItem(category){
 }
 
 function removeCatalogItem(id){
+  const removedCat = catalogItem(id);
+  if(removedCat){
+    const catIndex = catalog.indexOf(removedCat);
+    const prevComponents = kits.map(k => ({kit: k, components: k.components.slice()}));
+    pushUndo(`позицію довідника «${removedCat.name}»`, () => {
+      catalog.splice(Math.min(catIndex, catalog.length), 0, removedCat);
+      prevComponents.forEach(p => { p.kit.components = p.components; });
+    });
+  }
   catalog = catalog.filter(c => c.id !== id);
   kits.forEach(k => { k.components = k.components.filter(comp => comp.catalogId !== id); });
   renderCatalog();
@@ -2817,6 +3046,17 @@ function jumpToEditKit(id){
   }, 50);
 }
 function removeKit(id){
+  const removedKit = kitById(id);
+  if(removedKit){
+    const kitIndex = kits.indexOf(removedKit);
+    const prevComponents = kits.filter(k => k !== removedKit).map(k => ({kit: k, components: k.components.slice()}));
+    const prevItems = orders.map(o => ({order: o, items: o.items.slice()}));
+    pushUndo(`товар «${removedKit.name}»`, () => {
+      kits.splice(Math.min(kitIndex, kits.length), 0, removedKit);
+      prevComponents.forEach(p => { p.kit.components = p.components; });
+      prevItems.forEach(p => { p.order.items = p.items; });
+    });
+  }
   kits = kits.filter(k => k.id !== id);
   kits.forEach(k => { k.components = k.components.filter(comp => !(comp.refType === 'kit' && comp.catalogId === id)); });
   orders.forEach(o => { o.items = o.items.filter(it => it.kitId !== id); });
@@ -5015,7 +5255,9 @@ function removeOrder(id){
   const o = orderById(id);
   if(!o) return;
   if(!confirm(`Видалити замовлення «${o.customer || 'без імені'}» повністю (разом з даними доставки й ТТН)?`)) return;
+  const removedOrder = o;
   orders = orders.filter(o => o.id !== id);
+  pushUndo(`замовлення №${removedOrder.id} «${removedOrder.customer || 'без імені'}»`, () => { orders.push(removedOrder); });
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -8087,6 +8329,7 @@ function removeCounterparty(id){
   const usedCount = cashTransactions.filter(t => String(t.counterpartyId) === String(id)).length;
   const warn = usedCount > 0 ? `\n\nЦей контрагент використаний у ${usedCount} операціях каси — там просто лишиться його стара назва текстом.` : '';
   if(!confirm(`Видалити контрагента «${c.name}»?${warn}`)) return;
+  pushUndo(`контрагента «${c.name}»`, () => { counterparties.push(c); });
   counterparties = counterparties.filter(x => x.id !== id);
   renderCounterparties();
   renderCashCounterpartySelect();
@@ -8574,6 +8817,7 @@ function removeInvoice(id){
   const inv = invoices.find(i => i.id === id);
   if(!inv) return;
   if(!confirm(`Видалити рахунок № ${inv.number}?`)) return;
+  pushUndo(`рахунок № ${inv.number}`, () => { invoices.push(inv); });
   invoices = invoices.filter(i => i.id !== id);
   renderInvoicesHistory();
   scheduleSave();
@@ -8682,6 +8926,7 @@ function removeCashTransaction(id){
     alert('Це надходження створене автоматично із оплаченого замовлення. Щоб прибрати його — зніміть прапорець «Оплачено» в цьому замовленні (у «Замовленнях» або «Відправках»).');
     return;
   }
+  pushUndo('операцію каси', () => { cashTransactions.push(t); });
   cashTransactions = cashTransactions.filter(t => t.id !== id);
   renderCash();
   scheduleSave();
@@ -9191,12 +9436,173 @@ function exportWeekdayReportExcel(){
   });
 }
 
+/* ---------- додаткові звіти: джерела, «що купують разом», прогноз закупівлі ---------- */
+
+let lastSourceRows = [], lastPairsRows = [], lastForecastRows = [];
+
+function isLiveOrder(o){ return o.status !== 'Скасовано' && o.status !== 'Повернено'; }
+
+function orderCostOf(o){
+  return (o.items || []).reduce((s, it) => s + kitUnitCost(it.kitId, new Set()) * (it.qty || 0), 0);
+}
+
+function renderExtraReports(){
+  renderSourcesReport();
+  renderPairsReport();
+  renderForecastReport();
+}
+
+function renderSourcesReport(){
+  const el = document.getElementById('reportSources');
+  if(!el) return;
+  const inRange = orders.filter(o => inReportRange(o.date) && isLiveOrder(o));
+  const groupsDef = [
+    {title: 'За джерелом', keyFn: o => o.fromSite ? '🌐 З сайту' : 'Не з сайту (Instagram, Viber, дзвінки…)'},
+    {title: 'За доставкою', keyFn: o => o.deliveryMethod || 'Не вказано'}
+  ];
+  const rows = [];
+  let html = '';
+  groupsDef.forEach(g => {
+    const map = new Map();
+    inRange.forEach(o => {
+      const k = g.keyFn(o);
+      if(!map.has(k)) map.set(k, {name: k, count: 0, paidCount: 0, revenue: 0, cost: 0});
+      const t = map.get(k);
+      t.count++;
+      if(o.paid){
+        t.paidCount++;
+        t.revenue += calcOrder(o).total;
+        t.cost += orderCostOf(o);
+      }
+    });
+    html += `<div class="hint" style="padding:8px 0 2px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;">${g.title}</div>`;
+    [...map.values()].sort((a,b) => b.revenue - a.revenue).forEach(t => {
+      const profit = t.revenue - t.cost;
+      const margin = t.revenue > 0 ? profit / t.revenue * 100 : 0;
+      const avg = t.paidCount > 0 ? t.revenue / t.paidCount : 0;
+      rows.push([g.title, t.name, t.count, t.paidCount, t.revenue, profit, margin, avg]);
+      html += `<div class="wh-row" style="grid-template-columns:1fr 80px 80px 110px 110px 80px 100px;">
+        <div>${escapeHtml(t.name)}</div>
+        <div class="cv" style="text-align:right;">${t.count}</div>
+        <div class="cv" style="text-align:right;">${t.paidCount}</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(t.revenue)} грн</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${profit>=0?'var(--cardamom)':'var(--danger)'};">${fmt(profit)} грн</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(margin)}%</div>
+        <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(avg)} грн</div>
+      </div>`;
+    });
+  });
+  lastSourceRows = rows;
+  el.innerHTML = rows.length ? html : '<div class="comp-empty">Немає замовлень за цей період.</div>';
+}
+
+function renderPairsReport(){
+  const el = document.getElementById('reportPairs');
+  if(!el) return;
+  const inRange = orders.filter(o => inReportRange(o.date) && isLiveOrder(o));
+  const kitOrderCount = new Map();
+  const pairCount = new Map();
+  inRange.forEach(o => {
+    const ids = [...new Set((o.items || []).map(it => it.kitId))].filter(id => kitById(id)).sort((a,b) => a - b);
+    ids.forEach(id => kitOrderCount.set(id, (kitOrderCount.get(id) || 0) + 1));
+    for(let i = 0; i < ids.length; i++){
+      for(let j = i + 1; j < ids.length; j++){
+        const key = ids[i] + '|' + ids[j];
+        pairCount.set(key, (pairCount.get(key) || 0) + 1);
+      }
+    }
+  });
+  const pairs = [...pairCount.entries()].map(([key, n]) => {
+    const [a, b] = key.split('|').map(Number);
+    // «А» — той із пари, що трапляється в більшій кількості замовлень: так % «разом» читається природно
+    const [A, B] = (kitOrderCount.get(a) >= kitOrderCount.get(b)) ? [a, b] : [b, a];
+    return {a: kitById(A), b: kitById(B), n, share: n / kitOrderCount.get(A) * 100};
+  }).sort((x, y) => y.n - x.n).slice(0, 15);
+  lastPairsRows = pairs;
+  el.innerHTML = pairs.length ? pairs.map(r => `
+    <div class="wh-row" style="grid-template-columns:1fr 1fr 90px 120px;">
+      <div>${escapeHtml(r.a.name)}</div>
+      <div>${escapeHtml(r.b.name)}</div>
+      <div class="cv" style="text-align:right;">${r.n}</div>
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(r.share)}%</div>
+    </div>`).join('') : '<div class="comp-empty">Немає замовлень, де було б два і більше різних товарів, за цей період.</div>';
+}
+
+function renderForecastReport(){
+  const el = document.getElementById('reportForecast');
+  if(!el) return;
+  const windowDays = parseInt(document.getElementById('fc-window').value, 10) || 30;
+  const horizon = parseInt(document.getElementById('fc-horizon').value, 10) || 30;
+  const to = new Date(); to.setHours(0,0,0,0);
+  const from = new Date(to); from.setDate(from.getDate() - windowDays + 1);
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const fromStr = iso(from), toStr = iso(to);
+  const consumed = {};
+  orders.filter(o => o.date && o.date >= fromStr && o.date <= toStr && isLiveOrder(o)).forEach(o => {
+    (o.items || []).forEach(it => {
+      const flat = flattenKitComponents(it.kitId, it.qty || 0);
+      Object.entries(flat).forEach(([cid, amt]) => { consumed[cid] = (consumed[cid] || 0) + amt; });
+    });
+  });
+  const rows = Object.entries(consumed).map(([cid, used]) => {
+    const item = catalogItem(parseInt(cid, 10));
+    if(!item || used <= 0) return null;
+    const perDay = used / windowDays;
+    const balance = computeBalance('catalog', item.id);
+    const daysLeft = perDay > 0 ? Math.max(0, balance) / perDay : Infinity;
+    const toBuy = Math.max(0, Math.ceil(perDay * horizon - balance));
+    return {item, used, perDay, balance, daysLeft, toBuy};
+  }).filter(Boolean).sort((a, b) => a.daysLeft - b.daysLeft);
+  lastForecastRows = rows;
+  const f = n => (Math.round(n * 10) / 10).toString();
+  el.innerHTML = rows.length ? rows.map(r => `
+    <div class="wh-row" style="grid-template-columns:1fr 110px 100px 100px 110px 120px;">
+      <div>${escapeHtml(r.item.name)} <span class="hint">(${escapeHtml(r.item.unit || '')})</span></div>
+      <div class="cv" style="text-align:right;">${f(r.used)}</div>
+      <div class="cv" style="text-align:right;">${f(r.perDay)}</div>
+      <div class="cv" style="text-align:right;">${f(r.balance)}</div>
+      <div class="cv" style="text-align:right;color:${r.daysLeft < 14 ? 'var(--danger)' : (r.daysLeft < 30 ? '#d97706' : 'var(--cardamom)')};">${isFinite(r.daysLeft) ? Math.floor(r.daysLeft) + ' дн.' : '—'}</div>
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600;">${r.toBuy > 0 ? r.toBuy + ' ' + escapeHtml(r.item.unit || '') : '—'}</div>
+    </div>`).join('') : `<div class="comp-empty">За останні ${windowDays} днів немає замовлень з розписаним складом наборів.</div>`;
+}
+
+function exportSourcesReportExcel(){
+  if(!lastSourceRows.length){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  exportStyledExcel({
+    downloadName: `dzherela_zamovlen_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Джерела',
+    headers: [{header:'Розріз', width:16}, {header:'Група', width:34}, {header:'Замовлень', width:12}, {header:'Оплачено', width:12}, {header:'Виручка', width:14}, {header:'Прибуток', width:14}, {header:'Маржа, %', width:12}, {header:'Сер. чек', width:12}],
+    rows: lastSourceRows.map(r => [r[0], r[1], r[2], r[3], fmt1(r[4]), fmt1(r[5]), fmt1(r[6]), fmt1(r[7])])
+  });
+}
+
+function exportPairsReportExcel(){
+  if(!lastPairsRows.length){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  exportStyledExcel({
+    downloadName: `shcho_kupuyut_razom_${reportPeriodLabel()}.xlsx`,
+    sheetName: 'Разом',
+    headers: [{header:'Товар А', width:30}, {header:'Товар Б', width:30}, {header:'Разом, замовлень', width:16}, {header:'% замовлень з А', width:16}],
+    rows: lastPairsRows.map(r => [r.a.name, r.b.name, r.n, fmt1(r.share)])
+  });
+}
+
+function exportForecastReportExcel(){
+  if(!lastForecastRows.length){ alert('Немає даних для експорту.'); return; }
+  exportStyledExcel({
+    downloadName: `prohnoz_zakupivli_${todayStr()}.xlsx`,
+    sheetName: 'Прогноз закупівлі',
+    headers: [{header:'Позиція', width:30}, {header:'Од.', width:8}, {header:'Витрата за період', width:16}, {header:'В день', width:10}, {header:'Залишок', width:10}, {header:'Вистачить, днів', width:14}, {header:'Закупити', width:12}],
+    rows: lastForecastRows.map(r => [r.item.name, r.item.unit || '', Math.round(r.used*10)/10, Math.round(r.perDay*10)/10, Math.round(r.balance*10)/10, isFinite(r.daysLeft) ? Math.floor(r.daysLeft) : '', r.toBuy])
+  });
+}
+
 function renderReports(){
   const summaryEl = document.getElementById('reportsSummary');
   if(!summaryEl) return;
 
   const allOrdersInRange = orders.filter(o => inReportRange(o.date));
   renderWeekdayReport(allOrdersInRange);
+  renderExtraReports();
 
   const paidOrdersInRange = orders.filter(o => o.paid && inReportRange(o.date));
   const revenue = paidOrdersInRange.reduce((s,o) => s + calcOrder(o).total, 0);
@@ -9660,8 +10066,8 @@ function orderExpandedHtml(o, num){
       </div>
 
       <div class="delivery-grid">
-        <div><label>Клієнт з бази</label><select onchange="pickOrderClient(${o.id}, this.value)">${clientOptionsHtml(o.clientId)}</select></div>
-        <div><label>ПІБ / назва</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Ім'я клієнта"></div>
+        <div class="order-wide-field"><label>ПІБ / назва</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Ім'я клієнта"></div>
+        <div class="order-wide-field"><label>Клієнт з бази</label><select onchange="pickOrderClient(${o.id}, this.value)">${clientOptionsHtml(o.clientId)}</select></div>
         <div><label>Телефон</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)" placeholder="+380..."></div>
       </div>
       <div class="fb-row" style="margin:8px 0 0;">
@@ -9918,7 +10324,7 @@ function extractClientsFromOrders(){
 
 function addClient(){
   const id = nextClientId++;
-  clients.push({id, name:'', phone:'', city:'', address:'', notes:'', collapsed:false});
+  clients.push({id, name:'', phone:'', city:'', address:'', notes:'', regular:false, collapsed:false});
   renderClients();
   scheduleSave();
 }
@@ -9936,6 +10342,14 @@ function editClient(id){
   renderClients();
 }
 function removeClient(id){
+  const removedClient = clientById(id);
+  const linkedOrderIds = orders.filter(o => String(o.clientId)===String(id)).map(o => o.id);
+  if(removedClient){
+    pushUndo(`клієнта «${removedClient.name || 'без імені'}»`, () => {
+      clients.push(removedClient);
+      linkedOrderIds.forEach(oid => { const o = orderById(oid); if(o) o.clientId = removedClient.id; });
+    });
+  }
   clients = clients.filter(c => c.id !== id);
   orders.forEach(o => { if(String(o.clientId)===String(id)) o.clientId = ''; });
   renderClients();
@@ -9951,6 +10365,120 @@ function clientStats(clientId){
   const clientOrders = orders.filter(o => String(o.clientId) === String(clientId));
   const total = clientOrders.reduce((s,o) => s + calcOrder(o).total, 0);
   return {count: clientOrders.length, total};
+}
+
+/* постійний клієнт: позначений вручну АБО має не менше N «живих» замовлень (без скасованих/повернених) */
+const REGULAR_CLIENT_MIN_ORDERS = 3;
+
+function clientOrdersList(clientId){
+  return orders.filter(o => String(o.clientId) === String(clientId)).sort((a,b) => b.id - a.id);
+}
+
+function isRegularClient(c){
+  if(c.regular) return true;
+  const live = clientOrdersList(c.id).filter(o => o.status !== 'Скасовано' && o.status !== 'Повернено');
+  return live.length >= REGULAR_CLIENT_MIN_ORDERS;
+}
+
+function clientHistoryHtml(c){
+  const list = clientOrdersList(c.id);
+  if(!list.length) return '<p class="hint" style="margin:6px 0;">Замовлень ще немає.</p>';
+  const rows = list.map(o => {
+    const items = (o.items || []).map(it => { const k = kitById(it.kitId); return (k ? k.name : '?') + (it.qty > 1 ? ' ×' + it.qty : ''); }).join(', ');
+    return `<div onclick="goToOrder(${o.id})" style="display:flex;gap:10px;justify-content:space-between;padding:6px 8px;border-top:1px solid var(--border-soft);cursor:pointer;font-size:12px;" title="Відкрити замовлення">
+      <span><b>№${o.id}</b> · ${escapeHtml(o.date || '')} · ${escapeHtml(items || '—')}</span>
+      <span style="white-space:nowrap;color:var(--text-muted);">${fmt(calcOrder(o).total)} грн · ${escapeHtml(o.status || '')}</span>
+    </div>`;
+  }).join('');
+  return `<div style="margin:8px 0;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;"><div class="hint" style="padding:6px 8px;font-size:11px;">Історія покупок</div>${rows}</div>`;
+}
+
+/* ---------- дублікати клієнтів: об'єднання за телефоном ---------- */
+
+let clientDupGroups = [];
+
+function findClientDuplicates(){
+  const byKey = new Map();
+  clients.forEach(c => {
+    const key = normPhoneKey(c.phone);
+    if(!key) return;
+    if(!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(c);
+  });
+  clientDupGroups = [...byKey.values()].filter(g => g.length > 1);
+  renderClientDupPanel();
+}
+
+function renderClientDupPanel(){
+  const el = document.getElementById('clientDupPanel');
+  if(!el) return;
+  if(!clientDupGroups.length){
+    el.style.display = 'block';
+    el.innerHTML = '<div class="catalog-panel"><div style="padding:12px;"><span class="hint">Дублікатів за телефоном не знайдено. ✓</span> <button class="btn-ghost" style="width:auto;height:auto;padding:3px 10px;font-size:11px;" onclick="closeClientDupPanel()">Закрити</button></div></div>';
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML = `<div class="catalog-panel"><div style="padding:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;">
+      <strong>Знайдено груп дублікатів: ${clientDupGroups.length}</strong>
+      <button class="btn-ghost" style="width:auto;height:auto;padding:3px 10px;font-size:11px;" onclick="closeClientDupPanel()">Закрити</button>
+    </div>
+    <p class="hint" style="margin:0 0 10px;">Один телефон — кілька карток. Оберіть, яку лишити: усі замовлення та порожні поля перейдуть до неї, решта буде видалена (це можна скасувати через Ctrl+Z).</p>
+    ${clientDupGroups.map((g, gi) => {
+      const best = [...g].sort((a,b) => clientOrdersList(b.id).length - clientOrdersList(a.id).length || a.id - b.id)[0];
+      return `<div style="border-top:1px solid var(--border-soft);padding:8px 0;">
+        ${g.map(cl => `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:4px;cursor:pointer;">
+          <input type="radio" name="dupKeep-${gi}" value="${cl.id}" ${cl.id === best.id ? 'checked' : ''} style="width:auto;">
+          <span>${escapeHtml(cl.name || 'Без імені')} · ${escapeHtml(cl.phone || '')} · ${clientOrdersList(cl.id).length} замовл.</span>
+        </label>`).join('')}
+        <button class="btn btn-sm" style="margin-top:4px;" onclick="mergeClientGroup(${gi})">Об'єднати в одного</button>
+      </div>`;
+    }).join('')}
+  </div></div>`;
+}
+
+function closeClientDupPanel(){
+  clientDupGroups = [];
+  const el = document.getElementById('clientDupPanel');
+  if(el){ el.style.display = 'none'; el.innerHTML = ''; }
+}
+
+function mergeClientGroup(gi){
+  const group = clientDupGroups[gi];
+  if(!group) return;
+  const checked = document.querySelector(`input[name="dupKeep-${gi}"]:checked`);
+  const keepId = checked ? parseInt(checked.value, 10) : group[0].id;
+  const keep = clientById(keepId);
+  const others = group.filter(cl => cl.id !== keepId);
+  if(!keep || !others.length) return;
+
+  const prevKeep = {...keep};
+  const movedOrderIds = [];
+  orders.forEach(o => { if(others.some(cl => String(cl.id) === String(o.clientId))) movedOrderIds.push({id: o.id, from: o.clientId}); });
+  const removed = others.slice();
+
+  others.forEach(cl => {
+    if(!keep.name && cl.name) keep.name = cl.name;
+    if(!keep.city && cl.city) keep.city = cl.city;
+    if(!keep.address && cl.address) keep.address = cl.address;
+    if(cl.notes && !(keep.notes || '').includes(cl.notes)) keep.notes = keep.notes ? keep.notes + '; ' + cl.notes : cl.notes;
+    if(cl.regular) keep.regular = true;
+  });
+  orders.forEach(o => { if(others.some(cl => String(cl.id) === String(o.clientId))) o.clientId = keep.id; });
+  clients = clients.filter(cl => !others.some(x => x.id === cl.id));
+
+  pushUndo(`об'єднання клієнтів («${keep.name || 'без імені'}», ${others.length})`, () => {
+    Object.keys(keep).forEach(k => delete keep[k]);
+    Object.assign(keep, prevKeep);
+    removed.forEach(cl => clients.push(cl));
+    movedOrderIds.forEach(m => { const o = orderById(m.id); if(o) o.clientId = m.from; });
+  });
+
+  clientDupGroups.splice(gi, 1);
+  renderClients();
+  renderOrders();
+  renderClientDupPanel();
+  scheduleSave();
 }
 
 function renderClients(){
@@ -9989,7 +10517,7 @@ function clientCollapsedHtml(c){
     <div class="kit-card kit-card-collapsed" data-client="${c.id}">
       <div class="kit-collapsed-row">
         <div class="kit-collapsed-info">
-          <strong>${escapeAttr(c.name || 'Без імені')}</strong>
+          <strong>${escapeAttr(c.name || 'Без імені')}</strong>${isRegularClient(c) ? ' <span title="Постійний клієнт" style="color:var(--saffron);">⭐</span>' : ''}
           <span class="hint">${escapeAttr(c.phone||'')} · ${stats.count} замовл. · ${fmt(stats.total)} грн</span>
         </div>
         <div class="kit-collapsed-actions">
@@ -10011,7 +10539,12 @@ function clientExpandedHtml(c){
         <div style="grid-column:span 3;"><label>Адреса / відділення</label><input type="text" value="${escapeAttr(c.address||'')}" oninput="updateClientField(${c.id},'address',this.value)"></div>
         <div style="grid-column:span 3;"><label>Примітки</label><input type="text" value="${escapeAttr(c.notes||'')}" oninput="updateClientField(${c.id},'notes',this.value)"></div>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:10px;">
+        <input type="checkbox" ${c.regular?'checked':''} onchange="updateClientField(${c.id},'regular',this.checked)" style="width:auto;accent-color:var(--saffron);">
+        ⭐ Постійний клієнт <span class="hint">(також ставиться автоматично від ${REGULAR_CLIENT_MIN_ORDERS} замовлень)</span>
+      </label>
       <p class="hint" style="margin:10px 0;">Замовлень: ${stats.count} · Сума: ${fmt(stats.total)} грн</p>
+      ${clientHistoryHtml(c)}
       <div class="kit-collapsed-actions" style="justify-content:flex-end;display:flex;gap:8px;">
         <button class="btn btn-primary btn-sm" onclick="saveClient(${c.id})">Зберегти</button>
         <button class="btn-ghost" onclick="removeClient(${c.id})" aria-label="Видалити клієнта">×</button>
@@ -10083,6 +10616,8 @@ function addManualMovement(){
 }
 
 function removeMovement(id){
+  const removedMv = stockMovements.find(m => m.id === id);
+  if(removedMv) pushUndo('рух товару', () => { stockMovements.push(removedMv); });
   stockMovements = stockMovements.filter(m => m.id !== id);
   renderMovements();
   renderBalances();
