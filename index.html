@@ -37,7 +37,8 @@
   header{margin-bottom:2.25rem;}
   /* шапка: ряд із заголовком і швидкими діями, під ним — смуга службових інструментів на всю ширину */
   .hdr-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;}
-  #quickOrderBar{display:flex;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;padding-top:6px;}
+  #quickOrderBar{position:fixed;top:16px;right:max(24px,calc((100vw - 1220px)/2));z-index:200;display:flex;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  #quickOrderBar button,#quickOrderBar select{box-shadow:0 4px 14px rgba(0,0,0,0.4);}
   #quickOrderBar select{width:240px;font-size:13px;padding:7px 10px;}
   .hdr-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:1.1rem;padding:8px 14px;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;}
   .hdr-tb-group{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -320,7 +321,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.32.3 · 05.10.2026 20:16</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.33.0 · 05.10.2026 20:24</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -334,6 +335,7 @@
         <div id="authUserBox" class="hint" style="display:none;font-size:11px;"><span id="authUserEmail"></span> · <a href="#" onclick="authSignOut();return false;" style="color:var(--saffron);">Вийти</a></div>
       </div>
       <div class="hdr-tb-group">
+        <button class="btn-ghost" id="dbSizeChip" onclick="showDbSizeDetails()" title="Скільки місця зайнято в базі (ліміт Firestore — 1 МБ на документ). Натисніть, щоб побачити, що саме займає місце.">База: …</button>
         <span class="hint" id="backupInfo" style="font-size:11px;"></span>
         <button class="btn-ghost" onclick="exportBackup()" title="Завантажити повну копію всіх даних файлом (містить також ключі/токени — зберігайте у безпечному місці)">⬇ Зберегти копію</button>
         <button class="btn-ghost" onclick="document.getElementById('backupFileInput').click()" title="Відновити дані з раніше збереженого файлу копії">⬆ Відновити з копії</button>
@@ -1940,6 +1942,7 @@ function scheduleSave(){
     }).then(payload => {
       lastKnownRemoteUpdatedAt = payload.updatedAt;
       setSyncBadge('on', 'Синхронізовано');
+      updateDbSizeMeter();
       // aux — окремо й best-effort, поза транзакцією: якщо недоступний (права доступу тощо),
       // це НЕ повинно заважати збереженню основних даних вище (товари/замовлення вже збережено).
       if(fbAuxDocRef){
@@ -2007,6 +2010,7 @@ function doConnect(config){
       }).then(() => {
         fbConnected = true;
         setSyncBadge('on', 'Синхронізовано');
+        updateDbSizeMeter();
 
         // aux — окремим, НЕ блокуючим потоком: похибка тут (права доступу, відсутній документ
         // тощо) лише лишає рух товарів тимчасово несинхронізованим, не заважаючи основним даним.
@@ -2109,6 +2113,65 @@ function setSyncBadge(state, text){
   if(!dot || !label) return;
   dot.className = 'fb-dot ' + state;
   label.textContent = text;
+}
+
+/* ---------- заповненість бази (ліміт Firestore — 1 МБ на документ) ---------- */
+
+const FIRESTORE_DOC_LIMIT = 1048576;
+
+function jsonBytes(v){
+  try{ return new TextEncoder().encode(JSON.stringify(v)).length; }catch(e){ return 0; }
+}
+
+// Оцінка за розміром JSON: Firestore рахує трохи інакше, але JSON зазвичай дає запас «в бік обережності».
+function computeDbSizes(){
+  const main = buildStatePayload();
+  delete main.stockMovements; delete main.npCityOblastCache;
+  const aux = buildAuxPayload();
+  const parts = obj => Object.keys(obj).map(k => ({key: k, bytes: jsonBytes(obj[k]) + k.length + 4})).sort((a,b) => b.bytes - a.bytes);
+  return {
+    main: {total: jsonBytes(main), parts: parts(main)},
+    aux: {total: jsonBytes(aux), parts: parts(aux)}
+  };
+}
+
+function dbSizeLabel(key){
+  const names = {orders:'Замовлення', clients:'Клієнти', cashTransactions:'Каса', kits:'Товари/набори', catalog:'Довідник (інгредієнти/упаковка)',
+    counterparties:'Контрагенти', invoices:'Рахунки', supplierOrderHistory:'Історія закупівель', supplierOrder:'Поточна закупівля',
+    stockMovements:'Рух товарів (склад)', npCityOblastCache:'Кеш міст НП'};
+  return names[key] || key;
+}
+
+function fmtKb(b){ return (b / 1024).toFixed(0) + ' КБ'; }
+
+let dbSizeTimer = null;
+function updateDbSizeMeter(){
+  clearTimeout(dbSizeTimer);
+  dbSizeTimer = setTimeout(() => {
+    const chip = document.getElementById('dbSizeChip');
+    if(!chip) return;
+    const s = computeDbSizes();
+    const worst = Math.max(Math.round(s.main.total / FIRESTORE_DOC_LIMIT * 100), Math.round(s.aux.total / FIRESTORE_DOC_LIMIT * 100));
+    const col = worst >= 85 ? '#dc2626' : (worst >= 70 ? '#d97706' : '');
+    chip.textContent = `База: ${worst}%`;
+    chip.style.color = col;
+    chip.style.borderColor = col;
+  }, 300);
+}
+
+function showDbSizeDetails(){
+  const s = computeDbSizes();
+  const line = p => `  ${dbSizeLabel(p.key)}: ${fmtKb(p.bytes)}`;
+  const mainPct = Math.round(s.main.total / FIRESTORE_DOC_LIMIT * 100);
+  const auxPct = Math.round(s.aux.total / FIRESTORE_DOC_LIMIT * 100);
+  let msg = `Основний документ: ${fmtKb(s.main.total)} з 1024 КБ (${mainPct}%)\n` + s.main.parts.slice(0, 6).map(line).join('\n');
+  msg += `\n\nДокумент складу: ${fmtKb(s.aux.total)} з 1024 КБ (${auxPct}%)\n` + s.aux.parts.map(line).join('\n');
+  const worst = Math.max(mainPct, auxPct);
+  if(worst >= 85) msg += '\n\n⚠ База майже заповнена: найближчим часом збереження може перестати працювати. Напишіть мені — винесемо старі замовлення в архівні документи.';
+  else if(worst >= 70) msg += '\n\nБаза заповнена більш ніж на 70% — варто планувати винесення старих замовлень в архів.';
+  else msg += '\n\nМісця достатньо.';
+  msg += '\n\n(Це оцінка за розміром даних; точний підрахунок робить Firestore.)';
+  alert(msg);
 }
 
 /* ---------- резервні копії (експорт / відновлення JSON) ---------- */
