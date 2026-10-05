@@ -321,7 +321,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.33.0 · 05.10.2026 20:24</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.34.0 · 05.10.2026 20:17</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1735,7 +1735,7 @@ function buildStatePayload(){
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
-    quickOrderKitId,
+    quickOrderKitId, tgProcessedIds, tgLastUpdateId,
     activeSessionId: mySessionId,
     updatedAt: new Date().toISOString()
   };
@@ -1825,6 +1825,8 @@ function applyRemoteData(data){
   nextCounterpartyId = data.nextCounterpartyId || (Math.max(0, ...counterparties.map(c=>c.id), 0) + 1);
   nextSupplierOrderId = data.nextSupplierOrderId || (Math.max(0, ...supplierOrderHistory.map(s=>s.id), 0) + 1);
   quickOrderKitId = data.quickOrderKitId || '';
+  tgProcessedIds = Array.from(new Set([...(data.tgProcessedIds || []), ...tgProcessedIds])).slice(-300);
+  tgLastUpdateId = Math.max(tgLastUpdateId, data.tgLastUpdateId || 0);
   renderCatalog();
   renderKits();
   renderQuickOrderKitSelect();
@@ -3952,6 +3954,17 @@ async function sendSmsToTodayClients(){
 
 let tgPollTimer = null;
 let tgLastUpdateId = 0;
+// ID уже оброблених повідомлень («чат:повідомлення») зберігаються разом з даними, щоб після закриття/
+// перевідкриття вкладки або на іншому пристрої те саме повідомлення не стало замовленням удруге.
+let tgProcessedIds = [];
+
+function tgMarkProcessed(message){
+  const key = `${message.chat.id}:${message.message_id}`;
+  if(tgProcessedIds.includes(key)) return false;
+  tgProcessedIds.push(key);
+  if(tgProcessedIds.length > 300) tgProcessedIds = tgProcessedIds.slice(-300);
+  return true;
+}
 
 function startTelegramPolling(){
   if(tgPollTimer || !tgBotToken || !tgChatId) return;
@@ -3965,6 +3978,9 @@ function stopTelegramPolling(){
 
 async function pollTelegramUpdates(){
   if(!tgBotToken || !tgChatId) return;
+  // вкладка, яку «відсунули» (відкрито ще десь активнішу), не має забирати повідомлення з Telegram —
+  // інакше дві вкладки створять по замовленню з одного й того самого повідомлення.
+  if(sessionLocked) return;
   try{
     const url = `https://api.telegram.org/bot${tgBotToken}/getUpdates?timeout=0${tgLastUpdateId ? '&offset='+(tgLastUpdateId+1) : ''}`;
     const res = await fetch(url);
@@ -3980,7 +3996,7 @@ async function pollTelegramUpdates(){
       }
       if(upd.message && upd.message.photo && String(upd.message.chat.id) === String(tgChatId)){
         const caption = (upd.message.caption || '').toLowerCase();
-        if(caption.includes('замовлення') || caption.startsWith('/')){
+        if((caption.includes('замовлення') || caption.startsWith('/')) && tgMarkProcessed(upd.message)){
           await handleTelegramOrderPhoto(upd.message);
         }
       }
@@ -3990,7 +4006,7 @@ async function pollTelegramUpdates(){
       // Реагуємо лише якщо в тексті є хоч одна позиція виду «Назва × кількість» — так ми не смикаємось
       // на звичайне спілкування в групі.
       if(upd.message && upd.message.text && String(upd.message.chat.id) === String(tgChatId)){
-        if(parseOrderItemsFreeText(upd.message.text).length > 0){
+        if(parseOrderItemsFreeText(upd.message.text).length > 0 && tgMarkProcessed(upd.message)){
           await handleTelegramOrderText(upd.message);
         }
       }
