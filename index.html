@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-app-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-storage-compat.js"></script>
 <style>
@@ -306,11 +307,18 @@
       <div>
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.31.2 · 04.10.2026 19:39</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.32.0 · 05.10.2026 19:56</span>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
         <div style="height:32px;"></div>
         <div class="sync-badge" id="syncBadge"><span class="fb-dot off" id="syncDot"></span><span id="syncText">Підключення...</span></div>
+        <div id="authUserBox" class="hint" style="display:none;font-size:11px;"><span id="authUserEmail"></span> · <a href="#" onclick="authSignOut();return false;" style="color:var(--saffron);">Вийти</a></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+          <button class="btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="exportBackup()" title="Завантажити повну копію всіх даних файлом (містить також ключі/токени — зберігайте у безпечному місці)">⬇ Зберегти копію</button>
+          <button class="btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="document.getElementById('backupFileInput').click()" title="Відновити дані з раніше збереженого файлу копії">⬆ Відновити з копії</button>
+          <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none;" onchange="importBackupFile(this)">
+        </div>
+        <div class="hint" id="backupInfo" style="font-size:11px;"></div>
         <button class="btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="claimActiveSession()" title="Якщо програма відкрита ще десь (телефон, інший комп'ютер) — натисніть тут: ці інші місця перестануть зберігати зміни, активною лишиться тільки ця вкладка">Зробити цю вкладку єдиною активною</button>
       </div>
     </div>
@@ -351,6 +359,20 @@
           <button class="btn btn-primary btn-sm" onclick="createOrderFromOcrText()">Створити замовлення з цього тексту</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="loginOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:900;align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:380px;width:92%;padding:24px;">
+      <h2 style="margin:0 0 4px;font-family:'Fraunces',serif;font-size:24px;">Адміністрування Папріко</h2>
+      <p class="hint" style="margin:0 0 16px;">Увійдіть, щоб відкрити дані.</p>
+      <form onsubmit="authSignIn();return false;">
+        <input type="email" id="loginEmail" placeholder="Пошта" autocomplete="username" style="width:100%;margin-bottom:8px;">
+        <input type="password" id="loginPassword" placeholder="Пароль" autocomplete="current-password" style="width:100%;margin-bottom:12px;">
+        <button type="submit" class="btn btn-primary" style="width:100%;" id="loginBtn">Увійти</button>
+      </form>
+      <div id="loginError" style="display:none;margin-top:10px;color:#dc2626;font-size:13px;"></div>
+      <div style="margin-top:14px;text-align:center;"><a href="#" onclick="authBypass();return false;" class="hint" style="font-size:11px;">Продовжити без входу (працює, лише поки правила Firestore відкриті)</a></div>
     </div>
   </div>
 
@@ -2075,13 +2097,154 @@ function setSyncBadge(state, text){
   label.textContent = text;
 }
 
+/* ---------- резервні копії (експорт / відновлення JSON) ---------- */
+
+function backupLastAt(){
+  try{ return localStorage.getItem('papriko_last_backup') || ''; }catch(e){ return ''; }
+}
+
+function renderBackupInfo(){
+  const el = document.getElementById('backupInfo');
+  if(!el) return;
+  const iso = backupLastAt();
+  if(!iso){
+    el.textContent = 'Копію ще не робили на цьому пристрої';
+    el.style.color = '#dc2626';
+    return;
+  }
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  el.textContent = days <= 0 ? 'Остання копія: сьогодні' : `Остання копія: ${days} дн. тому`;
+  el.style.color = days >= 7 ? '#dc2626' : '';
+}
+
+function exportBackup(){
+  const data = buildStatePayload();
+  data.stockMovements = stockMovements;
+  data.npCityOblastCache = npCityOblastCache;
+  delete data.activeSessionId;
+  const pack = {app: 'papriko-admin', exportedAt: new Date().toISOString(), data};
+  const blob = new Blob([JSON.stringify(pack)], {type: 'application/json'});
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  const name = `papriko-backup-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  try{ localStorage.setItem('papriko_last_backup', pack.exportedAt); }catch(e){}
+  renderBackupInfo();
+}
+
+function importBackupFile(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let pack;
+    try{ pack = JSON.parse(reader.result); }catch(e){ alert('Не вдалося прочитати файл: це не JSON.'); return; }
+    const data = pack && pack.app === 'papriko-admin' ? pack.data : null;
+    if(!data || !Array.isArray(data.orders) || !Array.isArray(data.kits)){
+      alert('Це не схоже на резервну копію Папріко (немає замовлень чи товарів).');
+      return;
+    }
+    const when = pack.exportedAt ? new Date(pack.exportedAt).toLocaleString('uk-UA') : 'невідомо коли';
+    const msg = `Відновити дані з копії від ${when}?\n\nУ копії: ${data.orders.length} замовлень, ${data.kits.length} товарів, ${(data.clients||[]).length} клієнтів.\n\nПОТОЧНІ дані буде ЗАМІНЕНО копією (і на інших пристроях теж). Перед цим радимо зберегти свіжу копію поточного стану.`;
+    if(!confirm(msg)) return;
+    stockMovements = data.stockMovements || [];
+    npCityOblastCache = data.npCityOblastCache || {};
+    applyRemoteData(data);
+    applyRemoteAuxData({stockMovements, npCityOblastCache});
+    scheduleSave();
+    alert('Дані відновлено з копії.');
+  };
+  reader.readAsText(file);
+}
+
+/* ---------- вхід (Firebase Auth) ----------
+   Безпека забезпечують саме правила Firestore («лише авторизованим»); цей екран лише дає
+   змогу увійти. Кнопка «Продовжити без входу» нічого не обходить: якщо правила закриті,
+   Firestore просто відмовить у доступі. */
+let fbAuth = null;
+let fbConnecting = false;
+
+function startFirebaseConnection(){
+  if(fbConnected || fbConnecting) return;
+  fbConnecting = true;
+  setSyncBadge('off', 'Підключення...');
+  doConnect(HARDCODED_FIREBASE_CONFIG).catch(() => {}).finally(() => { fbConnecting = false; });
+}
+
+function showLoginOverlay(show){
+  const el = document.getElementById('loginOverlay');
+  if(el) el.style.display = show ? 'flex' : 'none';
+}
+
+function authErrorText(err){
+  const c = err && err.code;
+  if(c === 'auth/invalid-credential' || c === 'auth/wrong-password' || c === 'auth/user-not-found' || c === 'auth/invalid-email') return 'Невірна пошта або пароль.';
+  if(c === 'auth/too-many-requests') return 'Забагато спроб. Зачекайте кілька хвилин і спробуйте знову.';
+  if(c === 'auth/operation-not-allowed' || c === 'auth/configuration-not-found') return 'Вхід за поштою ще не ввімкнено у Firebase (Authentication → Sign-in method → Email/Password).';
+  if(c === 'auth/network-request-failed') return 'Немає зв\'язку з інтернетом.';
+  return 'Помилка входу: ' + (err && err.message ? err.message : c);
+}
+
+function authSignIn(){
+  if(!fbAuth) return;
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  if(!email || !pass){ errEl.textContent = 'Введіть пошту й пароль.'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  fbAuth.signInWithEmailAndPassword(email, pass).catch(err => {
+    errEl.textContent = authErrorText(err);
+    errEl.style.display = 'block';
+  }).finally(() => { btn.disabled = false; });
+}
+
+function authBypass(){
+  showLoginOverlay(false);
+  startFirebaseConnection();
+}
+
+function authSignOut(){
+  if(!fbAuth) return;
+  fbAuth.signOut().finally(() => location.reload());
+}
+
 function autoConnectFirebase(){
   if(!HARDCODED_FIREBASE_CONFIG || !HARDCODED_FIREBASE_CONFIG.apiKey) {
     setSyncBadge('off', 'Локально (без синхронізації)');
     return;
   }
   setSyncBadge('off', 'Підключення...');
-  doConnect(HARDCODED_FIREBASE_CONFIG).catch(() => {});
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(HARDCODED_FIREBASE_CONFIG);
+    fbAuth = firebase.auth();
+  }catch(e){
+    // модуль входу не завантажився — працюємо як раніше, без нього
+    startFirebaseConnection();
+    return;
+  }
+  fbAuth.onAuthStateChanged(user => {
+    const box = document.getElementById('authUserBox');
+    if(user){
+      showLoginOverlay(false);
+      if(box){ box.style.display = 'block'; document.getElementById('authUserEmail').textContent = user.email || ''; }
+      startFirebaseConnection();
+    } else {
+      if(box) box.style.display = 'none';
+      if(!fbConnected && !fbConnecting){
+        setSyncBadge('off', 'Потрібен вхід');
+        showLoginOverlay(true);
+      }
+    }
+  });
 }
 
 function fmt(n){ return Math.round(n).toLocaleString('uk-UA'); }
@@ -11185,6 +11348,7 @@ document.getElementById('fixFutureDateInput').value = todayStr();
 document.getElementById('so-date').value = todayStr();
 renderSupplierOrder();
 renderReports();
+renderBackupInfo();
 autoConnectFirebase();
 </script>
 </body>
