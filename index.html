@@ -343,7 +343,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.41.1 · 06.10.2026 20:52</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.41.2 · 06.10.2026 21:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5231,7 +5231,7 @@ async function sendShipmentsToOwner(channel){
   if(channel === 'viber'){
     window.location.href = `viber://chat?number=${encodeURIComponent('+' + digits)}`;
   } else {
-    window.open(`https://t.me/+${digits}`, '_blank');
+    window.open('https://web.telegram.org/k/#?tgaddr=' + encodeURIComponent('tg://resolve?phone=' + digits), '_blank');
   }
 }
 
