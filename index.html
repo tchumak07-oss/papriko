@@ -35,6 +35,12 @@
   body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;padding:2.5rem 1.5rem 4rem;}
   .wrap{max-width:1220px;margin:0 auto;}
   header{margin-bottom:2.25rem;}
+  .pl-t{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px;}
+  .pl-t th,.pl-t td{padding:5px 8px;border-bottom:1px solid var(--border-soft);text-align:left;vertical-align:top;}
+  .pl-t th{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
+  .pl-t .r{text-align:right;white-space:nowrap;}
+  .pl-bad{color:var(--danger);font-weight:600;}
+  .pl-h{font-family:'Fraunces',serif;font-size:16px;margin:14px 0 6px;}
   /* шапка: ряд із заголовком і швидкими діями, під ним — смуга службових інструментів на всю ширину */
   .hdr-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;}
   #quickOrderBar{position:fixed;top:16px;right:max(24px,calc((100vw - 1220px)/2));z-index:200;display:flex;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
@@ -337,7 +343,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.38.0 · 05.10.2026 20:29</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.41.1 · 06.10.2026 20:52</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -355,6 +361,8 @@
       </div>
       <div class="hdr-tb-group hdr-tools-group">
         <span id="quickKitSlot"></span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted);cursor:pointer;" title="Раз на 30 хвилин (і при відкритті) застосунок сам звіряє ТТН з Новою поштою й Укрпоштою та пише в групу про повернення, прибуття на відділення й довге очікування"><input type="checkbox" id="autoSyncToggle" checked onchange="autoSyncEnabled=this.checked;scheduleSave();" style="width:auto;accent-color:var(--saffron);"> Автооновлення доставки</label>
+        <span class="hint" id="autoSyncInfo" style="font-size:11px;"></span>
         <span class="hint" id="backupInfo" style="font-size:11px;"></span>
         <button class="btn-ghost" onclick="exportBackup()" title="Завантажити повну копію всіх даних файлом (містить також ключі/токени — зберігайте у безпечному місці)">⬇ Зберегти копію</button>
         <button class="btn-ghost" onclick="document.getElementById('backupFileInput').click()" title="Відновити дані з раніше збереженого файлу копії">⬆ Відновити з копії</button>
@@ -421,6 +429,26 @@
     </div>
   </div>
   <div id="undoToast" style="display:none;position:fixed;left:16px;bottom:16px;z-index:850;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,0.5);font-size:13px;max-width:calc(100vw - 32px);"></div>
+
+  <div id="packListModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:900px;width:94%;max-height:88vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;">Що зібрати й відправити</h3>
+        <button class="btn-ghost" onclick="closePackListModal()" aria-label="Закрити">×</button>
+      </div>
+      <p class="hint" style="margin:0 0 12px;">Усі ще не відправлені замовлення (без скасованих, повернених і архіву). Готові товари зі складу віднімаються, інгредієнти й упаковка рахуються лише на те, що ще треба зібрати.</p>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="pl-onlyTtn" onchange="renderPackList()" style="width:auto;accent-color:var(--saffron);"> Лише з готовою ТТН</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="pl-onlyToday" onchange="renderPackList()" style="width:auto;accent-color:var(--saffron);"> Лише створені сьогодні</label>
+      </div>
+      <div id="packListBody"></div>
+      <div class="fb-row" style="margin-top:14px;">
+        <button class="btn btn-primary btn-sm" onclick="printPackList()">🖨 Друк</button>
+        <button class="btn btn-sm" onclick="sendPackListToTelegram()">Надіслати в Telegram</button>
+        <span class="hint" id="packListStatus"></span>
+      </div>
+    </div>
+  </div>
 
   <div id="itemResolveModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;align-items:center;justify-content:center;">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
@@ -623,6 +651,7 @@
       Замовлення <span class="n" id="orderCount"></span>
     </span>
     <span class="btns">
+      <button class="btn btn-sm" onclick="openPackListModal()">📦 Що зібрати</button>
       <button class="btn btn-sm" onclick="openTodayShipmentsModal()">Звіт по відправленнях</button>
       <button class="btn btn-sm" onclick="openTrackLookupModal()">Перевірити трек-номер</button>
       <button class="btn btn-sm" onclick="openNpImportModal()">Синхронізувати кабінет НП</button>
@@ -774,7 +803,12 @@
       <div class="fb-row" style="margin-bottom:14px;">
         <button class="btn btn-primary btn-sm" onclick="exportTodayShipmentsExcel()">Експортувати в Excel</button>
         <button class="btn btn-sm" onclick="sendFilteredShipmentsToTelegram()">Відправити в Telegram</button>
+        <button class="btn btn-sm" onclick="sendShipmentsToOwner('viber')" title="Завантажує той самий Excel і відкриває чат у Viber із господинею">📨 Господині: Viber</button>
+        <button class="btn btn-sm" onclick="sendShipmentsToOwner('telegram')" title="Завантажує той самий Excel і відкриває чат у Telegram із господинею">📨 Господині: Telegram</button>
+        <button class="btn btn-sm" id="ownerShareBtn" style="display:none;" onclick="sendShipmentsToOwner('share')">📤 Поділитися…</button>
+        <button class="btn-ghost" style="width:auto;height:auto;padding:4px 8px;font-size:11px;" onclick="changeOwnerPhone()" title="Змінити номер господині">✎ номер</button>
       </div>
+      <p class="hint" id="shipmentsOwnerStatus" style="margin:-6px 0 10px;"></p>
 
       <p class="hint" id="todayShipmentsSummary" style="margin:0 0 10px;"></p>
 
@@ -1807,7 +1841,7 @@ function buildStatePayload(){
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
-    quickOrderKitId, tgProcessedIds, tgLastUpdateId,
+    quickOrderKitId, tgProcessedIds, tgLastUpdateId, autoSyncEnabled, autoSyncBaselineDone, ownerPhone,
     activeSessionId: mySessionId,
     updatedAt: new Date().toISOString()
   };
@@ -1899,6 +1933,11 @@ function applyRemoteData(data){
   quickOrderKitId = data.quickOrderKitId || '';
   tgProcessedIds = Array.from(new Set([...(data.tgProcessedIds || []), ...tgProcessedIds])).slice(-300);
   tgLastUpdateId = Math.max(tgLastUpdateId, data.tgLastUpdateId || 0);
+  autoSyncEnabled = data.autoSyncEnabled !== false;
+  if(data.ownerPhone) ownerPhone = data.ownerPhone;
+  autoSyncBaselineDone = !!data.autoSyncBaselineDone || autoSyncBaselineDone;
+  const autoSyncCb = document.getElementById('autoSyncToggle');
+  if(autoSyncCb) autoSyncCb.checked = autoSyncEnabled;
   renderCatalog();
   renderKits();
   renderQuickOrderKitSelect();
@@ -2085,6 +2124,7 @@ function doConnect(config){
         fbConnected = true;
         setSyncBadge('on', 'Синхронізовано');
         updateDbSizeMeter();
+        setTimeout(() => runAutoSyncDelivery('start'), 4000);
 
         // aux — окремим, НЕ блокуючим потоком: похибка тут (права доступу, відсутній документ
         // тощо) лише лишає рух товарів тимчасово несинхронізованим, не заважаючи основним даним.
@@ -4958,8 +4998,23 @@ async function exportStyledExcel({downloadName, sheetName, headers, rows, preamb
 }
 
 async function exportTodayShipmentsExcel(){
+  const res = await buildTodayShipmentsExcel();
+  if(!res) return;
+  const url = URL.createObjectURL(res.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = res.fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Збирає той самий Excel-файл, що й кнопка «Експортувати в Excel», але повертає його (а не завантажує) —
+// щоб його можна було й завантажити, і поділитися ним (господині).
+async function buildTodayShipmentsExcel(){
   const {orders: list, from, to} = getFilteredShipments();
-  if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return; }
+  if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return null; }
 
   // стовпчик «За наш рахунок» додаємо лише якщо серед вигружених є хоч одна така доставка — інакше він просто пустий і займає місце.
   const hasOurExpense = list.some(o => o.payerType === 'Відправник');
@@ -5052,15 +5107,8 @@ async function exportTodayShipmentsExcel(){
   ws.views = [{state:'frozen', ySplit:1}];
 
   const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], {type:'application/octet-stream'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `vidpravlennya_${from}_${to}.xlsx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  return {blob, fileName: `vidpravlennya_${from}_${to}.xlsx`, count: list.length};
 }
 
 async function exportBranchWaitExcel(){
@@ -5136,6 +5184,66 @@ async function exportBranchWaitExcel(){
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/* ---------- звіт по відправленнях → господині (Viber / Telegram за номером) ---------- */
+
+// Viber і Telegram не дають надіслати файл «за номером» програмно (потрібен чат, який господиня сама
+// відкрила з ботом/додатком). Тому: формуємо ТОЙ САМИЙ Excel-файл, що й кнопка «Експортувати в Excel»,
+// завантажуємо його і відкриваємо її чат за номером — залишається лише прикріпити файл і надіслати.
+let ownerPhone = '+380673584780';
+
+function changeOwnerPhone(){
+  const v = prompt('Номер господині (міжнародний формат):', ownerPhone);
+  if(v === null) return;
+  const digits = String(v).replace(/\D/g, '');
+  if(digits.length < 10){ alert('Схоже на некоректний номер.'); return; }
+  ownerPhone = '+' + (digits.length === 10 && digits.startsWith('0') ? '38' + digits : digits);
+  scheduleSave();
+  document.getElementById('shipmentsOwnerStatus').textContent = 'Номер збережено: ' + ownerPhone;
+}
+
+async function sendShipmentsToOwner(channel){
+  const st = document.getElementById('shipmentsOwnerStatus');
+  st.textContent = 'Готую Excel…';
+  const res = await buildTodayShipmentsExcel();
+  if(!res){ st.textContent = ''; return; }
+  const digits = ownerPhone.replace(/\D/g, '');
+  const xlsxType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  if(channel === 'share'){
+    const file = new File([res.blob], res.fileName, {type: xlsxType});
+    try{
+      await navigator.share({files: [file], title: 'Звіт по відправленнях'});
+      st.textContent = 'Відкрито вікно «Поділитися» — оберіть Viber або Telegram.';
+    }catch(e){
+      st.textContent = 'Скасовано.';
+    }
+    return;
+  }
+
+  const url = URL.createObjectURL(res.blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = res.fileName;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+  st.textContent = `Файл ${res.fileName} (${res.count} відправлень) завантажено. Відкриваю чат ${ownerPhone} — прикріпіть файл (скріпка або перетягніть із завантажень) і надішліть.`;
+  if(channel === 'viber'){
+    window.location.href = `viber://chat?number=${encodeURIComponent('+' + digits)}`;
+  } else {
+    window.open(`https://t.me/+${digits}`, '_blank');
+  }
+}
+
+(function(){
+  try{
+    const probe = new File([new Blob(['x'])], 'x.xlsx', {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    if(navigator.canShare && navigator.canShare({files: [probe]})){
+      const b = document.getElementById('ownerShareBtn');
+      if(b) b.style.display = '';
+    }
+  }catch(e){}
+})();
 
 async function sendFilteredShipmentsToTelegram(){
   if(!tgBotToken || !tgChatId){ alert('Спочатку налаштуйте Telegram (токен і ID групи) в «Налаштування доставки».'); return; }
@@ -6979,6 +7087,84 @@ async function syncAllNpStatuses(){
     if(btn){ btn.disabled = false; btn.textContent = 'Синхронізувати статуси з НП'; }
   }
 }
+
+/* ---------- автооновлення статусів доставки + сповіщення в групу ---------- */
+
+let autoSyncEnabled = true;
+let autoSyncBaselineDone = false; // перший прохід — «тихий»: лише оновлює статуси, не засипає групу старими подіями
+let autoSyncRunning = false;
+let lastAutoSyncAt = 0;
+const AUTO_SYNC_MIN_GAP_MS = 15 * 60 * 1000;
+const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+
+function setAutoSyncInfo(text){
+  const el = document.getElementById('autoSyncInfo');
+  if(el) el.textContent = text || '';
+}
+
+async function runAutoSyncDelivery(reason){
+  if(!autoSyncEnabled || autoSyncRunning || !fbConnected || sessionLocked) return;
+  if(Date.now() - lastAutoSyncAt < AUTO_SYNC_MIN_GAP_MS) return;
+  if(!npApiKey && !ukrBearer) return;
+  autoSyncRunning = true;
+  lastAutoSyncAt = Date.now();
+  try{
+    const active = orders.filter(o => !isArchived(o) && (o.ttnNumber || o.ukrTtnNumber));
+    const prev = new Map(active.map(o => [o.id, {returned: !!o.npReturned, atBranch: isAtBranchAwaitingPickup(o)}]));
+
+    const [npRes, ukrRes] = await Promise.all([syncAllNpStatusesQuiet(), syncAllUkrStatusesQuiet()]);
+
+    const returnedNow = [], arrivedNow = [];
+    active.forEach(o => {
+      const before = prev.get(o.id);
+      if(!before) return;
+      if(!before.returned && o.npReturned) returnedNow.push(o);
+      if(!before.atBranch && isAtBranchAwaitingPickup(o)) arrivedNow.push(o);
+    });
+    const completed = [...(npRes.completedList || []), ...(ukrRes.completedList || [])];
+
+    const today = todayStr();
+    const threshold = Number(document.getElementById('branchReminderThreshold')?.value) || 5;
+    const longWait = orders.filter(o => !isArchived(o) && isAtBranchAwaitingPickup(o) && o.atBranchSince
+      && daysBetween(o.atBranchSince, today) >= threshold && o.branchTgDate !== today);
+
+    const baseline = !autoSyncBaselineDone;
+    longWait.forEach(o => { o.branchTgDate = today; });
+    autoSyncBaselineDone = true;
+    renderOrders();
+    scheduleSave();
+
+    const label = o => `${escapeHtml(o.customer || 'Без імені')} — ${escapeHtml(o.ttnNumber || o.ukrTtnNumber || '')}`;
+    const parts = [];
+    if(returnedNow.length) parts.push(`↩️ <b>Повернення</b> (перевірте кошти):\n` + returnedNow.map(o => '• ' + label(o)).join('\n'));
+    if(arrivedNow.length) parts.push(`📬 <b>Прибули на відділення:</b>\n` + arrivedNow.map(o => '• ' + label(o)).join('\n'));
+    if(longWait.length) parts.push(`⏳ <b>Чекають на відділенні ${threshold}+ днів:</b>\n` + longWait.map(o => `• ${label(o)} (${daysBetween(o.atBranchSince, today)} дн.)`).join('\n'));
+    if(completed.length) parts.push(`✅ <b>Доставлено й оплачено:</b>\n` + completed.map(x => `• ${escapeHtml(x.customer)} — ${escapeHtml(x.ttn)}`).join('\n'));
+
+    let sentNote = '';
+    if(parts.length && !baseline && tgBotToken && tgChatId && telegramNotificationsEnabled){
+      let text = '🚚 <b>Оновлення доставки</b>\n\n' + parts.join('\n\n');
+      if(text.length > 3900) text = text.slice(0, 3900) + '\n…';
+      const r = await sendTelegramMessage(text);
+      sentNote = r.ok ? ' · повідомлення в групу надіслано' : (' · Telegram: ' + r.error);
+    } else if(parts.length && baseline){
+      sentNote = ' · перший прохід без сповіщень';
+    }
+
+    const hhmm = new Date().toTimeString().slice(0, 5);
+    const errs = [];
+    if(!npRes.ok && !npRes.skipped) errs.push('НП: ' + npRes.error);
+    if(!ukrRes.ok && !ukrRes.skipped) errs.push('Укрпошта: ' + ukrRes.error);
+    setAutoSyncInfo(errs.length ? `Статуси: помилка (${errs.join('; ')})` : `Статуси доставки оновлено о ${hhmm}${sentNote}`);
+  }catch(err){
+    setAutoSyncInfo('Статуси: помилка — ' + err.message);
+  }finally{
+    autoSyncRunning = false;
+  }
+}
+
+setInterval(() => runAutoSyncDelivery('timer'), AUTO_SYNC_INTERVAL_MS);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) runAutoSyncDelivery('visible'); });
 
 /* ---------- звірка звіту доставки НП (Excel) ---------- */
 
@@ -9434,6 +9620,122 @@ function exportWeekdayReportExcel(){
     headers: [{header:'День тижня', width:16}, {header:'Замовлень', width:14}, {header:'Сума', width:14}, {header:'Середній чек', width:16}],
     rows: lastWeekdayRows.map(r => [r.label, r.count, fmt1(r.revenue), fmt1(r.count>0 ? r.revenue/r.count : 0)])
   });
+}
+
+/* ---------- «Що зібрати й відправити» ---------- */
+
+let packListLast = null;
+
+function packListCollect(){
+  const onlyTtn = document.getElementById('pl-onlyTtn').checked;
+  const onlyToday = document.getElementById('pl-onlyToday').checked;
+  const today = todayStr();
+  const list = orders.filter(o => !o.shipped && !o.delivered && !isArchived(o) && isLiveOrder(o) && (o.items || []).length > 0
+      && (!onlyTtn || o.ttnNumber || o.ukrTtnNumber)
+      && (!onlyToday || o.date === today)).sort((a, b) => a.id - b.id);
+
+  const kitQty = new Map();
+  list.forEach(o => o.items.forEach(it => { if(kitById(it.kitId)) kitQty.set(it.kitId, (kitQty.get(it.kitId) || 0) + (it.qty || 0)); }));
+
+  const kitRows = [...kitQty.entries()].map(([kid, qty]) => {
+    const k = kitById(kid);
+    const ready = Math.max(0, computeBalance('kit', kid));
+    return {k, qty, ready, toMake: Math.max(0, qty - ready)};
+  }).sort((a, b) => a.k.name.localeCompare(b.k.name));
+
+  const need = {};
+  kitRows.forEach(r => {
+    if(r.toMake <= 0) return;
+    Object.entries(flattenKitComponents(r.k.id, r.toMake)).forEach(([cid, amt]) => { need[cid] = (need[cid] || 0) + amt; });
+  });
+  const ingRows = Object.entries(need).map(([cid, amt]) => {
+    const item = catalogItem(parseInt(cid, 10));
+    if(!item) return null;
+    const balance = computeBalance('catalog', item.id);
+    return {item, need: amt, balance, short: Math.max(0, amt - Math.max(0, balance))};
+  }).filter(Boolean).sort((a, b) => (b.short > 0) - (a.short > 0) || a.item.name.localeCompare(b.item.name));
+
+  return {list, kitRows, ingRows};
+}
+
+function packNum(n){ return (Math.round(n * 10) / 10).toString(); }
+
+function packListHtml(d){
+  if(!d.list.length) return '<p class="hint">Немає невідправлених замовлень за цими умовами. ✓</p>';
+  const ords = d.list.map(o => {
+    const items = o.items.map(it => { const k = kitById(it.kitId); return escapeHtml(k ? k.name : '?') + (it.qty > 1 ? ' ×' + it.qty : ''); }).join('; ');
+    const place = [o.deliveryMethod, o.city || o.ukrCity].filter(Boolean).join(', ');
+    const ttn = o.ttnNumber || o.ukrTtnNumber || '';
+    return `<tr><td>№${o.id}</td><td>${escapeHtml(o.customer || 'Без імені')}${o.phone ? '<br><span class="hint">' + escapeHtml(o.phone) + '</span>' : ''}</td><td>${items}${o.notes ? '<br><em>' + escapeHtml(o.notes) + '</em>' : ''}</td><td>${escapeHtml(place)}</td><td>${escapeHtml(ttn) || '—'}</td></tr>`;
+  }).join('');
+  const kitsHtml = d.kitRows.map(r => `<tr><td>${escapeHtml(r.k.name)}${r.k.sku ? ' <span class="hint">(' + escapeHtml(r.k.sku) + ')</span>' : ''}</td><td class="r">${r.qty}</td><td class="r">${r.ready}</td><td class="r"><b>${r.toMake}</b></td></tr>`).join('');
+  const ingHtml = d.ingRows.length ? d.ingRows.map(r => `<tr><td>${escapeHtml(r.item.name)}</td><td class="r">${packNum(r.need)} ${escapeHtml(r.item.unit || '')}</td><td class="r">${packNum(r.balance)}</td><td class="r ${r.short > 0 ? 'pl-bad' : ''}">${r.short > 0 ? 'не вистачає ' + packNum(r.short) : '✓'}</td></tr>`).join('') : '<tr><td colspan="4" class="hint">Усе вже є в готових товарах — збирати нічого не треба.</td></tr>';
+  const shortCount = d.ingRows.filter(r => r.short > 0).length;
+  return `
+    <div class="pl-h">Замовлення (${d.list.length})</div>
+    <table class="pl-t"><tr><th>№</th><th>Клієнт</th><th>Що</th><th>Куди</th><th>ТТН</th></tr>${ords}</table>
+    <div class="pl-h">Усього товарів</div>
+    <table class="pl-t"><tr><th>Товар</th><th class="r">Треба</th><th class="r">Готових на складі</th><th class="r">Зібрати</th></tr>${kitsHtml}</table>
+    <div class="pl-h">Інгредієнти й упаковка${shortCount ? ' <span class="pl-bad">— нестача: ' + shortCount + '</span>' : ''}</div>
+    <table class="pl-t"><tr><th>Позиція</th><th class="r">Потрібно</th><th class="r">На складі</th><th class="r">Статус</th></tr>${ingHtml}</table>
+    <p class="hint" style="margin-top:8px;">Якщо залишки на складі не ведуться, «на складі» буде 0, а нестача покаже повну потребу.</p>`;
+}
+
+function renderPackList(){
+  const el = document.getElementById('packListBody');
+  if(!el) return;
+  packListLast = packListCollect();
+  el.innerHTML = packListHtml(packListLast);
+}
+
+function openPackListModal(){
+  document.getElementById('packListStatus').textContent = '';
+  renderPackList();
+  document.getElementById('packListModal').style.display = 'flex';
+}
+
+function closePackListModal(){
+  document.getElementById('packListModal').style.display = 'none';
+}
+
+function printPackList(){
+  if(!packListLast) renderPackList();
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(frame);
+  const doc = frame.contentWindow.document;
+  doc.open();
+  doc.write(`<!doctype html><html lang="uk"><head><meta charset="utf-8"><title>Що зібрати ${escapeHtml(todayStr())}</title><style>
+    :root{--border-soft:#bbb;--danger:#b00020;--text-faint:#555;}
+    body{font-family:Arial,Helvetica,sans-serif;color:#000;margin:14mm;font-size:12px;}
+    h1{font-size:18px;margin:0 0 4px;} .hint{color:#555;font-size:11px;}
+    .pl-h{font-size:14px;font-weight:bold;margin:14px 0 4px;}
+    .pl-t{width:100%;border-collapse:collapse;} .pl-t th,.pl-t td{border-bottom:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top;}
+    .pl-t th{font-size:10px;text-transform:uppercase;color:#555;} .pl-t .r{text-align:right;white-space:nowrap;} .pl-bad{color:#b00020;font-weight:bold;}
+  </style></head><body><h1>Що зібрати й відправити — ${escapeHtml(todayStr())}</h1>${packListHtml(packListLast)}</body></html>`);
+  doc.close();
+  setTimeout(() => {
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+    setTimeout(() => frame.remove(), 2000);
+  }, 250);
+}
+
+async function sendPackListToTelegram(){
+  if(!packListLast) renderPackList();
+  const d = packListLast;
+  const st = document.getElementById('packListStatus');
+  if(!d.list.length){ st.textContent = 'Нічого надсилати.'; return; }
+  let t = `📦 <b>Що зібрати (${d.list.length} замовл.)</b>\n\n`;
+  d.kitRows.forEach(r => { t += `• ${escapeHtml(r.k.name)} × ${r.qty}${r.ready ? ` (готових ${r.ready}, зібрати ${r.toMake})` : ''}\n`; });
+  const shorts = d.ingRows.filter(r => r.short > 0);
+  if(shorts.length){
+    t += `\n⚠️ <b>Не вистачає:</b>\n` + shorts.map(r => `• ${escapeHtml(r.item.name)}: ${packNum(r.short)} ${escapeHtml(r.item.unit || '')}`).join('\n');
+  }
+  if(t.length > 3900) t = t.slice(0, 3900) + '\n…';
+  st.textContent = 'Надсилаю…';
+  const res = await sendTelegramMessage(t);
+  st.textContent = res.ok ? 'Надіслано в групу ✓' : ('Помилка: ' + res.error);
 }
 
 /* ---------- додаткові звіти: джерела, «що купують разом», прогноз закупівлі ---------- */
