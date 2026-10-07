@@ -348,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.0 · 07.10.2026 15:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.1 · 07.10.2026 16:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5941,7 +5941,7 @@ function orderKitOptionsHtml(placeholder){
 function orderItemOptionsHtml(placeholder){
   const sortedKits = kits.filter(k => !k.archived).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
   const kitOpt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
-  const catItems = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка').sort((a,b) => a.name.localeCompare(b.name));
+  const catItems = catalog.filter(c => (c.category === 'Спеція' || c.category === 'Упаковка') && c.price > 0).sort((a,b) => a.name.localeCompare(b.name));
   const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.price > 0 ? fmt1(c.price) + ' грн/' + escapeAttr(c.unit) : 'ціну не задано'})</option>`;
   return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>`
     + `<optgroup label="Набори">${sortedKits.map(kitOpt).join('')}</optgroup>`
