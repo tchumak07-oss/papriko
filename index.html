@@ -84,7 +84,8 @@
   .catalog-body.open{display:block;}
   .catalog-group{margin-top:14px;}
   .catalog-group-title{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:8px;}
-  .cat-row{display:grid;grid-template-columns:1fr 100px 70px 100px 28px;gap:8px;align-items:center;margin-bottom:6px;}
+  .cat-row{display:grid;grid-template-columns:1fr 100px 70px 100px 100px 28px;gap:8px;align-items:center;margin-bottom:6px;}
+  .cat-row-head{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);margin-bottom:4px;}
   .cat-row input[type="text"]{min-width:0;}
   .scan-status{margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface-2);display:none;}
   .scan-status.loading{color:var(--saffron);border-color:var(--saffron);display:block;}
@@ -343,7 +344,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.42.0 · 07.10.2026 11:50</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.43.0 · 07.10.2026 14:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -499,12 +500,14 @@
 
       <div class="catalog-group">
         <div class="catalog-group-title">Упаковка</div>
+        <div class="cat-row cat-row-head"><div>Назва</div><div>Категорія</div><div>Одиниця</div><div>Собівартість</div><div>Ціна продажу</div><div></div></div>
         <div id="catalogPackaging"></div>
         <button class="btn btn-sm" onclick="addCatalogItem('Упаковка')">+ Додати упаковку</button>
       </div>
 
       <div class="catalog-group">
         <div class="catalog-group-title">Спеції та інгредієнти</div>
+        <div class="cat-row cat-row-head"><div>Назва</div><div>Категорія</div><div>Одиниця</div><div>Собівартість</div><div>Ціна продажу</div><div></div></div>
         <div id="catalogSpices"></div>
         <button class="btn btn-sm" onclick="addCatalogItem('Спеція')">+ Додати інгредієнт</button>
       </div>
@@ -2649,7 +2652,8 @@ function catRowHtml(c){
         <option value="г" ${c.unit==='г'?'selected':''}>г</option>
         <option value="мл" ${c.unit==='мл'?'selected':''}>мл</option>
       </select>
-      <input type="number" step="0.01" value="${c.cost}" oninput="updateCatalog(${c.id},'cost',this.value)" title="собівартість за одиницю">
+      <input type="number" step="0.01" value="${c.cost}" oninput="updateCatalog(${c.id},'cost',this.value)" title="собівартість за одиницю (ставиться з накладної, можна змінити вручну)" placeholder="собівартість">
+      <input type="number" step="0.01" value="${c.price||''}" oninput="updateCatalog(${c.id},'price',this.value)" title="ціна продажу за одиницю — підставляється в замовлення" placeholder="ціна продажу">
       <button class="btn-ghost" onclick="removeCatalogItem(${c.id})" aria-label="Видалити">×</button>
     </div>
   `;
@@ -2912,9 +2916,9 @@ function exportCatalogExcel(){
     sheetName: 'Інгредієнти',
     headers: [
       {header:'Назва', width:30}, {header:'Категорія', width:14},
-      {header:'Одиниця', width:10}, {header:'Собівартість за одиницю', width:20}
+      {header:'Одиниця', width:10}, {header:'Собівартість за одиницю', width:20}, {header:'Ціна продажу за одиницю', width:20}
     ],
-    rows: sorted.map(c => [c.name, c.category, c.unit, c.cost])
+    rows: sorted.map(c => [c.name, c.category, c.unit, c.cost, c.price||0])
   });
 }
 
@@ -2945,7 +2949,7 @@ function exportKitsExcel(){
 }
 
 function addCatalogItem(category){
-  catalog.push({id: nextCatalogId++, name: category==='Упаковка' ? 'Нова упаковка' : 'Новий інгредієнт', category, unit: category==='Упаковка'?'шт':'г', cost: 0, composition: []});
+  catalog.push({id: nextCatalogId++, name: category==='Упаковка' ? 'Нова упаковка' : 'Новий інгредієнт', category, unit: category==='Упаковка'?'шт':'г', cost: 0, price: 0, composition: []});
   renderCatalog();
   renderKits();
   scheduleSave();
@@ -2973,7 +2977,9 @@ function removeCatalogItem(id){
 function updateCatalog(id, field, value){
   const c = catalogItem(id);
   if(!c) return;
-  c[field] = (field === 'cost') ? (parseFloat(value) || 0) : value;
+  c[field] = (field === 'cost' || field === 'price') ? (parseFloat(value) || 0) : value;
+  // продажна ціна товару-обгортки (щоб замовлення тягнуло актуальну розцінку)
+  if(field === 'price') kits.forEach(k => { if(k.sourceCatalogId === id) k.price = c.price; });
   // Повне renderCatalog() потрібне лише коли міняється категорія (рядок має "переїхати" між списками
   // «Упаковка»/«Спеції») — для назви чи одиниці виміру воно тільки шкодить: перемальовує <input> на
   // кожну літеру і скидає курсор/фокус, через що набрати назву нормально було неможливо.
@@ -2994,7 +3000,8 @@ function kitUnitCost(kitId, visited){
   if(!k) return 0;
   const nextVisited = new Set(visited);
   nextVisited.add(kitId);
-  const compCost = k.components.reduce((sum, comp) => {
+  const manual = Number(k.costManual) || 0;
+  const compCost = manual > 0 ? manual : k.components.reduce((sum, comp) => {
     if(comp.refType === 'kit'){
       return sum + kitUnitCost(comp.catalogId, nextVisited) * comp.amount;
     }
@@ -3450,6 +3457,7 @@ function kitExpandedHtml(k){
 
         <div class="kit-costs">
           <div><label>Вага, г</label><input type="number" step="1" value="${k.weight||''}" oninput="updateKitField(${k.id},'weight',this.value)" placeholder="0"></div>
+          <div><label>Собівартість вручну</label><input type="number" step="0.01" value="${k.costManual||''}" oninput="updateKitField(${k.id},'costManual',this.value)" placeholder="за складом" title="Якщо заповнено — береться замість розрахунку за компонентами (без логістики й маркетингу). Порожньо — рахується за складом із накладних."></div>
           <div><label>Логістика/од</label><input type="number" step="0.1" value="${k.logistics}" oninput="updateKitField(${k.id},'logistics',this.value)"></div>
           <div><label>Маркетинг/од</label><input type="number" step="0.1" value="${k.marketing}" oninput="updateKitField(${k.id},'marketing',this.value)"></div>
           <div><label>Ціна продажу/од</label><input type="number" step="0.1" value="${k.price}" oninput="updateKitField(${k.id},'price',this.value)"></div>
@@ -3726,7 +3734,8 @@ function renderCostsPanel(){
     return;
   }
   const rows = kits.map(k => {
-    const compCost = k.components.reduce((sum, comp) => {
+    const manualC = Number(k.costManual) || 0;
+    const compCost = manualC > 0 ? manualC : k.components.reduce((sum, comp) => {
       if(comp.refType === 'kit'){
         return sum + kitUnitCost(comp.catalogId, new Set([k.id])) * comp.amount;
       }
@@ -5545,7 +5554,7 @@ function orderItemOptionsHtml(placeholder){
   const sortedKits = [...kits].sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
   const kitOpt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
   const catItems = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка').sort((a,b) => a.name.localeCompare(b.name));
-  const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${fmt1(c.cost||0)} грн/${escapeAttr(c.unit)})</option>`;
+  const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.price > 0 ? fmt1(c.price) + ' грн/' + escapeAttr(c.unit) : 'ціну не задано'})</option>`;
   return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>`
     + `<optgroup label="Набори">${sortedKits.map(kitOpt).join('')}</optgroup>`
     + (catItems.length ? `<optgroup label="Товари (з довідника)">${catItems.map(catOpt).join('')}</optgroup>` : '');
@@ -5556,7 +5565,7 @@ function orderItemOptionsHtml(placeholder){
 // Повторний вибір того самого товару перевикористовує вже створену обгортку, а не плодить дублікати.
 function findOrCreateKitForCatalogItem(catalogId){
   let k = kits.find(kk => kk.sourceCatalogId === catalogId);
-  if(k) return k;
+  if(k){ const cc = catalogItem(catalogId); if(cc && cc.price > 0) k.price = cc.price; return k; }
   const c = catalogItem(catalogId);
   if(!c) return null;
   const id = nextKitId++;
@@ -5564,7 +5573,7 @@ function findOrCreateKitForCatalogItem(catalogId){
     id, sku: nextSku(), name: c.name, type: 'Набір',
     components: [{catalogId: c.id, refType: 'catalog', amount: 1}],
     weight: (c.unit === 'г' || c.unit === 'мл') ? 1 : 0,
-    logistics: 0, marketing: 0, price: c.cost||0, qty: 0, collapsed: true,
+    logistics: 0, marketing: 0, price: c.price||0, qty: 0, collapsed: true,
     sourceCatalogId: c.id
   };
   kits.push(k);
@@ -11588,7 +11597,8 @@ function createKitWrappingCatalogItem(catalogId, qty){
     id: kitId, sku: nextSku(), name: c.name, type: 'Набір',
     components: [{catalogId: c.id, refType: 'catalog', amount: 1}], composition: [],
     weight: (c.unit === 'г' || c.unit === 'мл') ? 1 : 0,
-    logistics: 0, marketing: 0, price: c.cost || 0, qty: 0, collapsed: true
+    logistics: 0, marketing: 0, price: c.price || 0, qty: 0, collapsed: true,
+    sourceCatalogId: c.id
   };
   kits.push(kit);
   return kit;
@@ -11603,6 +11613,7 @@ function itemResolveFinish(rowsToApply){
       else skippedCount++;
     } else if(r.action === 'matchCatalog' && r.chosenCatalogId){
       let kit = findKitWrappingCatalogItem(r.chosenCatalogId);
+      { const cc = catalogItem(r.chosenCatalogId); if(kit && cc && cc.price > 0) kit.price = cc.price; }
       if(!kit){ kit = createKitWrappingCatalogItem(r.chosenCatalogId, r.qty); createdCount++; }
       if(kit) addKitToOrderItems(itemResolveOrder, kit, r.qty);
       else skippedCount++;
