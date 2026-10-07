@@ -348,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.43.2 · 07.10.2026 15:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.0 · 07.10.2026 15:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -455,6 +455,16 @@
     </div>
   </div>
 
+  <div id="catImportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:410;align-items:center;justify-content:center;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:980px;width:96%;max-height:90vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;" id="catImportTitle">Імпорт каталогу з цінами</h3>
+        <button class="btn-ghost" onclick="catImportClose()" aria-label="Закрити">×</button>
+      </div>
+      <div id="catImportBody"></div>
+    </div>
+  </div>
+
   <div id="itemResolveModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;align-items:center;justify-content:center;">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
@@ -546,6 +556,9 @@
       <button class="btn btn-sm" id="editListToggleBtn" onclick="toggleEditListPanel()">Редагувати існуючі</button>
       <button class="btn btn-sm" id="costsToggleBtn" onclick="toggleCostsPanel()">Показати собівартості</button>
       <button class="btn btn-sm" onclick="exportKitsExcel()">⬇ Excel</button>
+      <button class="btn btn-sm" onclick="document.getElementById('catImportInput').click()" title="Завантажити каталог з цінами з Excel: співставити товари, оновити ціни, архівувати зайве">📥 Імпорт каталогу з цінами</button>
+      <button class="btn btn-sm" id="kitArchiveBtn" onclick="toggleKitArchive()">🗄 Архів товарів</button>
+      <input type="file" id="catImportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="catImportStart(this.files[0]); this.value='';">
       <button class="btn btn-primary btn-sm" onclick="addKit()">+ Новий набір / товар</button>
     </span>
   </div>
@@ -554,6 +567,13 @@
     <div style="padding:14px 16px;">
       <input type="text" id="editListSearch" placeholder="Пошук за SKU або назвою…" oninput="renderEditList()" style="margin-bottom:10px;">
       <div id="editListItems"></div>
+    </div>
+  </div>
+
+  <div class="catalog-panel" id="kitArchivePanel" style="display:none;margin-bottom:14px;">
+    <div style="padding:14px 16px;">
+      <div class="catalog-group-title">Архів товарів — не показуються в замовленнях і списках, але історія продажів збережена</div>
+      <div id="kitArchiveList"></div>
     </div>
   </div>
 
@@ -2346,7 +2366,7 @@ function globalSearchRun(raw){
   const cls = clients.filter(c => gsMatch([c.name, c.phone, c.city, c.address, c.notes].join(' | '), q, qDigits)).slice(0, 6);
   groups.push({title: 'Клієнти', rows: cls.map(c => ({type:'client', id:c.id, main: `${c.name || 'Без імені'} · ${c.phone || ''}`, sub: c.city || ''}))});
 
-  const kts = kits.filter(k => gsMatch([k.name, k.sku].join(' | '), q, '')).slice(0, 6);
+  const kts = kits.filter(k => !k.archived && gsMatch([k.name, k.sku].join(' | '), q, '')).slice(0, 6);
   groups.push({title: 'Товари / набори', rows: kts.map(k => ({type:'kit', id:k.id, main: `${k.name}`, sub: k.sku || ''}))});
 
   const cats = catalog.filter(ci => gsMatch(ci.name || '', q, '')).slice(0, 5);
@@ -3191,7 +3211,7 @@ function catalogOptionsHtml(currentKitId){
   const pack = catalog.filter(c => c.category === 'Упаковка');
   const spices = catalog.filter(c => c.category === 'Спеція');
   const opt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.unit})</option>`;
-  const readyKits = kits.filter(k => k.id !== currentKitId);
+  const readyKits = kits.filter(k => k.id !== currentKitId && !k.archived);
   const kitOpt = k => `<option value="kit:${k.id}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)} (шт)</option>`;
   return `
     <option value="">Оберіть компонент…</option>
@@ -3407,13 +3427,15 @@ function kbRowDragStart(e, idx){
 
 function renderKits(){
   const list = document.getElementById('kitList');
-  if(kits.length === 0){
+  const shownKits = kits.filter(k => !k.archived);
+  if(shownKits.length === 0){
     list.innerHTML = '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
   } else {
-    list.innerHTML = kits.map(k => k.collapsed ? kitCollapsedHtml(k) : kitExpandedHtml(k)).join('');
-    kits.forEach(k => { if(!k.collapsed) renderKitComponents(k.id); renderKitStats(k.id); });
+    list.innerHTML = shownKits.map(k => k.collapsed ? kitCollapsedHtml(k) : kitExpandedHtml(k)).join('');
+    shownKits.forEach(k => { if(!k.collapsed) renderKitComponents(k.id); renderKitStats(k.id); });
   }
-  document.getElementById('kitCount').textContent = kits.length;
+  document.getElementById('kitCount').textContent = shownKits.length;
+  if(typeof renderKitArchiveBadge === 'function') renderKitArchiveBadge();
   renderQuickOrderKitSelect();
 }
 
@@ -3690,7 +3712,7 @@ function renderEditList(){
   if(!panel || panel.style.display === 'none') return;
   const q = (document.getElementById('editListSearch').value || '').trim().toLowerCase();
   const el = document.getElementById('editListItems');
-  const filtered = kits.filter(k => {
+  const filtered = kits.filter(k => !k.archived).filter(k => {
     if(!q) return true;
     return (k.name||'').toLowerCase().includes(q) || (k.sku||'').toLowerCase().includes(q);
   }).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
@@ -3730,6 +3752,321 @@ function quickKitEdit(id, field, value){
   scheduleSave();
 }
 
+/* ---------- імпорт каталогу з цінами (Excel) + архів товарів ---------- */
+
+let catImp = null; // {rows:[], step:'match'|'archive', touched:Set, fileName}
+
+function catImpCols(headerRow){
+  const find = (...names) => {
+    for(let i = 0; i < headerRow.length; i++){
+      const h = normKey(headerRow[i]);
+      if(names.some(n => h === n)) return i;
+    }
+    return -1;
+  };
+  return {
+    name: find('назватовару','назва','найменування','товар'),
+    article: find('артикул','sku'),
+    tare: find('типтари'),
+    volume: find('обсягматеріал','обсяг'),
+    price: find('ціна','цена','price'),
+    hidden: find('приховано'),
+    category: find('категорія')
+  };
+}
+
+function catImpParsePrice(v){
+  const n = parseFloat(String(v).replace(/\s/g,'').replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+
+async function catImportStart(file){
+  if(!file) return;
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''});
+    let hi = -1, cols = null;
+    for(let i = 0; i < Math.min(aoa.length, 15); i++){
+      const c = catImpCols(aoa[i]);
+      if(c.name >= 0 && c.price >= 0){ hi = i; cols = c; break; }
+    }
+    if(hi < 0) throw new Error('Не знайшов шапку з колонками «Назва товару» і «Ціна».');
+    let rows = [];
+    for(let i = hi + 1; i < aoa.length; i++){
+      const r = aoa[i];
+      const fname = String(r[cols.name] || '').trim();
+      const price = catImpParsePrice(r[cols.price]);
+      if(!fname || price === null) continue;
+      const g = idx => idx >= 0 ? String(r[idx] == null ? '' : r[idx]).trim() : '';
+      const hiddenVal = g(cols.hidden).toLowerCase();
+      rows.push({
+        fname, price,
+        article: g(cols.article), tare: g(cols.tare), volume: g(cols.volume),
+        hidden: hiddenVal === 'так' || hiddenVal === 'yes' || hiddenVal === '1' || hiddenVal === 'true',
+        action: null, kitId: null, auto: false, suggestion: null
+      });
+    }
+    if(!rows.length) throw new Error('У файлі не знайшов рядків з назвою й ціною.');
+    // назва для програми: «Назва товару» + обсяг; якщо така комбінація повторюється — додаємо тип тари
+    const baseName = r => r.volume ? `${r.fname} ${r.volume}` : r.fname;
+    const cnt = {};
+    rows.forEach(r => { const k = normKeepDigits(baseName(r)); cnt[k] = (cnt[k]||0) + 1; });
+    rows.forEach(r => {
+      const k = normKeepDigits(baseName(r));
+      r.name = cnt[k] > 1 && r.tare ? `${baseName(r)} (${r.tare})` : baseName(r);
+      r.key = [normKeepDigits(r.article), normKeepDigits(r.volume), normKeepDigits(r.tare)].join('|');
+    });
+    catImp = {rows, step:'match', touched:new Set(), fileName:file.name, skipHidden:false};
+    catImpAutoMatch();
+    catImpRender();
+    document.getElementById('catImportModal').style.display = 'flex';
+  }catch(err){
+    alert('Не вдалось прочитати каталог: ' + err.message);
+  }
+}
+
+function catImpTokens(s){
+  return new Set(String(s||'').toLowerCase().split(/[^a-zа-яіїєґ0-9]+/i).filter(w => w.length > 1));
+}
+function catImpSimilarity(a, b){
+  const A = catImpTokens(a), B = catImpTokens(b);
+  if(!A.size || !B.size) return 0;
+  let inter = 0; A.forEach(w => { if(B.has(w)) inter++; });
+  return inter / (A.size + B.size - inter);
+}
+
+function catImpAutoMatch(){
+  const rows = catImp.rows;
+  const claimed = new Set();
+  const fnameCount = {}, artCount = {};
+  rows.forEach(r => {
+    const f = normKeepDigits(r.fname); fnameCount[f] = (fnameCount[f]||0) + 1;
+    const a = normKeepDigits(r.article); if(a) artCount[a] = (artCount[a]||0) + 1;
+  });
+  const free = k => !claimed.has(k.id);
+  const take = (r, k) => { r.action = 'match'; r.kitId = k.id; r.auto = true; claimed.add(k.id); };
+  // 1) раніше збережена прив'язка до каталогу; 2) точна назва; 3) назва без обсягу, якщо вона одна в файлі; 4) артикул = SKU, якщо він один у файлі
+  rows.forEach(r => { if(r.action) return; const k = kits.find(k => free(k) && k.catalogKey && k.catalogKey === r.key); if(k) take(r, k); });
+  rows.forEach(r => { if(r.action) return; const n = normKeepDigits(r.name); const k = kits.find(k => free(k) && normKeepDigits(k.name) === n); if(k) take(r, k); });
+  rows.forEach(r => { if(r.action) return; const f = normKeepDigits(r.fname); if(fnameCount[f] !== 1) return; const k = kits.find(k => free(k) && normKeepDigits(k.name) === f); if(k) take(r, k); });
+  rows.forEach(r => { if(r.action) return; const a = normKeepDigits(r.article); if(!a || artCount[a] !== 1) return; const k = kits.find(k => free(k) && normKeepDigits(k.sku) === a); if(k) take(r, k); });
+  // підказка «схоже на…» для решти
+  rows.forEach(r => {
+    if(r.action) return;
+    let best = null, bestScore = 0;
+    kits.forEach(k => {
+      if(claimed.has(k.id)) return;
+      const sc = catImpSimilarity(r.name, k.name);
+      if(sc > bestScore){ bestScore = sc; best = k; }
+    });
+    if(best && bestScore >= 0.5) r.suggestion = best.id;
+  });
+}
+
+function catImpKitOptions(selectedId){
+  const sorted = [...kits].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  return `<option value="">— співставити з наявним —</option>` + sorted.map(k =>
+    `<option value="${k.id}" ${k.id === selectedId ? 'selected' : ''}>${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}${k.archived ? ' (в архіві)' : ''}</option>`).join('');
+}
+
+function catImpStatusText(r){
+  if(r.action === 'skip') return '— пропущено, у базу не потрапить';
+  if(r.action === 'create') return '✓ Буде створено новий товар';
+  if(r.action === 'match'){
+    const k = kitById(r.kitId);
+    if(!k) return '?';
+    const parts = [];
+    if(k.name !== r.name) parts.push(`назва: «${escapeHtml(k.name)}» → «${escapeHtml(r.name)}»`);
+    if((k.price||0) !== r.price) parts.push(`ціна: ${fmt1(k.price||0)} → ${fmt1(r.price)}`);
+    return `✓ ${r.auto ? 'Знайдено автоматично' : 'Співставлено'}: [${escapeHtml(k.sku||'')}] ${escapeHtml(k.name)}${parts.length ? ' · ' + parts.join(', ') : ' · без змін'}`;
+  }
+  return 'Оберіть дію';
+}
+
+function catImpRowHtml(r, i){
+  const bad = !r.action;
+  const sugg = r.suggestion ? kitById(r.suggestion) : null;
+  return `
+  <div id="catImpRow-${i}" class="catalog-panel" style="margin-bottom:8px;border:${bad ? '1px solid rgba(220,38,38,0.4)' : '1px solid var(--border)'};${r.hidden && catImp.skipHidden ? 'opacity:.5;' : ''}"><div style="padding:10px 12px;">
+    <div class="fb-row" style="align-items:center;">
+      <input type="text" value="${escapeAttr(r.name)}" style="flex:2;min-width:220px;" onchange="catImpRename(${i}, this.value)" title="Назва в програмі (береться з файлу, можна виправити)">
+      <span class="hint" style="font-family:'JetBrains Mono',monospace;">арт. ${escapeHtml(r.article||'—')} · ${fmt1(r.price)} грн${r.hidden ? ' · приховано' : ''}</span>
+    </div>
+    <div class="fb-row" style="margin-top:6px;align-items:center;">
+      <select style="flex:1;min-width:200px;" onchange="catImpPick(${i}, this.value)">${catImpKitOptions(r.action === 'match' ? r.kitId : null)}</select>
+      <button class="btn btn-sm" onclick="catImpCreate(${i})">+ Створити новий</button>
+      <button class="btn btn-sm" onclick="catImpSkip(${i})">Пропустити</button>
+      ${bad && sugg ? `<button class="btn btn-sm" onclick="catImpPick(${i}, '${sugg.id}')" title="Прийняти підказку">Схоже: ${escapeAttr(sugg.name)}</button>` : ''}
+    </div>
+    <div class="hint" id="catImpStatus-${i}" style="margin-top:4px;${bad ? 'color:#dc2626;' : ''}">${catImpStatusText(r)}</div>
+  </div></div>`;
+}
+
+function catImpRender(){
+  const body = document.getElementById('catImportBody');
+  if(!catImp) return;
+  document.getElementById('catImportTitle').textContent = catImp.step === 'match' ? 'Імпорт каталогу з цінами' : 'Товари, яких немає в каталозі';
+  if(catImp.step === 'match'){
+    const rows = catImp.rows;
+    const unresolved = rows.filter(r => !r.action).length;
+    const autoN = rows.filter(r => r.auto).length;
+    const order = rows.map((r, i) => i).sort((a, b) => (rows[a].action ? 1 : 0) - (rows[b].action ? 1 : 0) || a - b);
+    body.innerHTML = `
+      <p class="hint" style="margin:0 0 10px;">Файл «${escapeHtml(catImp.fileName)}»: ${rows.length} позицій, автоматично знайдено ${autoN}, потрібно співставити ${unresolved}. Для співставлених товарів назва стане такою, як у файлі, а ціна продажу — з колонки «Ціна». Нічого не створюється без вашого вибору.</p>
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:13px;"><input type="checkbox" ${catImp.skipHidden ? 'checked' : ''} onchange="catImp.skipHidden=this.checked;catImpRender()"> Не імпортувати позиції з позначкою «Приховано = так» (${rows.filter(r=>r.hidden).length})</label>
+      <div class="fb-row" style="margin-bottom:10px;">
+        <button class="btn btn-sm" onclick="catImpBulkCreate()">+ Створити нові для всіх без пари</button>
+        <button class="btn btn-sm" onclick="catImpBulkSuggest()">Прийняти всі підказки «Схоже»</button>
+      </div>
+      <div id="catImpList">${order.map(i => catImpRowHtml(rows[i], i)).join('')}</div>
+      <div id="catImpWarning" style="display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.35);color:#dc2626;font-size:13px;"></div>
+      <div class="fb-row" style="margin-top:14px;">
+        <button class="btn btn-primary btn-sm" onclick="catImpApply()">Застосувати до бази</button>
+        <button class="btn btn-sm" onclick="catImportClose()">Скасувати</button>
+      </div>`;
+  } else {
+    const list = catImp.leftover;
+    body.innerHTML = list.length === 0
+      ? `<p>Усі товари з програми є в каталозі — архівувати нічого. 🎉</p><div class="fb-row"><button class="btn btn-primary btn-sm" onclick="catImportClose()">Закрити</button></div>`
+      : `<p class="hint" style="margin:0 0 10px;">Імпорт застосовано. Ці ${list.length} товарів у каталозі не знайдено, тому вони не отримали ціну з файлу. Позначені — підуть в архів (зникнуть зі списків і замовлень, історія замовлень лишиться). Звідти їх можна відновити кнопкою «🗄 Архів товарів». Зніміть галочку з тих, що архівувати не треба.</p>
+        <div class="fb-row" style="margin-bottom:8px;"><button class="btn btn-sm" onclick="catImpLeftAll(true)">Позначити всі</button><button class="btn btn-sm" onclick="catImpLeftAll(false)">Зняти всі</button></div>
+        <div id="catImpLeftList">${list.map(l => { const k = kitById(l.id); if(!k) return ''; return `
+          <label class="edit-list-row" style="cursor:pointer;">
+            <span style="display:flex;gap:10px;align-items:center;min-width:0;"><input type="checkbox" ${l.checked ? 'checked' : ''} onchange="catImpLeftToggle(${l.id}, this.checked)">
+            <span class="type-badge badge-${k.type}">${k.type}</span>
+            ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
+            <strong style="font-size:13px;">${escapeAttr(k.name)}</strong>${k.sourceCatalogId ? ' <span class="hint">· із довідника</span>' : ''}</span>
+            <span class="hint" style="font-family:'JetBrains Mono',monospace;">${fmt1(k.price||0)} грн</span>
+          </label>`; }).join('')}</div>
+        <div class="fb-row" style="margin-top:14px;">
+          <button class="btn btn-primary btn-sm" onclick="catImpArchiveSelected()">Відправити позначені в архів</button>
+          <button class="btn btn-sm" onclick="catImportClose()">Нічого не архівувати</button>
+        </div>`;
+  }
+}
+
+function catImpRename(i, v){ const t = String(v||'').trim(); if(t){ catImp.rows[i].name = t; catImpRefreshRow(i); } }
+function catImpPick(i, v){
+  const r = catImp.rows[i];
+  if(!v){ r.action = null; r.kitId = null; }
+  else { r.action = 'match'; r.kitId = parseInt(v, 10); }
+  r.auto = false;
+  catImpRefreshRow(i);
+}
+function catImpCreate(i){ const r = catImp.rows[i]; r.action = 'create'; r.kitId = null; r.auto = false; catImpRefreshRow(i); }
+function catImpSkip(i){ const r = catImp.rows[i]; r.action = 'skip'; r.kitId = null; r.auto = false; catImpRefreshRow(i); }
+function catImpRefreshRow(i){
+  const r = catImp.rows[i];
+  const old = document.getElementById(`catImpRow-${i}`);
+  if(old){ const tmp = document.createElement('div'); tmp.innerHTML = catImpRowHtml(r, i); old.replaceWith(tmp.firstElementChild); }
+}
+function catImpBulkCreate(){ catImp.rows.forEach((r,i) => { if(!r.action) { r.action = 'create'; } }); catImpRender(); }
+function catImpBulkSuggest(){ catImp.rows.forEach(r => { if(!r.action && r.suggestion){ r.action = 'match'; r.kitId = r.suggestion; } }); catImpRender(); }
+
+function catImpApply(){
+  const rows = catImp.rows.filter(r => !(catImp.skipHidden && r.hidden));
+  const warn = document.getElementById('catImpWarning');
+  const showWarn = msg => { warn.style.display = 'block'; warn.textContent = msg; };
+  const unresolved = rows.filter(r => !r.action);
+  if(unresolved.length){
+    showWarn(`Спочатку оберіть дію (співставити / створити / пропустити) для ${unresolved.length} позицій, позначених червоним.`);
+    catImp.rows.forEach((r, i) => { if(!r.action) catImpRefreshRow(i); });
+    const first = catImp.rows.findIndex(r => !r.action && rows.includes(r));
+    const el = document.getElementById(`catImpRow-${first}`); if(el) el.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  const used = {};
+  for(const r of rows){
+    if(r.action !== 'match') continue;
+    if(used[r.kitId]){ showWarn(`Два рядки файлу співставлені з одним товаром: «${kitById(r.kitId).name}». Виправте це.`); return; }
+    used[r.kitId] = true;
+  }
+  const snapshot = JSON.parse(JSON.stringify(kits));
+  const snapNext = nextKitId;
+  const touched = new Set();
+  let updated = 0, created = 0, skipped = 0;
+  rows.forEach(r => {
+    if(r.action === 'skip'){ skipped++; return; }
+    if(r.action === 'match'){
+      const k = kitById(r.kitId); if(!k) return;
+      k.name = r.name; k.price = r.price; k.catalogKey = r.key; k.siteArticle = r.article;
+      if(k.archived){ k.archived = false; delete k.archivedAt; }
+      touched.add(k.id); updated++;
+    } else if(r.action === 'create'){
+      let sku = r.article || nextSku();
+      if(kits.some(k => normKeepDigits(k.sku) === normKeepDigits(sku))){ let n = 2; while(kits.some(k => normKeepDigits(k.sku) === normKeepDigits(`${r.article || 'SKU'}-${n}`))) n++; sku = `${r.article || 'SKU'}-${n}`; }
+      const type = /банк|скло/i.test(r.tare) ? 'Баночка' : (/пакет|упаков/i.test(r.tare) ? 'Пакет' : 'Набір');
+      const k = {id: nextKitId++, sku, name: r.name, type, components: [], composition: [], weight: 0, logistics: 0, marketing: 0, price: r.price, qty: 0, collapsed: true, catalogKey: r.key, siteArticle: r.article};
+      kits.push(k); touched.add(k.id); created++;
+    }
+  });
+  undoStack.push({label:'Імпорт каталогу', restoreFn: () => { kits = snapshot; nextKitId = snapNext; renderKits(); renderSummary(); renderChart(); renderCostsPanel(); renderEditList(); renderKitArchive(); scheduleSave(); }});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`Каталог застосовано: оновлено ${updated}, створено ${created}, пропущено ${skipped}`, true);
+  renderKits(); renderSummary(); renderChart(); renderCostsPanel(); renderEditList(); scheduleSave();
+  const leftover = kits.filter(k => !k.archived && !touched.has(k.id)).map(k => ({id:k.id, checked: !k.sourceCatalogId}));
+  catImp.step = 'archive'; catImp.leftover = leftover; catImp.touched = touched;
+  catImpRender();
+}
+
+function catImpLeftToggle(id, v){ const l = catImp.leftover.find(x => x.id === id); if(l) l.checked = v; }
+function catImpLeftAll(v){ catImp.leftover.forEach(l => l.checked = v); catImpRender(); }
+function catImpArchiveSelected(){
+  const ids = catImp.leftover.filter(l => l.checked).map(l => l.id);
+  if(!ids.length){ catImportClose(); return; }
+  archiveKits(ids, 'не знайдено в каталозі');
+  catImportClose();
+}
+function catImportClose(){
+  document.getElementById('catImportModal').style.display = 'none';
+  catImp = null;
+}
+
+function archiveKits(ids, reason){
+  const day = todayStr();
+  const prev = ids.map(id => { const k = kitById(id); return k ? {id, archived: !!k.archived, archivedAt: k.archivedAt, archiveReason: k.archiveReason} : null; }).filter(Boolean);
+  ids.forEach(id => { const k = kitById(id); if(k){ k.archived = true; k.archivedAt = day; k.archiveReason = reason || ''; } });
+  undoStack.push({label:'Архівування товарів', restoreFn: () => { prev.forEach(p => { const k = kitById(p.id); if(k){ k.archived = p.archived; k.archivedAt = p.archivedAt; k.archiveReason = p.archiveReason; } }); refreshAfterArchive(); }});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`В архів відправлено товарів: ${ids.length}`, true);
+  refreshAfterArchive();
+}
+function restoreKitFromArchive(id){
+  const k = kitById(id); if(!k) return;
+  k.archived = false; delete k.archivedAt; delete k.archiveReason;
+  refreshAfterArchive();
+}
+function refreshAfterArchive(){
+  renderKits(); renderSummary(); renderChart(); renderCostsPanel(); renderEditList(); renderKitArchive(); renderQuickOrderKitSelect(); renderOrders(); scheduleSave();
+}
+function renderKitArchiveBadge(){
+  const btn = document.getElementById('kitArchiveBtn');
+  if(btn) btn.textContent = `🗄 Архів товарів (${kits.filter(k => k.archived).length})`;
+}
+function toggleKitArchive(){
+  const panel = document.getElementById('kitArchivePanel');
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if(!open) renderKitArchive();
+}
+function renderKitArchive(){
+  renderKitArchiveBadge();
+  const panel = document.getElementById('kitArchivePanel');
+  if(!panel || panel.style.display === 'none') return;
+  const list = kits.filter(k => k.archived).sort((a,b) => (b.archivedAt||'').localeCompare(a.archivedAt||''));
+  document.getElementById('kitArchiveList').innerHTML = list.length ? list.map(k => `
+    <div class="edit-list-row">
+      <div class="edit-list-info">
+        <span class="type-badge badge-${k.type}">${k.type}</span>
+        ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
+        <strong>${escapeAttr(k.name)}</strong>
+        <span class="hint">· ${escapeHtml(k.archivedAt||'')}${k.archiveReason ? ' · ' + escapeHtml(k.archiveReason) : ''}</span>
+      </div>
+      <button class="btn btn-sm" onclick="restoreKitFromArchive(${k.id})">↩ Відновити</button>
+    </div>`).join('') : '<div class="comp-empty">Архів порожній.</div>';
+}
+
 /* ---------- costs of all kits panel ---------- */
 
 function toggleCostsPanel(){
@@ -3756,7 +4093,7 @@ function renderCostsPanel(){
     el.innerHTML = '<div class="comp-empty">Ще немає жодного набору.</div>';
     return;
   }
-  const rows = kits.map(k => {
+  const rows = kits.filter(k => !k.archived).map(k => {
     const manualC = Number(k.costManual) || 0;
     const compCost = manualC > 0 ? manualC : k.components.reduce((sum, comp) => {
       if(comp.refType === 'kit'){
@@ -5591,7 +5928,7 @@ function pickOrderClient(orderId, clientId){
   scheduleSave();
 }
 function orderKitOptionsHtml(placeholder){
-  const sorted = [...kits].sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+  const sorted = kits.filter(k => !k.archived).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
   const opt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
   return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>${sorted.map(opt).join('')}`;
 }
@@ -5602,7 +5939,7 @@ function orderKitOptionsHtml(placeholder){
 // простий набір-обгортку з одним компонентом — решта коду замовлень і далі працює лише з kitId,
 // нічого більше міняти не довелось.
 function orderItemOptionsHtml(placeholder){
-  const sortedKits = [...kits].sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+  const sortedKits = kits.filter(k => !k.archived).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
   const kitOpt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
   const catItems = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка').sort((a,b) => a.name.localeCompare(b.name));
   const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.price > 0 ? fmt1(c.price) + ' грн/' + escapeAttr(c.unit) : 'ціну не задано'})</option>`;
@@ -10999,7 +11336,7 @@ function showWarehouseTab(tab){
 
 function allStockItems(){
   const packAndSpice = catalog.map(c => ({itemType:'catalog', itemId:c.id, name:c.name, unit:c.unit}));
-  const kitItems = kits.map(k => ({itemType:'kit', itemId:k.id, name:(k.sku?`[${k.sku}] `:'')+k.name, unit:'шт'}));
+  const kitItems = kits.filter(k => !k.archived).map(k => ({itemType:'kit', itemId:k.id, name:(k.sku?`[${k.sku}] `:'')+k.name, unit:'шт'}));
   return [...packAndSpice, ...kitItems];
 }
 
@@ -11548,7 +11885,7 @@ function openItemResolveModal(order, rows, callback){
 // окремий товар, тож підставити напряму звідти теж має бути можливо. Значення закодовано як
 // "k<id>" для товару чи "c<id>" для інгредієнта, щоб відрізнити один список від іншого.
 function itemResolveSelectOptionsHtml(){
-  const sortedKits = [...kits].sort((a,b) => a.name.localeCompare(b.name));
+  const sortedKits = kits.filter(k => !k.archived).sort((a,b) => a.name.localeCompare(b.name));
   const sortedCatalog = [...catalog].sort((a,b) => a.name.localeCompare(b.name));
   const kitOpts = sortedKits.map(k => `<option value="k${k.id}">${escapeAttr(k.name)} (${escapeAttr(k.sku)})</option>`).join('');
   const catOpts = sortedCatalog.map(c => `<option value="c${c.id}">${escapeAttr(c.name)}</option>`).join('');
@@ -12179,10 +12516,11 @@ function findKitBySkuOrName(skuVal, nameVal){
     const rk = normKeepDigits(raw);
     if(!rk) continue;
     // 1. точний збіг з SKU або назвою
-    let m = kits.find(k => normKeepDigits(k.sku) === rk || normKeepDigits(k.name) === rk);
+    let m = kits.find(k => !k.archived && (normKeepDigits(k.sku) === rk || normKeepDigits(k.name) === rk));
     if(m) return m;
     // 2. значення з файлу входить в SKU/назву набору, або навпаки (напр. "740" всередині "Набір за 740 грн")
     m = kits.find(k => {
+      if(k.archived) return false;
       const sku = normKeepDigits(k.sku);
       const name = normKeepDigits(k.name);
       return (sku && (sku.includes(rk) || rk.includes(sku))) || (name && (name.includes(rk) || rk.includes(name)));
