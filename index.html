@@ -343,7 +343,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.41.2 · 06.10.2026 21:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.42.0 · 07.10.2026 11:50</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5109,6 +5109,68 @@ async function buildTodayShipmentsExcel(){
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   return {blob, fileName: `vidpravlennya_${from}_${to}.xlsx`, count: list.length};
+}
+
+// Excel одного конкретного замовлення: шапка (клієнт, доставка, статуси) + таблиця позицій + підсумок.
+async function exportSingleOrderExcel(id){
+  const o = orders.find(x => x.id === id);
+  if(!o){ alert('Замовлення не знайдено.'); return; }
+  const c = calcOrder(o);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Замовлення');
+  ws.columns = [{width:34},{width:12},{width:14},{width:14}];
+  const B = {top:{style:'thin',color:{argb:'FFB0A08C'}},left:{style:'thin',color:{argb:'FFB0A08C'}},bottom:{style:'thin',color:{argb:'FFB0A08C'}},right:{style:'thin',color:{argb:'FFB0A08C'}}};
+  const BROWN = {type:'pattern', pattern:'solid', fgColor:{argb:'FFD9B896'}};
+  const t = ws.addRow([`Замовлення №${o.id}` + (o.date ? ` від ${o.date}` : '')]);
+  t.font = {bold:true, size:14};
+  ws.mergeCells(t.number, 1, t.number, 4);
+  ws.addRow([]);
+  const info = [
+    ['Клієнт', o.customer || ''],
+    ['Телефон', o.phone || ''],
+    ['Доставка', o.deliveryMethod || ''],
+    ['Місто', o.city || o.ukrCity || ''],
+    ['Відділення / адреса', o.warehouseDesc || o.address || ''],
+    ['ТТН', o.ttnNumber || o.ukrTtnNumber || ''],
+    ['Оплачено', o.paid ? 'так' : 'ні'],
+    ['Відправлено', o.shipped ? 'так' : 'ні'],
+    ['Доставлено', o.delivered ? 'так' : 'ні'],
+    ['Примітка', o.notes || '']
+  ].filter(r => r[1] !== '');
+  info.forEach(([k, v]) => {
+    const r = ws.addRow([k, v]);
+    r.getCell(1).font = {bold:true};
+    ws.mergeCells(r.number, 2, r.number, 4);
+    r.getCell(2).alignment = {wrapText:true, vertical:'top'};
+  });
+  ws.addRow([]);
+  const h = ws.addRow(['Товар', 'К-сть', 'Ціна, грн', 'Сума, грн']);
+  h.font = {bold:true};
+  h.eachCell(cell => { cell.fill = BROWN; cell.border = B; });
+  o.items.forEach(it => {
+    const k = kitById(it.kitId);
+    const r = ws.addRow([k ? k.name : '(товар)', it.qty || 0, it.price || 0, (it.qty || 0) * (it.price || 0)]);
+    r.eachCell({includeEmpty:true}, cell => { cell.border = B; });
+    r.getCell(1).alignment = {wrapText:true, vertical:'top'};
+  });
+  const addTot = (label, val, bold) => {
+    const r = ws.addRow([label, '', '', val]);
+    r.getCell(1).alignment = {horizontal:'right'};
+    ws.mergeCells(r.number, 1, r.number, 3);
+    r.font = {bold: !!bold};
+    r.getCell(4).border = B;
+  };
+  addTot('Разом', c.subtotal);
+  if(c.discount > 0) addTot('Знижка', -c.discount);
+  addTot('До сплати', c.total, true);
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const safe = String(o.customer || 'bez_imeni').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '').slice(0, 30);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `zamovlennya_${o.id}_${safe}.xlsx`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 async function exportBranchWaitExcel(){
@@ -10292,6 +10354,7 @@ function orderCollapsedHtml(o, num){
         <div class="kit-collapsed-actions">
           <button class="btn btn-sm" onclick="editOrder(${o.id})">Редагувати</button>
           <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
+          <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
@@ -10326,6 +10389,7 @@ function orderExpandedHtml(o, num){
         <div class="order-head-left">
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
           <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
+          <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
@@ -11652,7 +11716,7 @@ function parseOrderFieldsFreeText(text){
 
 // об'єднує безкоштовний розбір міток (ім'я/телефон/місто/доставка/відділення/оплата) і товарів,
 // і заповнює ними замовлення — те саме, що й applyExtractedToOrder, але без жодного API.
-function applyFreeTextToOrder(order, text, interactive){
+async function applyFreeTextToOrder(order, text, interactive){
   if(interactive === undefined) interactive = true;
   const fields = parseOrderFieldsFreeText(text);
   if(fields.customer) order.customer = fields.customer;
@@ -11673,7 +11737,7 @@ function applyFreeTextToOrder(order, text, interactive){
   if(fields.paymentPreference) order.notes = (order.notes ? order.notes + ' · ' : '') + '💳 Оплата: ' + fields.paymentPreference;
 
   const items = parseOrderItemsFreeText(text);
-  const itemsRes = addRecognizedItemsToOrder(order, items, interactive);
+  const itemsRes = await addRecognizedItemsToOrder(order, items, interactive);
   return {...itemsRes, fieldsFound: Object.keys(fields).length};
 }
 
