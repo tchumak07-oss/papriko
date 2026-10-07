@@ -143,7 +143,7 @@
 
   .costs-table{width:100%;border-collapse:collapse;}
   .costs-table .costs-head, .costs-row{
-    display:grid;grid-template-columns:1fr 110px 100px 100px 110px;gap:10px;align-items:center;
+    display:grid;grid-template-columns:minmax(200px,1fr) 100px 100px 100px 110px 110px;gap:10px;align-items:center;
   }
   .costs-table .costs-head{
     font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;
@@ -154,12 +154,16 @@
   .costs-row .cn{display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .costs-row .cv{font-family:'JetBrains Mono',monospace;font-size:13px;text-align:right;color:var(--text-muted);}
   .costs-row .cv.strong{color:var(--saffron);font-weight:600;}
-  .costs-total{display:grid;grid-template-columns:1fr 110px 100px 100px 110px;gap:10px;padding-top:10px;margin-top:4px;border-top:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:13px;}
+  .costs-total{display:grid;grid-template-columns:minmax(200px,1fr) 100px 100px 100px 110px 110px;gap:10px;padding-top:10px;margin-top:4px;border-top:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:13px;}
   .costs-total .cv{text-align:right;color:var(--saffron);font-weight:600;}
 
   .edit-list-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-soft);}
   .edit-list-row:last-child{border-bottom:none;}
   .edit-list-info{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;}
+  .qe-name{flex:1;min-width:120px;}
+  .qe-price{width:100px;text-align:right;}
+  .costs-table{overflow-x:auto;}
+  .costs-row input{min-width:0;padding:5px 8px;font-size:13px;}
   .edit-list-info strong{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
   /* --- orders --- */
@@ -344,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.43.0 · 07.10.2026 14:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.43.2 · 07.10.2026 15:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -3673,8 +3677,8 @@ function toggleEditListPanel(){
   } else {
     document.getElementById('costsPanel').style.display = 'none';
     document.getElementById('costsToggleBtn').textContent = 'Показати собівартості';
-    renderEditList();
     panel.style.display = 'block';
+    renderEditList();
     btn.textContent = 'Сховати список';
     document.getElementById('editListSearch').value = '';
     document.getElementById('editListSearch').focus();
@@ -3697,14 +3701,33 @@ function renderEditList(){
   }
   el.innerHTML = filtered.map(k => `
     <div class="edit-list-row">
-      <div class="edit-list-info">
+      <div class="edit-list-info" style="flex:1;">
         <span class="type-badge badge-${k.type}">${k.type}</span>
         ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
-        <strong>${escapeAttr(k.name)}</strong>
+        <input type="text" class="qe-name" value="${escapeAttr(k.name)}" onchange="quickKitEdit(${k.id},'name',this.value)" title="Назва — змінюється прямо тут">
       </div>
+      <input type="number" step="0.1" class="qe-price" value="${k.price||''}" placeholder="ціна" onchange="quickKitEdit(${k.id},'price',this.value)" title="Ціна продажу/од, грн">
       <button class="btn btn-sm" onclick="jumpToEditKit(${k.id})">Редагувати</button>
     </div>
   `).join('');
+}
+
+// швидке редагування назви/ціни прямо в таблицях розділу «Товари»
+function quickKitEdit(id, field, value){
+  const k = kitById(id);
+  if(!k) return;
+  if(field === 'name'){
+    const v = String(value || '').trim();
+    if(v) k.name = v;
+  } else if(field === 'price'){
+    k.price = parseFloat(String(value).replace(',', '.')) || 0;
+  }
+  renderKits();
+  renderSummary();
+  renderChart();
+  renderCostsPanel();
+  renderEditList();
+  scheduleSave();
 }
 
 /* ---------- costs of all kits panel ---------- */
@@ -3719,8 +3742,8 @@ function toggleCostsPanel(){
   } else {
     document.getElementById('editListPanel').style.display = 'none';
     document.getElementById('editListToggleBtn').textContent = 'Редагувати існуючі';
-    renderCostsPanel();
     panel.style.display = 'block';
+    renderCostsPanel();
     btn.textContent = 'Сховати собівартості';
   }
 }
@@ -3753,14 +3776,15 @@ function renderCostsPanel(){
 
   el.innerHTML = `
     <div class="costs-head">
-      <div>Назва</div><div style="text-align:right;">Компоненти</div><div style="text-align:right;">Логіст.+маркет.</div><div style="text-align:right;">Собівартість/од</div><div style="text-align:right;">На весь тираж</div>
+      <div>Назва</div><div style="text-align:right;">Компоненти</div><div style="text-align:right;">Логіст.+маркет.</div><div style="text-align:right;">Собівартість/од</div><div style="text-align:right;">Ціна продажу</div><div style="text-align:right;">На весь тираж</div>
     </div>
     ${rows.map(r => `
       <div class="costs-row">
-        <div class="cn"><span class="type-badge badge-${r.k.type}">${r.k.type}</span>${r.k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(r.k.sku)}]</span> ` : ''}${escapeAttr(r.k.name)}</div>
+        <div class="cn"><span class="type-badge badge-${r.k.type}">${r.k.type}</span>${r.k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(r.k.sku)}]</span> ` : ''}<input type="text" value="${escapeAttr(r.k.name)}" onchange="quickKitEdit(${r.k.id},'name',this.value)" style="flex:1;" title="Назва — змінюється прямо тут"></div>
         <div class="cv">${fmt1(r.compCost)} грн</div>
         <div class="cv">${fmt1(r.extra)} грн</div>
         <div class="cv strong">${fmt1(r.unitCost)} грн</div>
+        <div class="cv"><input type="number" step="0.1" value="${r.k.price||''}" placeholder="0" onchange="quickKitEdit(${r.k.id},'price',this.value)" style="text-align:right;" title="Ціна продажу/од, грн — змінюється прямо тут"></div>
         <div class="cv">${fmt(r.unitCost * (r.k.qty||0))} грн</div>
       </div>
     `).join('')}
@@ -3769,6 +3793,7 @@ function renderCostsPanel(){
       <div class="cv">${fmt1(totalComp)} грн</div>
       <div class="cv">${fmt1(totalExtra)} грн</div>
       <div class="cv">${fmt1(totalUnitCostSum)} грн</div>
+      <div class="cv"></div>
       <div class="cv">${fmt(rows.reduce((s,r)=>s+r.unitCost*(r.k.qty||0),0))} грн</div>
     </div>
   `;
@@ -5121,6 +5146,32 @@ async function buildTodayShipmentsExcel(){
 }
 
 // Excel одного конкретного замовлення: шапка (клієнт, доставка, статуси) + таблиця позицій + підсумок.
+// підставляє в позиції замовлення актуальні ціни продажу з «Товарів» (після переоцінки)
+function refreshOrderPrices(id){
+  const o = orders.find(x => x.id === id);
+  if(!o) return;
+  const before = o.items.map(it => ({...it}));
+  const totalBefore = calcOrder(o).total;
+  const changes = [];
+  o.items.forEach(it => {
+    const k = kitById(it.kitId);
+    if(!k) return;
+    const np = Number(k.price) || 0;
+    if(np <= 0 && (Number(it.price) || 0) > 0) return; // ціну не задано — не обнуляємо наявну
+    if(Number(it.price) !== np){ changes.push(`${k.name}: ${fmt1(it.price||0)} → ${fmt1(np)}`); it.price = np; }
+  });
+  if(!changes.length){ alert('Ціни в цьому замовленні вже актуальні.'); return; }
+  const totalAfter = calcOrder(o).total;
+  if(typeof pushUndo === 'function') pushUndo('Оновлення цін у замовленні', () => {
+    o.items = before; renderOrders(); renderOrdersSummary(); scheduleSave();
+  });
+  autoUpdateCodAmountSilently(id);
+  renderOrders();
+  renderOrdersSummary();
+  scheduleSave();
+  alert(`Ціни оновлено (${changes.length}):\n${changes.join('\n')}\n\nСума: ${fmt1(totalBefore)} → ${fmt1(totalAfter)} грн`);
+}
+
 async function exportSingleOrderExcel(id){
   const o = orders.find(x => x.id === id);
   if(!o){ alert('Замовлення не знайдено.'); return; }
@@ -10399,6 +10450,7 @@ function orderExpandedHtml(o, num){
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
           <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
           <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
+          <button class="btn btn-sm" onclick="refreshOrderPrices(${o.id})" title="Підставити поточні ціни продажу з «Товарів» у всі позиції цього замовлення">🔄 Оновити ціни</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
