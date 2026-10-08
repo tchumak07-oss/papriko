@@ -348,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.1 · 07.10.2026 16:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.2 · 08.10.2026 09:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -7218,8 +7218,17 @@ function todayDMY(){
   return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()}`;
 }
 
+// НП приймає в імені лише літери, апостроф і дефіс: прибираємо цифри, коми, дужки, емодзі та інше сміття
+// (наприклад «Іваненко Олена, Київ» чи «Петренко Іван 0501234567» інакше дають «RecipientName incorrect»).
+function cleanRecipientName(fullName){
+  return String(fullName||'')
+    .replace(/[’ʼ`´‘]/g, "'")
+    .replace(/[^A-Za-zА-Яа-яІіЇїЄєҐґ'\-\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 function splitFullName(fullName){
-  const parts = (fullName||'').trim().split(/\s+/).filter(Boolean);
+  const parts = cleanRecipientName(fullName).split(' ').filter(Boolean);
   return {
     LastName: parts[0] || 'Клієнт',
     FirstName: parts[1] || 'Клієнт',
@@ -7289,6 +7298,9 @@ async function createNpWaybill(orderId){
   resultEl.innerHTML = '<div class="hint">Створюю ТТН...</div>';
 
   try{
+    if(cleanRecipientName(o.customer).split(' ').filter(Boolean).length < 2){
+      throw new Error(`Нова Пошта вимагає прізвище та ім'я одержувача (мінімум два слова, лише літери). Зараз у замовленні: «${o.customer || 'порожньо'}». Допишіть ПІБ у полі «ПІБ / назва».`);
+    }
     const name = splitFullName(o.customer);
     const fullName = `${name.LastName} ${name.FirstName} ${name.MiddleName}`.trim();
 
