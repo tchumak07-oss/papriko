@@ -348,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.2 · 08.10.2026 09:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.4 · 08.10.2026 10:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -7220,12 +7220,21 @@ function todayDMY(){
 
 // НП приймає в імені лише літери, апостроф і дефіс: прибираємо цифри, коми, дужки, емодзі та інше сміття
 // (наприклад «Іваненко Олена, Київ» чи «Петренко Іван 0501234567» інакше дають «RecipientName incorrect»).
+const LATIN_TO_CYR = {a:'а',c:'с',e:'е',i:'і',o:'о',p:'р',x:'х',y:'у',k:'к',m:'м',t:'т',b:'в',h:'н',A:'А',B:'В',C:'С',E:'Е',H:'Н',I:'І',K:'К',M:'М',O:'О',P:'Р',T:'Т',X:'Х',Y:'У'};
+function fixMixedScriptWord(w){
+  // слово з кирилиці, де затесалась схожа латинська літера (a/o/i/c/e/p/x…), НП вважає некоректним
+  if(!/[А-Яа-яІіЇїЄєҐґ]/.test(w) || !/[A-Za-z]/.test(w)) return w;
+  return w.replace(/[A-Za-z]/g, ch => LATIN_TO_CYR[ch] || ch);
+}
 function cleanRecipientName(fullName){
   return String(fullName||'')
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '') // невидимі символи всередині слів
+    .replace(/[\u00A0\u2000-\u200A\u202F]/g, ' ')       // нерозривні/вузькі пробіли
     .replace(/[’ʼ`´‘]/g, "'")
     .replace(/[^A-Za-zА-Яа-яІіЇїЄєҐґ'\-\s]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .split(' ').map(fixMixedScriptWord).join(' ');
 }
 function splitFullName(fullName){
   const parts = cleanRecipientName(fullName).split(' ').filter(Boolean);
@@ -7298,7 +7307,7 @@ async function createNpWaybill(orderId){
   resultEl.innerHTML = '<div class="hint">Створюю ТТН...</div>';
 
   try{
-    if(cleanRecipientName(o.customer).split(' ').filter(Boolean).length < 2){
+    if(cleanRecipientName(o.customer).split(' ').filter(w => w.replace(/[^A-Za-zА-Яа-яІіЇїЄєҐґ]/g,'').length >= 2).length < 2){
       throw new Error(`Нова Пошта вимагає прізвище та ім'я одержувача (мінімум два слова, лише літери). Зараз у замовленні: «${o.customer || 'порожньо'}». Допишіть ПІБ у полі «ПІБ / назва».`);
     }
     const name = splitFullName(o.customer);
@@ -7364,7 +7373,9 @@ async function createNpWaybill(orderId){
     resultEl.innerHTML = ttnResultHtml(o);
     scheduleSave();
   }catch(err){
-    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
+    const sentName = cleanRecipientName(o.customer);
+    const nameHint = /RecipientName/i.test(err.message || '') ? `<br>Ім'я, яке програма надіслала в НП: «${escapeAttr(sentName || '(порожньо)')}» (у картці: «${escapeAttr(o.customer || '')}»). НП очікує «Прізвище Ім'я По батькові» кирилицею, кожне слово від 2 літер.` : '';
+    resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}${nameHint}</div>`;
   }finally{
     npWaybillInFlight.delete(orderId);
     if(btnEl){ btnEl.disabled = false; btnEl.textContent = 'Створити ТТН'; }
