@@ -348,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.44.4 · 08.10.2026 10:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.45.0 · 08.10.2026 10:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -7245,6 +7245,34 @@ function splitFullName(fullName){
   };
 }
 
+// Знаходить (або створює) отримувача-фізособу в кабінеті НП і повертає Ref контрагента та контактної особи.
+async function resolveNpRecipientByPhone(o, name){
+  let cp = null;
+  try{
+    const saved = await npApiCall('Counterparty', 'save', {
+      CounterpartyType: 'PrivatePerson', CounterpartyProperty: 'Recipient',
+      FirstName: name.FirstName, MiddleName: name.MiddleName, LastName: name.LastName, Phone: o.phone
+    });
+    cp = saved && saved[0];
+  }catch(e){ cp = null; }
+  if(!cp || !cp.Ref){
+    // не вдалося створити — шукаємо вже наявного отримувача за телефоном
+    const digits = String(o.phone || '').replace(/\D/g, '').slice(-9);
+    const list = await npApiCall('Counterparty', 'getCounterparties', {CounterpartyProperty: 'Recipient', FindByString: digits, Page: '1'});
+    cp = (list || []).find(x => x && x.Ref);
+    if(!cp) throw new Error('Не вдалося створити чи знайти отримувача в НП за цим телефоном.');
+  }
+  let contactRef = cp.ContactPerson && cp.ContactPerson.data && cp.ContactPerson.data[0] && cp.ContactPerson.data[0].Ref;
+  let npName = cp.ContactPerson && cp.ContactPerson.data && cp.ContactPerson.data[0] && cp.ContactPerson.data[0].Description;
+  if(!contactRef){
+    const persons = await npApiCall('Counterparty', 'getCounterpartyContactPersons', {Ref: cp.Ref, Page: '1'});
+    const c0 = (persons || [])[0];
+    if(!c0 || !c0.Ref) throw new Error('У знайденого отримувача в НП немає контактної особи.');
+    contactRef = c0.Ref; npName = c0.Description;
+  }
+  return {counterpartyRef: cp.Ref, contactRef, npName: npName || cp.Description || ''};
+}
+
 async function updateNpCodAmount(orderId){
   const o = orderById(orderId);
   if(!o || !o.ttnRef) return;
@@ -7364,13 +7392,27 @@ async function createNpWaybill(orderId){
       // на відміну від звичайної післяплати з поверненням на картку.
       docParams.AfterpaymentOnGoodsCost = String(o.codAmount);
     }
-    const docData = await npApiCall('InternetDocument', 'save', docParams);
+    let docData, recipientNote = '';
+    try{
+      docData = await npApiCall('InternetDocument', 'save', docParams);
+    }catch(e1){
+      if(!/Counterparty creation|RecipientName/i.test(e1.message || '')) throw e1;
+      // запасний шлях: НП не змогла створити отримувача з рядка (часто — коли на цей телефон уже є контрагент
+      // в кабінеті НП з іншим написанням імені). Створюємо/знаходимо контрагента явно й передаємо його Ref-ами.
+      const rec = await resolveNpRecipientByPhone(o, name);
+      const p2 = {...docParams, Recipient: rec.counterpartyRef, ContactRecipient: rec.contactRef};
+      delete p2.RecipientName; delete p2.RecipientContactName; delete p2.RecipientType; delete p2.NewAddress;
+      docData = await npApiCall('InternetDocument', 'save', p2);
+      if(rec.npName && normKeepDigits(rec.npName) !== normKeepDigits(fullName)){
+        recipientNote = `<div class="hint" style="margin-top:6px;color:var(--saffron);">⚠ На цей телефон у НП уже є отримувач «${escapeAttr(rec.npName)}» — накладну створено на нього (в замовленні ім'я «${escapeAttr(fullName)}»). Перевірте, що отримувач правильний.</div>`;
+      }
+    }
     const doc = docData && docData[0];
     if(!doc || !doc.IntDocNumber) throw new Error('Накладну не створено — немає номера у відповіді');
 
     o.ttnNumber = doc.IntDocNumber;
     o.ttnRef = doc.Ref;
-    resultEl.innerHTML = ttnResultHtml(o);
+    resultEl.innerHTML = ttnResultHtml(o) + recipientNote;
     scheduleSave();
   }catch(err){
     const sentName = cleanRecipientName(o.customer);
