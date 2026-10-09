@@ -115,6 +115,16 @@
   .kit-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
   .kit-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;}
   .kit-collapsed-info .qe-name{min-width:160px;}
+
+  /* пошук у довгих випадаючих списках */
+  .ss-pop{position:fixed;z-index:100000;background:var(--surface,#2a2019);border:1px solid var(--saffron,#e8a93c);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:360px;overflow:hidden;}
+  .ss-pop input{margin:8px;width:calc(100% - 16px);box-sizing:border-box;}
+  .ss-list{overflow:auto;padding:0 4px 6px;}
+  .ss-grp{padding:6px 10px 3px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint,#8a7a6a);}
+  .ss-opt{padding:7px 10px;border-radius:6px;cursor:pointer;font-size:14px;}
+  .ss-opt:hover,.ss-opt.ss-act{background:rgba(232,169,60,.22);}
+  .ss-opt.ss-sel{font-weight:600;}
+  .ss-empty{padding:10px;color:var(--text-faint,#8a7a6a);font-size:13px;}
   .kit-collapsed-row{flex-wrap:nowrap;gap:10px;}
   .kit-collapsed-info{flex:1 1 0;min-width:0;}
   .kit-collapsed-info .qe-name{min-width:100px;flex:1 1 0;}
@@ -358,7 +368,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.50.0 · 09.10.2026 13:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.51.0 · 09.10.2026 13:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2700,8 +2710,8 @@ function toggleCatalog(){
 function catalogItem(id){ return catalog.find(c => c.id === id); }
 
 function renderCatalog(){
-  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка');
-  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція');
+  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
+  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   renderCatalogArchive();
   document.getElementById('catalogPackaging').innerHTML = pack.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
   document.getElementById('catalogSpices').innerHTML = spices.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
@@ -2749,7 +2759,7 @@ function catalogArchiveRefresh(){
 }
 function renderCatalogArchive(){
   const el = document.getElementById('catalogArchiveList'); if(!el) return;
-  const list = catalog.filter(c => c.archived).sort((a,b) => (b.archivedAt||'').localeCompare(a.archivedAt||''));
+  const list = catalog.filter(c => c.archived).sort((a,b) => (b.archivedAt||'').localeCompare(a.archivedAt||'') || String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   const t = document.getElementById('catalogArchiveTitle'); if(t) t.textContent = `Архів інгредієнтів та упаковки (${list.length})`;
   el.innerHTML = list.length ? list.map(c => `
     <div class="edit-list-row">
@@ -3284,8 +3294,8 @@ function removeComponent(kitId, catalogId, refType){
 }
 
 function catalogOptionsHtml(currentKitId){
-  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка');
-  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція');
+  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
+  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   const opt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.unit})</option>`;
   const readyKits = kits.filter(k => k.id !== currentKitId && !k.archived);
   const kitOpt = k => `<option value="kit:${k.id}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)} (шт)</option>`;
@@ -3311,7 +3321,7 @@ function renderKitBuilder(){
 function renderKbPalette(){
   const el = document.getElementById('kbPalette');
   if(!el) return;
-  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка'));
+  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка')).sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   if(items.length === 0){
     el.innerHTML = '<div class="comp-empty" style="grid-column:1/-1;">Довідник порожній — додайте спеції чи упаковку в «Товари» → «Довідник собівартостей» (або імпортуйте з Excel).</div>';
     return;
@@ -3691,7 +3701,7 @@ function compOnTargetChange(){
 function compRenderPalette(){
   const el = document.getElementById('compPalette');
   if(!el) return;
-  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка'));
+  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка')).sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   if(items.length === 0){
     el.innerHTML = '<div class="comp-empty" style="grid-column:1/-1;">Довідник порожній — додайте інгредієнт чи упаковку кнопками нижче.</div>';
     return;
@@ -13308,6 +13318,83 @@ renderReports();
 renderBackupInfo();
 placeQuickKitSelect();
 autoConnectFirebase();
+
+/* ---------- пошук у довгих випадаючих списках (понад 12 пунктів): друкуєш — список фільтрується ---------- */
+(function(){
+  let pop = null, curSel = null;
+  function close(){ if(pop){ pop.remove(); pop = null; } curSel = null; }
+  function open(sel){
+    close(); curSel = sel;
+    pop = document.createElement('div'); pop.className = 'ss-pop';
+    const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'Пошук…'; inp.autocomplete = 'off';
+    const list = document.createElement('div'); list.className = 'ss-list';
+    pop.appendChild(inp); pop.appendChild(list); document.body.appendChild(pop);
+    const r = sel.getBoundingClientRect();
+    const w = Math.max(r.width, 300);
+    pop.style.width = Math.min(w, window.innerWidth - 16) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    const below = window.innerHeight - r.bottom, up = r.top > below && below < 300;
+    if(up){ pop.style.bottom = (window.innerHeight - r.top + 4) + 'px'; pop.style.maxHeight = Math.min(360, r.top - 12) + 'px'; }
+    else { pop.style.top = (r.bottom + 4) + 'px'; pop.style.maxHeight = Math.min(360, below - 12) + 'px'; }
+    let shown = [], act = 0;
+    function render(){
+      const q = inp.value.trim().toLowerCase();
+      shown = []; let html = '', lastG = null;
+      [...sel.options].forEach((o, i) => {
+        if(o.disabled) return;
+        if(q && !o.text.toLowerCase().includes(q)) return;
+        if(!q && o.value === '' ) { /* плейсхолдер лишаємо зверху */ }
+        const g = o.parentElement && o.parentElement.tagName === 'OPTGROUP' ? o.parentElement.label : '';
+        if(g !== lastG){ if(g) html += `<div class="ss-grp">${escapeHtml(g)}</div>`; lastG = g; }
+        shown.push(i);
+        html += `<div class="ss-opt${o.selected ? ' ss-sel' : ''}" data-i="${i}">${escapeHtml(o.text) || '&nbsp;'}</div>`;
+      });
+      list.innerHTML = html || '<div class="ss-empty">Нічого не знайдено</div>';
+      act = Math.min(act, Math.max(0, shown.length - 1));
+      mark();
+    }
+    function mark(){
+      [...list.querySelectorAll('.ss-opt')].forEach((el, k) => el.classList.toggle('ss-act', k === act));
+      const a = list.querySelectorAll('.ss-opt')[act]; if(a) a.scrollIntoView({block:'nearest'});
+    }
+    function pick(i){
+      const s2 = sel; close();
+      s2.selectedIndex = i;
+      s2.dispatchEvent(new Event('input', {bubbles:true}));
+      s2.dispatchEvent(new Event('change', {bubbles:true}));
+      s2.focus();
+    }
+    inp.addEventListener('input', () => { act = 0; render(); });
+    inp.addEventListener('keydown', e => {
+      if(e.key === 'Escape'){ e.preventDefault(); const s2 = sel; close(); s2.focus(); }
+      else if(e.key === 'ArrowDown'){ e.preventDefault(); act = Math.min(shown.length - 1, act + 1); mark(); }
+      else if(e.key === 'ArrowUp'){ e.preventDefault(); act = Math.max(0, act - 1); mark(); }
+      else if(e.key === 'Enter'){ e.preventDefault(); if(shown.length) pick(shown[act]); }
+    });
+    list.addEventListener('mousedown', e => {
+      const el = e.target.closest('.ss-opt'); if(!el) return;
+      e.preventDefault(); pick(parseInt(el.dataset.i, 10));
+    });
+    render();
+    const cur = list.querySelector('.ss-sel'); if(cur) cur.scrollIntoView({block:'center'});
+    inp.focus();
+  }
+  function eligible(t){
+    return t && t.tagName === 'SELECT' && !t.disabled && !t.multiple && !t.hasAttribute('data-nosearch') && t.options.length > 12;
+  }
+  document.addEventListener('mousedown', e => {
+    if(pop && !pop.contains(e.target)) { if(e.target !== curSel) close(); else { e.preventDefault(); close(); return; } }
+    const t = e.target;
+    if(eligible(t)){ e.preventDefault(); open(t); }
+  }, true);
+  document.addEventListener('keydown', e => {
+    if(pop) return;
+    const t = e.target;
+    if(eligible(t) && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' && e.altKey)){ e.preventDefault(); open(t); }
+  }, true);
+  window.addEventListener('scroll', e => { if(pop && !pop.contains(e.target)) close(); }, true);
+  window.addEventListener('resize', close);
+})();
 </script>
 </body>
 </html>
