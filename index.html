@@ -358,7 +358,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.49.2 · 09.10.2026 12:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.49.3 · 09.10.2026 13:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6149,6 +6149,7 @@ function updateOrderField(id, field, value){
   const o = orderById(id);
   if(!o) return;
   o[field] = value;
+  if(field === 'discountType' || field === 'discountValue') autoUpdateCodAmountSilently(id, true);
   renderOrderTotal(id);
   renderOrdersSummary();
   scheduleSave();
@@ -6352,9 +6353,11 @@ function autoUpdateWeightSilently(orderId){
 }
 
 // автоматично підставляє суму контролю оплати/накладеного платежу = вартість товарів у замовленні
-function autoUpdateCodAmountSilently(orderId){
+function autoUpdateCodAmountSilently(orderId, onlyIfSet){
   const o = orderById(orderId);
   if(!o) return;
+  if(o.paid) return; // оплачене замовлення — контроль оплати вже знято, не вмикаємо назад
+  if(onlyIfSet && !(Number(o.codAmount) > 0)) return; // для передоплачених (без контролю) не чіпаємо
   const total = calcOrder(o).total;
   if(total <= 0) return;
   o.codAmount = total;
@@ -6458,6 +6461,7 @@ function updateOrderItemField(orderId, kitId, field, value){
   if(!it) return;
   it[field] = parseFloat(value) || 0;
   if(field === 'qty'){ autoUpdateWeightSilently(orderId); autoUpdateCodAmountSilently(orderId); }
+  else if(field === 'price'){ autoUpdateCodAmountSilently(orderId, true); }
   renderOrderItemLineTotal(orderId, kitId);
   renderOrderTotal(orderId);
   renderOrdersSummary();
