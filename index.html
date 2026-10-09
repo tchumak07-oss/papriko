@@ -348,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.48.1 · 09.10.2026 11:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.48.2 · 09.10.2026 11:36</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6108,12 +6108,40 @@ function toggleOrderPaid(id, checked){
   const o = orderById(id);
   if(!o) return;
   o.paid = checked;
+  if(checked) cancelCodControlOnPaid(o);
   if(checked && o.ttnTelegramNotified){
     sendTelegramMessage(`🟢 <b>Оплату підтверджено</b>\nКлієнт: ${escapeHtml(o.customer||'—')}\nСума: ${fmt(calcOrder(o).total)} грн${o.ttnNumber||o.ukrTtnNumber ? '\nТТН: <code>'+escapeHtml(o.ttnNumber||o.ukrTtnNumber)+'</code>' : ''}`);
   }
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
+}
+// Клієнт оплатив напряму на рахунок → знімаємо контроль оплати/післяплату в самій ТТН, щоб перевізник не брав гроші вдруге.
+async function cancelCodControlOnPaid(o){
+  const amount = Number(o.codAmount)||0;
+  if(amount <= 0) return;
+  const statusEl = document.getElementById(`ttn-cod-status-${o.id}`) || document.getElementById(`ukr-cod-status-${o.id}`);
+  const say = (html)=>{ if(statusEl) statusEl.innerHTML = html; };
+  try{
+    if(o.ttnRef){
+      say(' Знімаю контроль оплати в НП...');
+      try{
+        await npApiCall('InternetDocument','update',{Ref:o.ttnRef, AfterpaymentOnGoodsCost:'0'});
+      }catch(e1){
+        await npApiCall('InternetDocument','update',{Ref:o.ttnRef, AfterpaymentOnGoodsCost:''});
+      }
+    } else if(o.ukrShipmentUuid){
+      await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, { postPay: 0 });
+    } else return;
+    o.codAmountWas = amount;
+    o.codAmount = 0;
+    say(' <span style="color:var(--cardamom);">✓ Контроль оплати знято в ТТН</span>');
+    renderOrders();
+    scheduleSave();
+  }catch(err){
+    say(` <span style="color:var(--danger);">Не вдалося зняти контроль оплати: ${escapeAttr(err.message)}</span>`);
+    alert('Позначено як оплачене, але контроль оплати в ТТН зняти не вдалося: '+err.message+'\nЗніміть його вручну в кабінеті перевізника (або кнопкою «оновити суму» із значенням 0).');
+  }
 }
 function toggleOrderShipped(id, checked){
   const o = orderById(id);
