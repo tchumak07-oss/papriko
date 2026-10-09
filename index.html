@@ -115,8 +115,14 @@
   .kit-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
   .kit-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;}
   .kit-collapsed-info .qe-name{min-width:160px;}
-  .kit-collapsed-row .qe-price{width:100px;flex:none;}
-  .kit-collapsed-row select{flex:none;}
+  .kit-collapsed-row{flex-wrap:nowrap;gap:10px;}
+  .kit-collapsed-info{flex:1 1 0;min-width:0;}
+  .kit-collapsed-info .qe-name{min-width:100px;flex:1 1 0;}
+  .kit-collapsed-row .qe-price{width:78px;flex:none;}
+  .kit-collapsed-row select{width:130px;flex:none;}
+  .kit-card-collapsed .kit-stats{white-space:nowrap;gap:12px;font-size:12px;}
+  .kit-card-collapsed .kit-stats .stat-label{margin-right:3px;}
+  .kit-collapsed-actions{gap:6px;white-space:nowrap;}
   .tare-group-head{margin:14px 2px 6px;font-weight:600;color:var(--saffron);font-size:13px;letter-spacing:.03em;}
   .kit-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .kit-collapsed-actions{display:flex;gap:8px;flex-shrink:0;}
@@ -352,7 +358,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.49.1 · 09.10.2026 12:08</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.49.2 · 09.10.2026 12:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
