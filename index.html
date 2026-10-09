@@ -368,7 +368,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.51.0 · 09.10.2026 13:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.51.1 · 09.10.2026 15:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6133,17 +6133,14 @@ function removeDuplicateOrders(){
   scheduleSave();
   alert(`Видалено ${toRemove.size} дублікат(ів).`);
 }
-function saveOrder(id){
+async function saveOrder(id){
   const o = orderById(id);
   if(!o) return;
   o.collapsed = true;
   ensureClientForOrder(o); // клієнт з цього замовлення автоматично потрапляє в базу клієнтів
-  if(telegramNotificationsEnabled && o.sendToTelegram && (o.city || o.ukrCity || o.address)){
-    o.ttnTelegramNotified = true;
-    o.sendToTelegram = false;
-    notifyTelegramShipment(o);
-  }
-  if(o.sendSms && (o.city || o.ukrCity || o.address)){
+  const wantTg = !!o.sendToTelegram;
+  const wantSms = !!o.sendSms && !!(o.city || o.ukrCity || o.address);
+  if(wantSms){
     o.customerSmsSent = true;
     o.sendSms = false;
     notifyCustomerSms(o);
@@ -6151,6 +6148,24 @@ function saveOrder(id){
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
+  // явно позначена галочка «Відправити в Telegram» спрацьовує завжди (навіть без адреси чи при вимкнених авто-сповіщеннях),
+  // а результат показується — раніше помилки й пропуски були мовчазними
+  if(wantTg){
+    let res;
+    try{ res = await notifyTelegramShipment(o); }catch(e){ res = {ok:false, error: e.message}; }
+    if(res && res.ok){
+      o.ttnTelegramNotified = true;
+      o.sendToTelegram = false;
+      showUndoToast('✓ Надіслано в Telegram', false);
+    } else {
+      o.sendToTelegram = true; // лишаємо галочку, щоб можна було повторити
+      alert('Не вдалося надіслати в Telegram: ' + ((res && res.error) || 'невідома помилка') + '\n\nПеревірте токен бота й ID групи в «Налаштування доставки» → «Уведомлення в Telegram» (кнопка «Надіслати тестове повідомлення»). Галочку лишено — після виправлення натисніть «Зберегти» ще раз.');
+      o.collapsed = false;
+    }
+    renderOrders();
+    renderOrdersSummary();
+    scheduleSave();
+  }
 }
 function editOrder(id){
   const o = orderById(id);
