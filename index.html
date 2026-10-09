@@ -348,7 +348,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.45.0 · 08.10.2026 10:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.48.1 · 09.10.2026 11:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -465,6 +465,16 @@
     </div>
   </div>
 
+  <div id="ingPullModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:410;align-items:center;justify-content:center;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:1040px;width:96%;max-height:90vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;font-family:'Fraunces',serif;font-size:20px;">Підтягнути інгредієнти в товари</h3>
+        <button class="btn-ghost" onclick="ingPullClose()" aria-label="Закрити">×</button>
+      </div>
+      <div id="ingPullBody"></div>
+    </div>
+  </div>
+
   <div id="itemResolveModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;align-items:center;justify-content:center;">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
@@ -557,6 +567,8 @@
       <button class="btn btn-sm" id="costsToggleBtn" onclick="toggleCostsPanel()">Показати собівартості</button>
       <button class="btn btn-sm" onclick="exportKitsExcel()">⬇ Excel</button>
       <button class="btn btn-sm" onclick="document.getElementById('catImportInput').click()" title="Завантажити каталог з цінами з Excel: співставити товари, оновити ціни, архівувати зайве">📥 Імпорт каталогу з цінами</button>
+      <button class="btn btn-sm" onclick="ingPullOpen()" title="Підтягнути в готові товари інгредієнти (спеція + тара) з довідника — за назвою, з підказками">🧂 Підтягнути інгредієнти</button>
+      <button class="btn btn-sm" onclick="toggleTarePanel()" title="Види тари та сортування товарів за тарою">📦 Тара</button>
       <button class="btn btn-sm" id="kitArchiveBtn" onclick="toggleKitArchive()">🗄 Архів товарів</button>
       <input type="file" id="catImportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="catImportStart(this.files[0]); this.value='';">
       <button class="btn btn-primary btn-sm" onclick="addKit()">+ Новий набір / товар</button>
@@ -567,6 +579,17 @@
     <div style="padding:14px 16px;">
       <input type="text" id="editListSearch" placeholder="Пошук за SKU або назвою…" oninput="renderEditList()" style="margin-bottom:10px;">
       <div id="editListItems"></div>
+    </div>
+  </div>
+
+  <div class="catalog-panel" id="tarePanel" style="display:none;margin-bottom:14px;">
+    <div style="padding:14px 16px;">
+      <div class="catalog-group-title">Тара — види тари. Порядок тут = порядок груп у списках товарів і в замовленні</div>
+      <div id="tareList"></div>
+      <div class="fb-row" style="margin-top:10px;align-items:center;">
+        <input type="text" id="tareNewName" placeholder="Назва тари (кілька — через «;»)" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')tareAdd()">
+        <button class="btn btn-primary btn-sm" onclick="tareAdd()">+ Додати тару</button>
+      </div>
     </div>
   </div>
 
@@ -1785,6 +1808,8 @@ let catalog = [
   {id: nextCatalogId++, name: 'Суміш для плову', category: 'Спеція', unit: 'г', cost: 0.29, composition: []},
 ];
 
+let tareTypes = []; // види тари: [{id, name}] — порядок у списку = порядок груп у списках товарів
+let nextTareId = 1;
 let nextKitId = 1;
 let kits = [
   {id: nextKitId++, sku: 'NAB-PLOV', name: 'Набір "Плов"', type: 'Набір',
@@ -1868,7 +1893,7 @@ function buildStatePayload(){
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
-    quickOrderKitId, tgProcessedIds, tgLastUpdateId, autoSyncEnabled, autoSyncBaselineDone, ownerPhone,
+    quickOrderKitId, tgProcessedIds, tgLastUpdateId, autoSyncEnabled, autoSyncBaselineDone, ownerPhone, tareTypes, nextTareId,
     activeSessionId: mySessionId,
     updatedAt: new Date().toISOString()
   };
@@ -1962,6 +1987,8 @@ function applyRemoteData(data){
   tgLastUpdateId = Math.max(tgLastUpdateId, data.tgLastUpdateId || 0);
   autoSyncEnabled = data.autoSyncEnabled !== false;
   if(data.ownerPhone) ownerPhone = data.ownerPhone;
+  tareTypes = Array.isArray(data.tareTypes) ? data.tareTypes : tareTypes;
+  nextTareId = data.nextTareId || (Math.max(0, ...tareTypes.map(t => t.id), 0) + 1);
   autoSyncBaselineDone = !!data.autoSyncBaselineDone || autoSyncBaselineDone;
   const autoSyncCb = document.getElementById('autoSyncToggle');
   if(autoSyncCb) autoSyncCb.checked = autoSyncEnabled;
@@ -3141,6 +3168,7 @@ function removeKit(id){
 function updateKitField(id, field, value){
   const k = kitById(id);
   if(!k) return;
+  if(field === 'tareId'){ k.tareId = value ? parseInt(value, 10) : ''; scheduleSave(); return; }
   if(['name','type','sku'].includes(field)) k[field] = value;
   else k[field] = parseFloat(value) || 0;
   renderKitStats(id);
@@ -3427,7 +3455,7 @@ function kbRowDragStart(e, idx){
 
 function renderKits(){
   const list = document.getElementById('kitList');
-  const shownKits = kits.filter(k => !k.archived);
+  const shownKits = kits.filter(k => !k.archived).sort((a,b) => tareRank(a) - tareRank(b) || (a.name||'').localeCompare(b.name||''));
   if(shownKits.length === 0){
     list.innerHTML = '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
   } else {
@@ -3447,6 +3475,7 @@ function kitCollapsedHtml(k){
           <span class="type-badge badge-${k.type}">${k.type}</span>
           ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
           <strong>${escapeAttr(k.name)}</strong>
+          ${tareName(k) ? `<span class="hint">· 📦 ${escapeAttr(tareName(k))}</span>` : ''}
         </div>
         <div class="kit-stats" id="kit-stats-${k.id}"></div>
         <div class="kit-collapsed-actions">
@@ -3483,6 +3512,7 @@ function kitExpandedHtml(k){
 
         <div class="kit-costs">
           <div><label>Вага, г</label><input type="number" step="1" value="${k.weight||''}" oninput="updateKitField(${k.id},'weight',this.value)" placeholder="0"></div>
+          <div><label>Тара</label><select onchange="updateKitField(${k.id},'tareId',this.value)">${tareSelectOptions(k.tareId)}</select></div>
           <div><label>Собівартість вручну</label><input type="number" step="0.01" value="${k.costManual||''}" oninput="updateKitField(${k.id},'costManual',this.value)" placeholder="за складом" title="Якщо заповнено — береться замість розрахунку за компонентами (без логістики й маркетингу). Порожньо — рахується за складом із накладних."></div>
           <div><label>Логістика/од</label><input type="number" step="0.1" value="${k.logistics}" oninput="updateKitField(${k.id},'logistics',this.value)"></div>
           <div><label>Маркетинг/од</label><input type="number" step="0.1" value="${k.marketing}" oninput="updateKitField(${k.id},'marketing',this.value)"></div>
@@ -3715,7 +3745,7 @@ function renderEditList(){
   const filtered = kits.filter(k => !k.archived).filter(k => {
     if(!q) return true;
     return (k.name||'').toLowerCase().includes(q) || (k.sku||'').toLowerCase().includes(q);
-  }).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+  }).sort((a,b) => tareRank(a) - tareRank(b) || (a.name||'').localeCompare(b.name||''));
 
   if(filtered.length === 0){
     el.innerHTML = '<div class="comp-empty">Нічого не знайдено.</div>';
@@ -3728,6 +3758,7 @@ function renderEditList(){
         ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
         <input type="text" class="qe-name" value="${escapeAttr(k.name)}" onchange="quickKitEdit(${k.id},'name',this.value)" title="Назва — змінюється прямо тут">
       </div>
+      <select style="width:160px;" onchange="quickKitTare(${k.id}, this.value)" title="Тара">${tareSelectOptions(k.tareId)}</select>
       <input type="number" step="0.1" class="qe-price" value="${k.price||''}" placeholder="ціна" onchange="quickKitEdit(${k.id},'price',this.value)" title="Ціна продажу/од, грн">
       <button class="btn btn-sm" onclick="jumpToEditKit(${k.id})">Редагувати</button>
     </div>
@@ -3826,6 +3857,15 @@ async function catImportStart(file){
   }
 }
 
+// вид тари з файлу: «Тип тари» + обсяг/матеріал (якщо це не вага); створюється, якщо такого ще немає
+function catImpTareId(r){
+  if(!r.tare) return '';
+  const vol = r.volume && !/^\d+([.,]\d+)?\s*(г|гр|кг|g)$/i.test(r.volume) ? ' ' + r.volume : '';
+  const name = (r.tare + vol).trim();
+  let t = tareTypes.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if(!t){ t = {id: nextTareId++, name}; tareTypes.push(t); }
+  return t.id;
+}
 function catImpTokens(s){
   return new Set(String(s||'').toLowerCase().split(/[^a-zа-яіїєґ0-9]+/i).filter(w => w.length > 1));
 }
@@ -3991,6 +4031,7 @@ function catImpApply(){
     if(r.action === 'match'){
       const k = kitById(r.kitId); if(!k) return;
       k.name = r.name; k.price = r.price; k.catalogKey = r.key; k.siteArticle = r.article;
+      if(!k.tareId) k.tareId = catImpTareId(r);
       if(k.archived){ k.archived = false; delete k.archivedAt; }
       touched.add(k.id); updated++;
     } else if(r.action === 'create'){
@@ -3998,7 +4039,7 @@ function catImpApply(){
       if(kits.some(k => normKeepDigits(k.sku) === normKeepDigits(sku))){ let n = 2; while(kits.some(k => normKeepDigits(k.sku) === normKeepDigits(`${r.article || 'SKU'}-${n}`))) n++; sku = `${r.article || 'SKU'}-${n}`; }
       const type = /банк|скло/i.test(r.tare) ? 'Баночка' : (/пакет|упаков/i.test(r.tare) ? 'Пакет' : 'Набір');
       const k = {id: nextKitId++, sku, name: r.name, type, components: [], composition: [], weight: 0, logistics: 0, marketing: 0, price: r.price, qty: 0, collapsed: true, catalogKey: r.key, siteArticle: r.article};
-      kits.push(k); touched.add(k.id); created++;
+      k.tareId = catImpTareId(r); kits.push(k); touched.add(k.id); created++;
     }
   });
   undoStack.push({label:'Імпорт каталогу', restoreFn: () => { kits = snapshot; nextKitId = snapNext; renderKits(); renderSummary(); renderChart(); renderCostsPanel(); renderEditList(); renderKitArchive(); scheduleSave(); }});
@@ -4066,6 +4107,219 @@ function renderKitArchive(){
       <button class="btn btn-sm" onclick="restoreKitFromArchive(${k.id})">↩ Відновити</button>
     </div>`).join('') : '<div class="comp-empty">Архів порожній.</div>';
 }
+
+/* ---------- «Підтягнути інгредієнти» в готові товари: спеція (г) + тара (шт) з довідника ---------- */
+
+let ingPull = null; // {rows:[{kitId, spiceId, amount, packId, on}], all:false, q:''}
+
+function ingPullKeys(name){
+  const stop = new Set(['скло','банка','банку','пет','млинок','пакет','баночка','упаковка','багаторазовий','смак','спеція','спеції','мелена','мелений','мелене']);
+  return new Set(String(name||'').toLowerCase().replace(/[0-9]+([.,][0-9]+)?/g,' ').split(/[^a-zа-яіїєґ']+/i)
+    .filter(w => w.length >= 3 && !stop.has(w)).map(w => w.slice(0, 5)));
+}
+function ingPullGrams(name){
+  const m = String(name||'').toLowerCase().match(/(\d+(?:[.,]\d+)?)\s*(кг|гр|г|g)(?![a-zа-яіїєґ])/i);
+  if(!m) return 0;
+  const v = parseFloat(m[1].replace(',', '.'));
+  return /кг/i.test(m[2]) ? v * 1000 : v;
+}
+function ingPullSuggest(kit){
+  const A = ingPullKeys(kit.name);
+  if(!A.size) return null;
+  let best = null, bestInter = 0, bestScore = 0;
+  catalog.filter(c => c.category === 'Спеція').forEach(c => {
+    const B = ingPullKeys(c.name);
+    if(!B.size) return;
+    let inter = 0; A.forEach(w => { if(B.has(w)) inter++; });
+    if(!inter) return;
+    const score = inter / Math.min(A.size, B.size);
+    if(inter > bestInter || (inter === bestInter && score > bestScore)){ best = c; bestInter = inter; bestScore = score; }
+  });
+  return best ? {item: best, strong: bestInter >= 2 || bestScore >= 1} : null;
+}
+
+function ingPullOpen(){
+  if(!catalog.length){ alert('Довідник інгредієнтів порожній. Спершу додайте інгредієнти (вони з\'являються з накладних).'); return; }
+  ingPull = {all:false, q:'', rows:[], packDefault:''};
+  ingPullBuildRows();
+  ingPullRender();
+  document.getElementById('ingPullModal').style.display = 'flex';
+}
+function ingPullBuildRows(){
+  const old = new Map((ingPull.rows||[]).map(r => [r.kitId, r]));
+  ingPull.rows = kits.filter(k => !k.archived && !k.sourceCatalogId && (ingPull.all || !(k.components && k.components.length)))
+    .sort((a,b) => (a.name||'').localeCompare(b.name||''))
+    .map(k => {
+      if(old.has(k.id)) return old.get(k.id);
+      const sg = ingPullSuggest(k);
+      const grams = ingPullGrams(k.name);
+      return {kitId: k.id, spiceId: sg ? sg.item.id : '', amount: sg && grams ? grams : '', packId: ingPull.packDefault || '', on: !!(sg && sg.strong && grams)};
+    });
+}
+function ingPullSelOptions(cat, selectedId, ph){
+  const items = catalog.filter(c => c.category === cat).sort((a,b) => a.name.localeCompare(b.name));
+  return `<option value="">${ph}</option>` + items.map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${escapeAttr(c.name)} (${escapeAttr(c.unit)}, ${fmt1(c.cost||0)} грн)</option>`).join('');
+}
+function ingPullRowHtml(r){
+  const k = kitById(r.kitId);
+  if(!k) return '';
+  const existing = (k.components||[]).length ? `<span class="hint"> · вже є компонентів: ${k.components.length}</span>` : '';
+  return `<div class="catalog-panel" id="ingRow-${r.kitId}" style="margin-bottom:8px;border:1px solid var(--border);"><div style="padding:10px 12px;">
+    <label style="display:flex;gap:8px;align-items:center;margin-bottom:6px;cursor:pointer;">
+      <input type="checkbox" ${r.on ? 'checked' : ''} onchange="ingPullSet(${r.kitId},'on',this.checked)">
+      <strong style="font-size:13px;">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</strong>${existing}
+    </label>
+    <div class="fb-row" style="align-items:center;">
+      <select style="flex:2;min-width:200px;" onchange="ingPullSet(${r.kitId},'spiceId',this.value)">${ingPullSelOptions('Спеція', r.spiceId, '— спеція / інгредієнт —')}</select>
+      <input type="number" step="0.1" value="${r.amount}" placeholder="грам" style="width:90px;" onchange="ingPullSet(${r.kitId},'amount',this.value)" title="Скільки інгредієнта йде в одну одиницю товару (в одиницях довідника, зазвичай г)">
+      <select style="flex:1.4;min-width:170px;" onchange="ingPullSet(${r.kitId},'packId',this.value)">${ingPullSelOptions('Упаковка', r.packId, '— тара (1 шт) —')}</select>
+    </div></div></div>`;
+}
+function ingPullRender(){
+  const body = document.getElementById('ingPullBody');
+  if(!ingPull) return;
+  const q = (ingPull.q||'').toLowerCase();
+  const rows = ingPull.rows.filter(r => { const k = kitById(r.kitId); return k && (!q || (k.name+' '+(k.sku||'')).toLowerCase().includes(q)); });
+  body.innerHTML = `
+    <p class="hint" style="margin:0 0 10px;">Для кожного готового товару оберіть, з чого він складається: спеція (скільки грамів) і тара (1 шт). Програма підказує за назвою й вагою з неї («100 г»). Позначені рядки додадуть компоненти в склад товару, і собівартість та списання зі складу порахуються з довідника (ціни з накладних).</p>
+    <div class="fb-row" style="margin-bottom:10px;align-items:center;">
+      <input type="text" placeholder="Пошук за назвою або SKU…" value="${escapeAttr(ingPull.q||'')}" oninput="ingPull.q=this.value;ingPullRender()" style="flex:1;min-width:200px;">
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;"><input type="checkbox" ${ingPull.all ? 'checked' : ''} onchange="ingPull.all=this.checked;ingPullBuildRows();ingPullRender()"> показати й товари, де склад уже є (додасться до наявного)</label>
+    </div>
+    <div class="fb-row" style="margin-bottom:10px;align-items:center;">
+      <select id="ingPackAll" style="min-width:220px;">${ingPullSelOptions('Упаковка', '', '— однакова тара для всіх —')}</select>
+      <button class="btn btn-sm" onclick="ingPullPackAll()">Підставити тару в усі рядки без тари</button>
+      <button class="btn btn-sm" onclick="ingPullToggleAll(true)">Позначити всі з заповненою спецією й вагою</button>
+      <button class="btn btn-sm" onclick="ingPullToggleAll(false)">Зняти всі</button>
+    </div>
+    ${rows.length ? rows.map(ingPullRowHtml).join('') : '<div class="comp-empty">Немає товарів для показу.</div>'}
+    <div id="ingPullWarn" style="display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.35);color:#dc2626;font-size:13px;"></div>
+    <div class="fb-row" style="margin-top:14px;">
+      <button class="btn btn-primary btn-sm" onclick="ingPullApply()">Додати склад у позначені товари (${ingPull.rows.filter(r => r.on).length})</button>
+      <button class="btn btn-sm" onclick="ingPullClose()">Закрити</button>
+    </div>`;
+}
+function ingPullSet(kitId, field, v){
+  const r = ingPull.rows.find(x => x.kitId === kitId); if(!r) return;
+  if(field === 'on') r.on = !!v;
+  else if(field === 'spiceId' || field === 'packId') r[field] = v ? parseInt(v, 10) : '';
+  else if(field === 'amount') r.amount = v === '' ? '' : (parseFloat(v) || '');
+  // оновлюємо лише лічильник на кнопці
+  const btn = document.querySelector('#ingPullBody .btn-primary'); if(btn) btn.textContent = `Додати склад у позначені товари (${ingPull.rows.filter(x => x.on).length})`;
+}
+function ingPullPackAll(){
+  const v = document.getElementById('ingPackAll').value;
+  if(!v){ alert('Спочатку оберіть тару у списку зліва.'); return; }
+  ingPull.packDefault = parseInt(v, 10);
+  ingPull.rows.forEach(r => { if(!r.packId) r.packId = ingPull.packDefault; });
+  ingPullRender();
+}
+function ingPullToggleAll(on){
+  ingPull.rows.forEach(r => { r.on = on ? !!(r.spiceId && Number(r.amount) > 0) : false; });
+  ingPullRender();
+}
+function ingPullApply(){
+  const warn = document.getElementById('ingPullWarn');
+  const chosen = ingPull.rows.filter(r => r.on);
+  if(!chosen.length){ warn.style.display = 'block'; warn.textContent = 'Нічого не позначено.'; return; }
+  const bad = chosen.filter(r => !(r.packId || (r.spiceId && Number(r.amount) > 0)) || (r.spiceId && !(Number(r.amount) > 0)));
+  if(bad.length){
+    warn.style.display = 'block';
+    warn.textContent = `У ${bad.length} позначених рядках не вказано кількість спеції (або немає ні спеції, ні тари): ${bad.slice(0,5).map(r => kitById(r.kitId).name).join('; ')}${bad.length > 5 ? '…' : ''}`;
+    return;
+  }
+  const snap = kits.map(k => ({id: k.id, components: JSON.parse(JSON.stringify(k.components || []))}));
+  let n = 0;
+  chosen.forEach(r => {
+    const k = kitById(r.kitId); if(!k) return;
+    k.components = k.components || [];
+    const add = (catalogId, amount) => {
+      const ex = k.components.find(c => c.catalogId === catalogId && (c.refType||'catalog') === 'catalog');
+      if(ex) return; // вже є — не дублюємо
+      k.components.push({catalogId, refType:'catalog', amount});
+    };
+    if(r.spiceId && Number(r.amount) > 0) add(r.spiceId, Number(r.amount));
+    if(r.packId) add(r.packId, 1);
+    n++;
+  });
+  undoStack.push({label:'Підтягування інгредієнтів', restoreFn: () => { snap.forEach(sn => { const k = kitById(sn.id); if(k) k.components = sn.components; }); renderKits(); renderSummary(); renderChart(); renderCostsPanel(); scheduleSave(); }});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`Склад додано у ${n} товарів`, true);
+  renderKits(); renderSummary(); renderChart(); renderCostsPanel(); scheduleSave();
+  ingPull.rows = ingPull.rows.filter(r => !r.on);
+  ingPullBuildRows();
+  ingPullRender();
+}
+function ingPullClose(){ document.getElementById('ingPullModal').style.display = 'none'; ingPull = null; }
+
+/* ---------- тара: види тари, прив'язка до товарів, групування/сортування ---------- */
+
+function tareById(id){ return tareTypes.find(t => t.id === id); }
+function tareName(k){ const t = k && k.tareId ? tareById(k.tareId) : null; return t ? t.name : ''; }
+function tareRank(k){ const i = k && k.tareId ? tareTypes.findIndex(t => t.id === k.tareId) : -1; return i < 0 ? 9999 : i; }
+function tareSelectOptions(selectedId){
+  return `<option value="">— без тари —</option>` + tareTypes.map(t => `<option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>${escapeAttr(t.name)}</option>`).join('');
+}
+// групи <optgroup> за тарою (у порядку списку тари), всередині — за назвою; товари без тари — в кінці
+function kitsTareGroupsHtml(optFn){
+  const list = kits.filter(k => !k.archived);
+  const groups = tareTypes.map(t => ({label: t.name, items: list.filter(k => k.tareId === t.id)}));
+  groups.push({label: 'Без тари', items: list.filter(k => !k.tareId || !tareById(k.tareId))});
+  const cmp = (a,b) => (a.name||'').localeCompare(b.name||'');
+  const nonEmpty = groups.filter(g => g.items.length);
+  if(nonEmpty.length === 1 && nonEmpty[0].label === 'Без тари') return `<optgroup label="Набори">${nonEmpty[0].items.sort(cmp).map(optFn).join('')}</optgroup>`;
+  return nonEmpty.map(g => `<optgroup label="${escapeAttr(g.label)}">${g.items.sort(cmp).map(optFn).join('')}</optgroup>`).join('');
+}
+function toggleTarePanel(){
+  const panel = document.getElementById('tarePanel');
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if(!open) renderTarePanel();
+}
+function renderTarePanel(){
+  const panel = document.getElementById('tarePanel');
+  if(!panel || panel.style.display === 'none') return;
+  const cnt = id => kits.filter(k => !k.archived && k.tareId === id).length;
+  const noTare = kits.filter(k => !k.archived && (!k.tareId || !tareById(k.tareId))).length;
+  document.getElementById('tareList').innerHTML = (tareTypes.length ? tareTypes.map((t, i) => `
+    <div class="edit-list-row">
+      <input type="text" class="qe-name" value="${escapeAttr(t.name)}" onchange="tareRename(${t.id}, this.value)">
+      <span class="hint" style="white-space:nowrap;">товарів: ${cnt(t.id)}</span>
+      <span style="display:flex;gap:4px;">
+        <button class="btn btn-sm" ${i === 0 ? 'disabled' : ''} onclick="tareMove(${t.id}, -1)" title="Вище в списках">↑</button>
+        <button class="btn btn-sm" ${i === tareTypes.length - 1 ? 'disabled' : ''} onclick="tareMove(${t.id}, 1)" title="Нижче в списках">↓</button>
+        <button class="btn btn-sm" onclick="tareRemove(${t.id})" title="Видалити вид тари (у товарів прив'язка зникне)">×</button>
+      </span>
+    </div>`).join('') : '<div class="comp-empty">Видів тари ще немає. Додайте нижче, наприклад «Банка 190 мл скло», «Млинок», «Пакет».</div>')
+    + `<div class="hint" style="margin-top:6px;">Товарів без тари: ${noTare}</div>`;
+}
+function tareAdd(){
+  const inp = document.getElementById('tareNewName');
+  const names = String(inp.value || '').split(/[\n;]+/).map(x => x.trim()).filter(Boolean);
+  if(!names.length) return;
+  names.forEach(n => { if(!tareTypes.some(t => t.name.toLowerCase() === n.toLowerCase())) tareTypes.push({id: nextTareId++, name: n}); });
+  inp.value = '';
+  tareChanged();
+}
+function tareRename(id, v){ const t = tareById(id), n = String(v||'').trim(); if(t && n){ t.name = n; tareChanged(); } }
+function tareMove(id, d){
+  const i = tareTypes.findIndex(t => t.id === id), j = i + d;
+  if(i < 0 || j < 0 || j >= tareTypes.length) return;
+  [tareTypes[i], tareTypes[j]] = [tareTypes[j], tareTypes[i]];
+  tareChanged();
+}
+function tareRemove(id){
+  const t = tareById(id); if(!t) return;
+  const n = kits.filter(k => k.tareId === id).length;
+  if(!confirm(`Видалити вид тари «${t.name}»? ${n ? `У ${n} товарів прив'язка до нього зникне.` : ''}`)) return;
+  kits.forEach(k => { if(k.tareId === id) k.tareId = ''; });
+  tareTypes = tareTypes.filter(x => x.id !== id);
+  tareChanged();
+}
+function tareChanged(){
+  renderTarePanel(); renderKits(); renderEditList(); renderQuickOrderKitSelect(); renderOrders(); scheduleSave();
+}
+function quickKitTare(id, v){ const k = kitById(id); if(k){ k.tareId = v ? parseInt(v, 10) : ''; renderKits(); renderTarePanel(); scheduleSave(); } }
 
 /* ---------- costs of all kits panel ---------- */
 
@@ -4383,6 +4637,7 @@ function notifyTelegramShipment(o){
     `Сума: ${fmt(c.total)} грн — ${paidText}`,
     `Доставка: ${escapeHtml(deliverySummaryText(o))}`,
   ];
+  if(Number(o.deliveryCost) > 0) lines.push(`🚚 Вартість доставки: <b>${fmt1(Number(o.deliveryCost))} грн</b>${o.payerType === 'Відправник' ? ' (за наш рахунок)' : ''}`);
   if(ttn) lines.push(`ТТН: <code>${escapeHtml(ttn)}</code>`);
   if(o.notes) lines.push(`💬 Коментар: ${escapeHtml(o.notes)}`);
   return sendTelegramMessage(lines.join('\n'), {
@@ -5398,6 +5653,7 @@ async function buildTodayShipmentsExcel(){
     {header:'Товари', key:'items', width:36},
     {header:'Сума', key:'total', width:10},
     {header:'Служба доставки', key:'method', width:14},
+    {header:'Вартість доставки', key:'dcost', width:12},
     ...(hasOurExpense ? [{header:'За наш рахунок', key:'ourExpense', width:14}] : []),
     {header:'Місто', key:'city', width:18},
     {header:'Відділення', key:'warehouse', width:24},
@@ -5446,6 +5702,7 @@ async function buildTodayShipmentsExcel(){
       items: itemsText,
       total: c.total,
       method: o.deliveryMethod || '',
+      dcost: Number(o.deliveryCost) || '',
       ...(hasOurExpense ? {ourExpense: ourExpense ? 'так' : ''} : {}),
       city: o.city || o.ukrCity || o.address || '',
       warehouse: o.warehouseDesc || '',
@@ -5526,6 +5783,7 @@ async function exportSingleOrderExcel(id){
     ['Клієнт', o.customer || ''],
     ['Телефон', o.phone || ''],
     ['Доставка', o.deliveryMethod || ''],
+    ['Вартість доставки, грн', o.deliveryCost || ''],
     ['Місто', o.city || o.ukrCity || ''],
     ['Відділення / адреса', o.warehouseDesc || o.address || ''],
     ['ТТН', o.ttnNumber || o.ukrTtnNumber || ''],
@@ -5775,6 +6033,7 @@ function saveOrder(id){
   const o = orderById(id);
   if(!o) return;
   o.collapsed = true;
+  ensureClientForOrder(o); // клієнт з цього замовлення автоматично потрапляє в базу клієнтів
   if(telegramNotificationsEnabled && o.sendToTelegram && (o.city || o.ukrCity || o.address)){
     o.ttnTelegramNotified = true;
     o.sendToTelegram = false;
@@ -5915,8 +6174,15 @@ function pullPreviousDeliveryData(orderId){
 
 function pickOrderClient(orderId, clientId){
   const o = orderById(orderId);
-  const c = clientById(parseInt(clientId,10));
   if(!o) return;
+  // варіант «з попередніх замовлень»: клієнта ще немає в базі — створюємо його з того замовлення
+  if(String(clientId).startsWith('o:')){
+    const src = orderById(parseInt(String(clientId).slice(2), 10));
+    const made = src ? ensureClientForOrder(src) : null;
+    if(!made) return;
+    clientId = String(made.id);
+  }
+  const c = clientById(parseInt(clientId,10));
   o.clientId = clientId || '';
   if(c){
     o.customer = c.name;
@@ -5928,9 +6194,8 @@ function pickOrderClient(orderId, clientId){
   scheduleSave();
 }
 function orderKitOptionsHtml(placeholder){
-  const sorted = kits.filter(k => !k.archived).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
   const opt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
-  return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>${sorted.map(opt).join('')}`;
+  return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>${kitsTareGroupsHtml(opt)}`;
 }
 
 // те саме, що orderKitOptionsHtml(), але з додатковим підменю «Товари» — окремі спеції/упаковка
@@ -5939,12 +6204,11 @@ function orderKitOptionsHtml(placeholder){
 // простий набір-обгортку з одним компонентом — решта коду замовлень і далі працює лише з kitId,
 // нічого більше міняти не довелось.
 function orderItemOptionsHtml(placeholder){
-  const sortedKits = kits.filter(k => !k.archived).sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
   const kitOpt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
   const catItems = catalog.filter(c => (c.category === 'Спеція' || c.category === 'Упаковка') && c.price > 0).sort((a,b) => a.name.localeCompare(b.name));
   const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.price > 0 ? fmt1(c.price) + ' грн/' + escapeAttr(c.unit) : 'ціну не задано'})</option>`;
   return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>`
-    + `<optgroup label="Набори">${sortedKits.map(kitOpt).join('')}</optgroup>`
+    + kitsTareGroupsHtml(kitOpt)
     + (catItems.length ? `<optgroup label="Товари (з довідника)">${catItems.map(catOpt).join('')}</optgroup>` : '');
 }
 
@@ -6574,6 +6838,15 @@ async function syncAllUkrStatuses(){
 
 let ukrShipmentInFlight = new Set();
 
+// вартість доставки з відповіді Укрпошти (поле на відправленні або сума по посилках)
+function extractUkrDeliveryCost(sh){
+  if(!sh) return 0;
+  const n = v => parseFloat(v) || 0;
+  let v = n(sh.deliveryPrice) || n(sh.calculatedDeliveryPrice) || n(sh.price);
+  if(!v && Array.isArray(sh.parcels)) v = sh.parcels.reduce((a, pc) => a + (n(pc.deliveryPrice) || n(pc.price)), 0);
+  return v;
+}
+
 async function createUkrShipment(orderId){
   const o = orderById(orderId);
   if(!o) return;
@@ -6639,6 +6912,11 @@ async function createUkrShipment(orderId){
 
     o.ukrTtnNumber = shipment.barcode;
     o.ukrShipmentUuid = shipment.uuid;
+    let ukrCost = extractUkrDeliveryCost(shipment);
+    if(!ukrCost && shipment.uuid){
+      try{ ukrCost = extractUkrDeliveryCost(await ukrApiCall('GET', `/shipments/${shipment.uuid}`)); }catch(e){ /* не критично */ }
+    }
+    if(ukrCost > 0){ o.deliveryCost = ukrCost; const dci = document.getElementById(`ship-dc-${o.id}`); if(dci) dci.value = ukrCost; }
     resultEl.innerHTML = ukrResultHtml(o);
     scheduleSave();
   }catch(err){
@@ -7111,7 +7389,7 @@ async function resolveNpRecipientAddressRef(o){
     FirstName: name.FirstName,
     MiddleName: name.MiddleName,
     LastName: name.LastName,
-    Phone: o.phone
+    Phone: npPhone(o.phone)
   });
   const cp = cpData && cpData[0];
   if(!cp || !cp.Ref) throw new Error('Не вдалося створити отримувача (Counterparty) в НП');
@@ -7247,20 +7525,22 @@ function splitFullName(fullName){
 
 // Знаходить (або створює) отримувача-фізособу в кабінеті НП і повертає Ref контрагента та контактної особи.
 async function resolveNpRecipientByPhone(o, name){
-  let cp = null;
+  let cp = null, saveErr = '';
   try{
     const saved = await npApiCall('Counterparty', 'save', {
       CounterpartyType: 'PrivatePerson', CounterpartyProperty: 'Recipient',
-      FirstName: name.FirstName, MiddleName: name.MiddleName, LastName: name.LastName, Phone: o.phone
+      FirstName: name.FirstName, MiddleName: name.MiddleName, LastName: name.LastName, Phone: npPhone(o.phone)
     });
     cp = saved && saved[0];
-  }catch(e){ cp = null; }
+  }catch(e){ cp = null; saveErr = e.message; }
   if(!cp || !cp.Ref){
     // не вдалося створити — шукаємо вже наявного отримувача за телефоном
-    const digits = String(o.phone || '').replace(/\D/g, '').slice(-9);
-    const list = await npApiCall('Counterparty', 'getCounterparties', {CounterpartyProperty: 'Recipient', FindByString: digits, Page: '1'});
+    const digits = npPhone(o.phone).slice(-9);
+    let findErr = '';
+    let list = [];
+    try{ list = await npApiCall('Counterparty', 'getCounterparties', {CounterpartyProperty: 'Recipient', FindByString: digits, Page: '1'}); }catch(e){ findErr = e.message; }
     cp = (list || []).find(x => x && x.Ref);
-    if(!cp) throw new Error('Не вдалося створити чи знайти отримувача в НП за цим телефоном.');
+    if(!cp) throw new Error(`Не вдалося створити чи знайти отримувача в НП. Відповідь НП на створення: «${saveErr || '—'}»${findErr ? `; на пошук за телефоном: «${findErr}»` : '; за телефоном нікого не знайдено'}. Телефон, який надіслано: ${npPhone(o.phone) || '(порожньо)'}.`);
   }
   let contactRef = cp.ContactPerson && cp.ContactPerson.data && cp.ContactPerson.data[0] && cp.ContactPerson.data[0].Ref;
   let npName = cp.ContactPerson && cp.ContactPerson.data && cp.ContactPerson.data[0] && cp.ContactPerson.data[0].Description;
@@ -7335,6 +7615,10 @@ async function createNpWaybill(orderId){
   resultEl.innerHTML = '<div class="hint">Створюю ТТН...</div>';
 
   try{
+    if(!/^380\d{9}$/.test(npPhone(o.phone))){
+      const dg = String(o.phone || '').replace(/\D/g, '');
+      throw new Error(`Некоректний телефон отримувача «${o.phone || ''}»: ${dg.length} цифр. Український номер має 10 цифр (0XX XXX XX XX) або 12 з кодом 380. Перевірте, чи не загубилась цифра. НП у такому разі видає оманливу помилку про ім'я.`);
+    }
     if(cleanRecipientName(o.customer).split(' ').filter(w => w.replace(/[^A-Za-zА-Яа-яІіЇїЄєҐґ]/g,'').length >= 2).length < 2){
       throw new Error(`Нова Пошта вимагає прізвище та ім'я одержувача (мінімум два слова, лише літери). Зараз у замовленні: «${o.customer || 'порожньо'}». Допишіть ПІБ у полі «ПІБ / назва».`);
     }
@@ -7384,7 +7668,7 @@ async function createNpWaybill(orderId){
       RecipientType: 'PrivatePerson',
       RecipientName: fullName,
       RecipientContactName: fullName,
-      RecipientsPhone: o.phone,
+      RecipientsPhone: npPhone(o.phone),
       NewAddress: '1'
     };
     if(o.codAmount && Number(o.codAmount) > 0){
@@ -7412,6 +7696,18 @@ async function createNpWaybill(orderId){
 
     o.ttnNumber = doc.IntDocNumber;
     o.ttnRef = doc.Ref;
+    // вартість доставки: НП повертає її у відповіді на створення (CostOnSite); якщо ні — питаємо розрахунок тарифу
+    let dcost = parseFloat(doc.CostOnSite) || 0;
+    if(!dcost){
+      try{
+        const pr = await npApiCall('InternetDocument', 'getDocumentPrice', {
+          CitySender: docParams.CitySender, CityRecipient: docParams.CityRecipient, Weight: docParams.Weight,
+          ServiceType: docParams.ServiceType, Cost: docParams.Cost, CargoType: docParams.CargoType, SeatsAmount: docParams.SeatsAmount
+        });
+        dcost = parseFloat(pr && pr[0] && (pr[0].Cost || pr[0].CostWithDiscount)) || 0;
+      }catch(e){ /* не критично: поле можна заповнити вручну */ }
+    }
+    if(dcost > 0){ o.deliveryCost = dcost; const dci = document.getElementById(`ship-dc-${o.id}`); if(dci) dci.value = dcost; }
     resultEl.innerHTML = ttnResultHtml(o) + recipientNote;
     scheduleSave();
   }catch(err){
@@ -8365,6 +8661,7 @@ function deliveryBlockHtml(o){
             <option ${o.paymentMethod==='Безготівка'?'selected':''}>Безготівка</option>
           </select>
         </div>
+        <div><label>Вартість доставки, грн</label><input type="number" step="0.01" id="ship-dc-${o.id}" value="${o.deliveryCost||''}" oninput="updateOrderField(${o.id},'deliveryCost',this.value)" placeholder="підтягується з ТТН" title="Вартість доставки за тарифом оператора — підтягується при створенні ТТН / декларації, можна змінити вручну"></div>
         <div><label>Сума контролю оплати, грн</label><input type="number" step="1" id="ship-cod-${o.id}" value="${o.codAmount}" oninput="updateOrderField(${o.id},'codAmount',this.value)" placeholder="0 = без контролю оплати"></div>
         <div style="display:flex;align-items:flex-end;">
           <button class="btn btn-primary btn-sm" id="np-create-btn-${o.id}" onclick="createNpWaybill(${o.id})" type="button">Створити ТТН</button>
@@ -8402,6 +8699,7 @@ function deliveryBlockHtml(o){
         <div><label>Вулиця (для двер)</label><input type="text" value="${escapeAttr(o.ukrStreet||'')}" oninput="updateOrderField(${o.id},'ukrStreet',this.value)" placeholder="залиште пустим для отримання на відділенні"></div>
         <div><label>Будинок</label><input type="text" value="${escapeAttr(o.ukrHouse||'')}" oninput="updateOrderField(${o.id},'ukrHouse',this.value)"></div>
         <div><label>Квартира</label><input type="text" value="${escapeAttr(o.ukrApartment||'')}" oninput="updateOrderField(${o.id},'ukrApartment',this.value)"></div>
+        <div><label>Вартість доставки, грн</label><input type="number" step="0.01" id="ship-dc-${o.id}" value="${o.deliveryCost||''}" oninput="updateOrderField(${o.id},'deliveryCost',this.value)" placeholder="підтягується з ТТН" title="Вартість доставки за тарифом оператора — підтягується при створенні ТТН / декларації, можна змінити вручну"></div>
         <div><label>Сума контролю оплати, грн</label><input type="number" step="1" id="ship-cod-${o.id}" value="${o.codAmount}" oninput="updateOrderField(${o.id},'codAmount',this.value)" placeholder="0 = без контролю оплати"></div>
       </div>
       <div class="delivery-grid" style="margin-top:10px;">
@@ -10827,7 +11125,47 @@ function orderCollapsedHtml(o, num){
 function clientOptionsHtml(selectedId){
   const sorted = [...clients].sort((a,b) => (a.name||'').localeCompare(b.name||''));
   const opt = c => `<option value="${c.id}" ${String(selectedId)===String(c.id)?'selected':''}>${escapeAttr(c.name)}${c.phone ? ' · '+escapeAttr(c.phone) : ''}</option>`;
-  return `<option value="">— без клієнта / ввести вручну —</option>${sorted.map(opt).join('')}`;
+  // клієнти, які вже замовляли, але ще не потрапили в базу — показуємо окремою групою
+  const extra = clientsFromOrdersNotInBase();
+  const extraOpt = e => `<option value="o:${e.orderId}">${escapeAttr(e.name || '(без імені)')}${e.phone ? ' · '+escapeAttr(e.phone) : ''}</option>`;
+  return `<option value="">— без клієнта / ввести вручну —</option>${sorted.map(opt).join('')}`
+    + (extra.length ? `<optgroup label="З попередніх замовлень (ще не в базі) — ${extra.length}">${extra.map(extraOpt).join('')}</optgroup>` : '');
+}
+
+function orderClientKey(o){
+  return normPhoneKey(o.phone) || (String(o.customer||'').trim() ? 'n:' + String(o.customer).trim().toLowerCase() : '');
+}
+function findClientForOrder(o){
+  const pk = normPhoneKey(o.phone);
+  if(pk){ const m = clients.find(c => normPhoneKey(c.phone) === pk); if(m) return m; }
+  const nm = String(o.customer||'').trim().toLowerCase();
+  if(nm) return clients.find(c => String(c.name||'').trim().toLowerCase() === nm && (!pk || !normPhoneKey(c.phone))) || null;
+  return null;
+}
+function clientsFromOrdersNotInBase(){
+  const seen = new Map();
+  orders.forEach(o => {
+    const key = orderClientKey(o);
+    if(!key) return;
+    if(findClientForOrder(o)) return;
+    seen.set(key, {orderId: o.id, name: o.customer, phone: o.phone}); // лишається останнє замовлення цього клієнта
+  });
+  return [...seen.values()].sort((a,b) => String(a.name||'').localeCompare(String(b.name||'')));
+}
+// створює клієнта з даних замовлення, якщо такого ще немає в базі (за телефоном або ім'ям); прив'язує замовлення
+function ensureClientForOrder(o){
+  if(!o || (!String(o.customer||'').trim() && !normPhoneKey(o.phone))) return null;
+  let c = findClientForOrder(o);
+  if(!c){
+    c = {id: nextClientId++, name: o.customer||'', phone: o.phone||'', city: o.city||o.ukrCity||'', address: o.address||o.warehouseDesc||'', notes:'', regular:false, collapsed:true};
+    clients.push(c);
+    if(typeof renderClients === 'function') renderClients();
+  } else {
+    if(!c.name && o.customer) c.name = o.customer;
+    if(!c.phone && o.phone) c.phone = o.phone;
+  }
+  if(!o.clientId) o.clientId = c.id;
+  return c;
 }
 
 function orderExpandedHtml(o, num){
@@ -12555,6 +12893,13 @@ function parsePaidCell(v){
 }
 
 // прибирає все, крім цифр і провідного «+», з номера телефону (напр. "_0664350939" → "0664350939")
+// телефон у форматі, який приймає НП: 380XXXXXXXXX (без плюса, пробілів і дужок)
+function npPhone(v){
+  let d = String(v||'').replace(/\D/g, '');
+  if(d.length === 10 && d[0] === '0') d = '38' + d;
+  else if(d.length === 9 && d[0] !== '0') d = '380' + d;
+  return d;
+}
 function cleanPhone(v){
   return String(v||'').replace(/[^\d+]/g, '');
 }
