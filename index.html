@@ -113,7 +113,9 @@
   .kit-head{display:grid;grid-template-columns:1fr 110px 130px 90px 30px;gap:10px;align-items:center;margin-bottom:12px;}
   .kit-card-collapsed{padding:0.8rem 1.1rem;}
   .kit-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
-  .kit-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:0;overflow:hidden;}
+  .kit-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;}
+  .kit-collapsed-info .qe-name{min-width:160px;}
+  .tare-group-head{margin:14px 2px 6px;font-weight:600;color:var(--saffron);font-size:13px;letter-spacing:.03em;}
   .kit-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .kit-collapsed-actions{display:flex;gap:8px;flex-shrink:0;}
   .kit-card-collapsed .kit-stats{margin:0;padding:0;border:none;flex-shrink:0;}
@@ -348,7 +350,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.48.2 · 09.10.2026 11:36</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.49.0 · 09.10.2026 12:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -589,6 +591,7 @@
       <div class="fb-row" style="margin-top:10px;align-items:center;">
         <input type="text" id="tareNewName" placeholder="Назва тари (кілька — через «;»)" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')tareAdd()">
         <button class="btn btn-primary btn-sm" onclick="tareAdd()">+ Додати тару</button>
+        <button class="btn btn-sm" onclick="tareAutoAssign()" title="Підібрати тару для товарів без тари за збігом з назвою">✨ Авто-підбір за назвою</button>
       </div>
     </div>
   </div>
@@ -3459,7 +3462,20 @@ function renderKits(){
   if(shownKits.length === 0){
     list.innerHTML = '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
   } else {
-    list.innerHTML = shownKits.map(k => k.collapsed ? kitCollapsedHtml(k) : kitExpandedHtml(k)).join('');
+    const anyTare = shownKits.some(k => tareName(k));
+    let prevLabel = null;
+    list.innerHTML = shownKits.map(k => {
+      let head = '';
+      if(anyTare){
+        const label = tareName(k) || 'Без тари';
+        if(label !== prevLabel){
+          const n = shownKits.filter(x => (tareName(x) || 'Без тари') === label).length;
+          head = `<div class="tare-group-head">📦 ${escapeAttr(label)} <span class="hint">· ${n}</span></div>`;
+          prevLabel = label;
+        }
+      }
+      return head + (k.collapsed ? kitCollapsedHtml(k) : kitExpandedHtml(k));
+    }).join('');
     shownKits.forEach(k => { if(!k.collapsed) renderKitComponents(k.id); renderKitStats(k.id); });
   }
   document.getElementById('kitCount').textContent = shownKits.length;
@@ -3474,9 +3490,10 @@ function kitCollapsedHtml(k){
         <div class="kit-collapsed-info">
           <span class="type-badge badge-${k.type}">${k.type}</span>
           ${k.sku ? `<span class="hint" style="font-family:'JetBrains Mono',monospace;">[${escapeAttr(k.sku)}]</span>` : ''}
-          <strong>${escapeAttr(k.name)}</strong>
-          ${tareName(k) ? `<span class="hint">· 📦 ${escapeAttr(tareName(k))}</span>` : ''}
+          <input type="text" class="qe-name" value="${escapeAttr(k.name)}" onchange="quickKitEdit(${k.id},'name',this.value)" title="Назва — змінюється прямо тут">
         </div>
+        <select style="width:150px;" onchange="quickKitTare(${k.id}, this.value)" title="Тара">${tareSelectOptions(k.tareId)}</select>
+        <input type="number" step="0.1" class="qe-price" value="${k.price||''}" placeholder="ціна" onchange="quickKitEdit(${k.id},'price',this.value)" title="Ціна продажу/од, грн">
         <div class="kit-stats" id="kit-stats-${k.id}"></div>
         <div class="kit-collapsed-actions">
           <button class="btn btn-sm" onclick="editKit(${k.id})">Редагувати</button>
@@ -4292,6 +4309,40 @@ function renderTarePanel(){
       </span>
     </div>`).join('') : '<div class="comp-empty">Видів тари ще немає. Додайте нижче, наприклад «Банка 190 мл скло», «Млинок», «Пакет».</div>')
     + `<div class="hint" style="margin-top:6px;">Товарів без тари: ${noTare}</div>`;
+}
+// авто-підбір тари за назвою товару: усі «токени» назви тари (цифри, слова від 3 літер) мають бути в назві/типі товару
+function tareTokens(str){
+  return String(str||'').toLowerCase().replace(/(\d)\s+(мл|г|кг|л|шт)/g,'$1$2').split(/[^0-9a-zа-яіїєґ]+/i).filter(w => /\d/.test(w) || w.length >= 3);
+}
+function tareTokenIn(tok, hay){
+  if(/\d/.test(tok)) return hay.includes(tok);
+  const stem = tok.slice(0, 4);
+  return hay.some(h => h.slice(0,4) === stem);
+}
+function tareAutoAssign(){
+  if(!tareTypes.length){ alert('Спочатку додайте види тари.'); return; }
+  const plan = [];
+  kits.filter(k => !k.archived && (!k.tareId || !tareById(k.tareId))).forEach(k => {
+    const hay = tareTokens(k.name + ' ' + (k.type||''));
+    const hits = tareTypes.map(t => {
+      const tk = tareTokens(t.name);
+      const nums = tk.filter(x => /\d/.test(x)), words = tk.filter(x => !/\d/.test(x));
+      const okN = nums.filter(x => tareTokenIn(x, hay)).length, okW = words.filter(x => tareTokenIn(x, hay)).length;
+      const ok = tk.length && okN === nums.length && (okN + okW) / tk.length >= 0.6 && (okN + okW) > 0;
+      return {t, score: okN + okW + (ok && okN + okW === tk.length ? 0.5 : 0), ok};
+    }).filter(x => x.ok);
+    if(!hits.length) return;
+    const max = Math.max(...hits.map(h => h.score));
+    const best = hits.filter(h => h.score === max);
+    if(best.length === 1) plan.push({k, tareId: best[0].t.id});
+  });
+  if(!plan.length){ alert('Не вдалося автоматично підібрати тару за назвами. Призначте її вручну у списку (випадаючий список «Тара» біля кожного товару).'); return; }
+  if(!confirm(`Автоматично призначити тару для ${plan.length} товарів (за збігом з назвою)? Це можна скасувати кнопкою «Скасувати».`)) return;
+  plan.forEach(x => { x.prev = x.k.tareId || ''; x.k.tareId = x.tareId; });
+  undoStack.push({label:'Авто-тара', restoreFn: () => { plan.forEach(x => { x.k.tareId = x.prev; }); tareChanged(); }});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`Призначено тару: ${plan.length}`, true);
+  tareChanged();
 }
 function tareAdd(){
   const inp = document.getElementById('tareNewName');
