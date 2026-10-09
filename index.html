@@ -84,7 +84,7 @@
   .catalog-body.open{display:block;}
   .catalog-group{margin-top:14px;}
   .catalog-group-title{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:8px;}
-  .cat-row{display:grid;grid-template-columns:1fr 100px 70px 100px 100px 28px;gap:8px;align-items:center;margin-bottom:6px;}
+  .cat-row{display:grid;grid-template-columns:1fr 100px 70px 100px 100px 62px;gap:8px;align-items:center;margin-bottom:6px;}
   .cat-row-head{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);margin-bottom:4px;}
   .cat-row input[type="text"]{min-width:0;}
   .scan-status{margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface-2);display:none;}
@@ -358,7 +358,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.49.3 · 09.10.2026 13:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.50.0 · 09.10.2026 13:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -544,6 +544,11 @@
         <div class="cat-row cat-row-head"><div>Назва</div><div>Категорія</div><div>Одиниця</div><div>Собівартість</div><div>Ціна продажу</div><div></div></div>
         <div id="catalogSpices"></div>
         <button class="btn btn-sm" onclick="addCatalogItem('Спеція')">+ Додати інгредієнт</button>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title" id="catalogArchiveTitle">Архів інгредієнтів та упаковки</div>
+        <div id="catalogArchiveList"></div>
       </div>
 
       <div class="catalog-group">
@@ -2407,7 +2412,7 @@ function globalSearchRun(raw){
   const kts = kits.filter(k => !k.archived && gsMatch([k.name, k.sku].join(' | '), q, '')).slice(0, 6);
   groups.push({title: 'Товари / набори', rows: kts.map(k => ({type:'kit', id:k.id, main: `${k.name}`, sub: k.sku || ''}))});
 
-  const cats = catalog.filter(ci => gsMatch(ci.name || '', q, '')).slice(0, 5);
+  const cats = catalog.filter(ci => !ci.archived).filter(ci => gsMatch(ci.name || '', q, '')).slice(0, 5);
   groups.push({title: 'Інгредієнти / упаковка', rows: cats.map(ci => ({type:'catalog', id:ci.id, main: ci.name, sub: ci.category || ''}))});
 
   let html = '', idx = 0;
@@ -2695,8 +2700,9 @@ function toggleCatalog(){
 function catalogItem(id){ return catalog.find(c => c.id === id); }
 
 function renderCatalog(){
-  const pack = catalog.filter(c => c.category === 'Упаковка');
-  const spices = catalog.filter(c => c.category === 'Спеція');
+  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка');
+  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція');
+  renderCatalogArchive();
   document.getElementById('catalogPackaging').innerHTML = pack.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
   document.getElementById('catalogSpices').innerHTML = spices.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
 }
@@ -2716,9 +2722,40 @@ function catRowHtml(c){
       </select>
       <input type="number" step="0.01" value="${c.cost}" oninput="updateCatalog(${c.id},'cost',this.value)" title="собівартість за одиницю (ставиться з накладної, можна змінити вручну)" placeholder="собівартість">
       <input type="number" step="0.01" value="${c.price||''}" oninput="updateCatalog(${c.id},'price',this.value)" title="ціна продажу за одиницю — підставляється в замовлення" placeholder="ціна продажу">
-      <button class="btn-ghost" onclick="removeCatalogItem(${c.id})" aria-label="Видалити">×</button>
+      <span style="display:flex;gap:4px;">
+        <button class="btn-ghost" onclick="archiveCatalogItem(${c.id})" aria-label="В архів" title="Перенести в архів (не показується у списках, можна відновити)">🗄</button>
+        <button class="btn-ghost" onclick="removeCatalogItem(${c.id})" aria-label="Видалити" title="Видалити назавжди">×</button>
+      </span>
     </div>
   `;
+}
+
+// архів позицій довідника: ховаємо зі списків вибору, але розрахунки товарів, що вже їх використовують, не ламаються
+function archiveCatalogItem(id){
+  const c = catalogItem(id); if(!c) return;
+  c.archived = true; c.archivedAt = todayStr();
+  undoStack.push({label:'Архів позиції', restoreFn: () => { c.archived = false; c.archivedAt = ''; catalogArchiveRefresh(); }});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`В архів: «${c.name}»`, true);
+  catalogArchiveRefresh();
+}
+function restoreCatalogItem(id){
+  const c = catalogItem(id); if(!c) return;
+  c.archived = false; c.archivedAt = '';
+  catalogArchiveRefresh();
+}
+function catalogArchiveRefresh(){
+  renderCatalog(); renderKits(); renderOrders(); if(typeof renderKitBuilder==='function') renderKitBuilder(); scheduleSave();
+}
+function renderCatalogArchive(){
+  const el = document.getElementById('catalogArchiveList'); if(!el) return;
+  const list = catalog.filter(c => c.archived).sort((a,b) => (b.archivedAt||'').localeCompare(a.archivedAt||''));
+  const t = document.getElementById('catalogArchiveTitle'); if(t) t.textContent = `Архів інгредієнтів та упаковки (${list.length})`;
+  el.innerHTML = list.length ? list.map(c => `
+    <div class="edit-list-row">
+      <div class="edit-list-info" style="flex:1;"><strong>${escapeAttr(c.name)}</strong> <span class="hint">· ${escapeAttr(c.category||'')} · ${escapeHtml(c.archivedAt||'')}</span></div>
+      <button class="btn btn-sm" onclick="restoreCatalogItem(${c.id})">↩ Відновити</button>
+    </div>`).join('') : '<div class="comp-empty">Архів порожній.</div>';
 }
 
 /* ---------- замовлення постачальнику ---------- */
@@ -3247,8 +3284,8 @@ function removeComponent(kitId, catalogId, refType){
 }
 
 function catalogOptionsHtml(currentKitId){
-  const pack = catalog.filter(c => c.category === 'Упаковка');
-  const spices = catalog.filter(c => c.category === 'Спеція');
+  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка');
+  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція');
   const opt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.unit})</option>`;
   const readyKits = kits.filter(k => k.id !== currentKitId && !k.archived);
   const kitOpt = k => `<option value="kit:${k.id}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)} (шт)</option>`;
@@ -3274,7 +3311,7 @@ function renderKitBuilder(){
 function renderKbPalette(){
   const el = document.getElementById('kbPalette');
   if(!el) return;
-  const items = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка');
+  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка'));
   if(items.length === 0){
     el.innerHTML = '<div class="comp-empty" style="grid-column:1/-1;">Довідник порожній — додайте спеції чи упаковку в «Товари» → «Довідник собівартостей» (або імпортуйте з Excel).</div>';
     return;
@@ -3654,7 +3691,7 @@ function compOnTargetChange(){
 function compRenderPalette(){
   const el = document.getElementById('compPalette');
   if(!el) return;
-  const items = catalog.filter(c => c.category === 'Спеція' || c.category === 'Упаковка');
+  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка'));
   if(items.length === 0){
     el.innerHTML = '<div class="comp-empty" style="grid-column:1/-1;">Довідник порожній — додайте інгредієнт чи упаковку кнопками нижче.</div>';
     return;
@@ -4150,7 +4187,7 @@ function ingPullSuggest(kit){
   const A = ingPullKeys(kit.name);
   if(!A.size) return null;
   let best = null, bestInter = 0, bestScore = 0;
-  catalog.filter(c => c.category === 'Спеція').forEach(c => {
+  catalog.filter(c => !c.archived && c.category === 'Спеція').forEach(c => {
     const B = ingPullKeys(c.name);
     if(!B.size) return;
     let inter = 0; A.forEach(w => { if(B.has(w)) inter++; });
@@ -4180,7 +4217,7 @@ function ingPullBuildRows(){
     });
 }
 function ingPullSelOptions(cat, selectedId, ph){
-  const items = catalog.filter(c => c.category === cat).sort((a,b) => a.name.localeCompare(b.name));
+  const items = catalog.filter(c => !c.archived && c.category === cat).sort((a,b) => a.name.localeCompare(b.name));
   return `<option value="">${ph}</option>` + items.map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${escapeAttr(c.name)} (${escapeAttr(c.unit)}, ${fmt1(c.cost||0)} грн)</option>`).join('');
 }
 function ingPullRowHtml(r){
@@ -6291,7 +6328,7 @@ function orderKitOptionsHtml(placeholder){
 // нічого більше міняти не довелось.
 function orderItemOptionsHtml(placeholder){
   const kitOpt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
-  const catItems = catalog.filter(c => (c.category === 'Спеція' || c.category === 'Упаковка') && c.price > 0).sort((a,b) => a.name.localeCompare(b.name));
+  const catItems = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка') && c.price > 0).sort((a,b) => a.name.localeCompare(b.name));
   const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.price > 0 ? fmt1(c.price) + ' грн/' + escapeAttr(c.unit) : 'ціну не задано'})</option>`;
   return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>`
     + kitsTareGroupsHtml(kitOpt)
@@ -11827,7 +11864,7 @@ function showWarehouseTab(tab){
 }
 
 function allStockItems(){
-  const packAndSpice = catalog.map(c => ({itemType:'catalog', itemId:c.id, name:c.name, unit:c.unit}));
+  const packAndSpice = catalog.filter(c => !c.archived).map(c => ({itemType:'catalog', itemId:c.id, name:c.name, unit:c.unit}));
   const kitItems = kits.filter(k => !k.archived).map(k => ({itemType:'kit', itemId:k.id, name:(k.sku?`[${k.sku}] `:'')+k.name, unit:'шт'}));
   return [...packAndSpice, ...kitItems];
 }
