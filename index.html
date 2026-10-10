@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.53.0 · 10.10.2026 12:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.53.1 · 10.10.2026 13:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -13121,6 +13121,41 @@ function findKitBySkuOrName(skuVal, nameVal){
   return null;
 }
 
+// колонка «Фасування» (напр. «Банка, Пет, 200мл») → ярлик, яким у каталозі зазвичай закінчується назва SKU
+const PACK_KEYS = ['фасування','пакування','тара','упаковка'];
+function packLabelsFromCell(v){
+  const raw = String(v||'').trim(); if(!raw) return [];
+  const low = raw.toLowerCase();
+  const cap = (low.match(/(\d+)\s*(мл|г|гр|кг|л)\b/) || low.match(/(\d+)\s*(мл|г|гр|кг|л)/) || []);
+  const capTxt = cap[1] ? cap[1] + (cap[2] === 'гр' ? 'г' : cap[2]) : '';
+  const out = [];
+  const isPet = /пет/.test(low), isGlass = /скло|склян/.test(low) || (cap[1] === '190' && !isPet);
+  if(capTxt){
+    if(isPet) out.push(`Пет, ${capTxt}`);
+    if(isGlass) out.push(`Скло, ${capTxt}`);
+    out.push(capTxt);
+  }
+  return out;
+}
+// позиції рядка: якщо є колонка «Фасування», назва товару береться цілою (кому всередині не розбираємо),
+// а SKU шукається як «Назва + фасування»; інакше — як раніше
+function rowItems(row, keys){
+  const nameVal = keys.itemNameKey ? row[keys.itemNameKey] : '';
+  const skuVal = keys.skuKey ? row[keys.skuKey] : '';
+  if(keys.packKey && String(nameVal||'').trim()){
+    const name = String(nameVal).trim();
+    const labels = packLabelsFromCell(row[keys.packKey]);
+    return [{token: name, qty: NaN, labels, createName: labels.length ? `${name} ${labels[0]}` : name}];
+  }
+  return parseItemCell(nameVal || skuVal).map(x => Object.assign({createName: x.token, labels: []}, x));
+}
+function findKitForItem(it){
+  const eq = t => { const k = normKeepDigits(t); return kits.find(x => !x.archived && (normKeepDigits(x.name) === k || normKeepDigits(x.sku) === k)); };
+  for(const l of (it.labels||[])){ const m = eq(`${it.token} ${l}`); if(m) return m; }
+  if(it.labels && it.labels.length){ return eq(it.token) || null; } // фасування вказане, а точного SKU немає — не підсовуємо випадковий збіг
+  return findKitBySkuOrName(it.token, it.token);
+}
+
 // розбиває клітинку товару на окремі позиції: "740" | "2*740" | "740 і 850" | "740, 850" тощо
 function parseItemCell(cellVal){
   const raw = String(cellVal||'').trim();
@@ -13171,7 +13206,8 @@ async function handleOrdersExcelFile(file){
         ttnKey: findKey(rowKeys, TTN_KEYS),
         paidKey: findKey(rowKeys, PAID_KEYS),
         shippedKey: findKey(rowKeys, SHIPPED_KEYS),
-        deliveredKey: findKey(rowKeys, DELIVERED_KEYS)
+        deliveredKey: findKey(rowKeys, DELIVERED_KEYS),
+        packKey: findKey(rowKeys, PACK_KEYS)
       };
       if(!keys.skuKey && !keys.itemNameKey) return; // цей аркуш не схожий на список замовлень — пропускаємо
       anyQtyOrSkuFound = true;
@@ -13188,11 +13224,11 @@ async function handleOrdersExcelFile(file){
       rows.forEach(row => {
         const nameVal = keys.itemNameKey ? row[keys.itemNameKey] : '';
         const skuVal = keys.skuKey ? row[keys.skuKey] : '';
-        parseItemCell(nameVal || skuVal).forEach(({token}) => {
-          if(!token || findKitBySkuOrName(token, token)) return;
-          if(!unresolved.has(token)){
+        rowItems(row, keys).forEach(it => {
+          if(!it.token || findKitForItem(it)) return;
+          if(!unresolved.has(it.createName)){
             const priceHint = keys.priceKey && row[keys.priceKey] !== '' ? parseFloat(String(row[keys.priceKey]).replace(',', '.')) : NaN;
-            unresolved.set(token, isNaN(priceHint) ? 0 : priceHint);
+            unresolved.set(it.createName, isNaN(priceHint) ? 0 : priceHint);
           }
         });
       });
@@ -13229,8 +13265,16 @@ async function handleOrdersExcelFile(file){
     sheetContexts.forEach(({sheetName, rows, keys}) => {
       const groups = new Map();
       let autoGroupCounter = 1;
+      // якщо в таблиці немає жодної колонки з даними клієнта/доставки — це один список позицій одного замовлення,
+      // а «№» — просто нумерація рядків (раніше з цього виходило стільки замовлень, скільки рядків)
+      const hasClientInfo = !!(keys.customerKey || keys.phoneKey || keys.cityKey || keys.ttnKey || keys.methodKey);
+      let fileCustomer = '';
+      if(!hasClientInfo){
+        const nm = prompt(`Аркуш «${sheetName}» — це один список позицій без даних клієнта (${rows.length} рядків піде в ОДНЕ замовлення).\n\nІм'я клієнта для цього замовлення (можна лишити порожнім):`, '');
+        fileCustomer = nm ? nm.trim() : '';
+      }
       rows.forEach(row => {
-        const groupKey = keys.orderIdKey && row[keys.orderIdKey] ? String(row[keys.orderIdKey]).trim() : `__${sheetName}_row${autoGroupCounter++}`;
+        const groupKey = !hasClientInfo ? `__${sheetName}_single` : (keys.orderIdKey && row[keys.orderIdKey] ? String(row[keys.orderIdKey]).trim() : `__${sheetName}_row${autoGroupCounter++}`);
         if(!groups.has(groupKey)) groups.set(groupKey, []);
         groups.get(groupKey).push(row);
       });
@@ -13242,7 +13286,7 @@ async function handleOrdersExcelFile(file){
         const ttnVal = keys.ttnKey ? String(first[keys.ttnKey]||'').trim() : '';
         const destSplit = keys.cityKey ? splitDestination(first[keys.cityKey]) : {city:'', warehouse:''};
         const order = {
-          id, uid: generateOrderUid(), clientId:'', customer: keys.customerKey ? String(first[keys.customerKey]||'').trim() : '',
+          id, uid: generateOrderUid(), clientId:'', customer: keys.customerKey ? String(first[keys.customerKey]||'').trim() : fileCustomer,
           phone: keys.phoneKey ? cleanPhone(first[keys.phoneKey]) : '',
           date: (keys.dateKey && first[keys.dateKey] && excelDateToStr(first[keys.dateKey])) || todayStr(),
           status:'Нове',
@@ -13266,12 +13310,13 @@ async function handleOrdersExcelFile(file){
           const skuVal = keys.skuKey ? row[keys.skuKey] : '';
           const nameVal = keys.itemNameKey ? row[keys.itemNameKey] : '';
           const rowQty = keys.qtyKey ? parseFloat(String(row[keys.qtyKey]).replace(',', '.')) : NaN;
-          const tokens = parseItemCell(nameVal || skuVal);
+          const tokens = rowItems(row, keys);
           if(tokens.length === 0) return;
 
-          tokens.forEach(({token, qty: tokenQty}) => {
+          tokens.forEach(itm => {
+            const token = itm.createName, tokenQty = itm.qty;
             let qty = !isNaN(tokenQty) ? tokenQty : (!isNaN(rowQty) && rowQty > 0 ? rowQty : 1);
-            const kit = findKitBySkuOrName(token, token);
+            const kit = findKitForItem(itm);
             if(!kit){
               itemsSkipped++;
               if(!skippedNames.includes(token)) skippedNames.push(token);
