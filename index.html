@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.52.0 · 10.10.2026 12:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.53.0 · 10.10.2026 12:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1438,6 +1438,7 @@
         <select id="cash-counterparty"></select>
       </div>
       <div style="grid-column:span 2;"><label>Примітка</label><input type="text" id="cash-note" placeholder="напр. оплата постачальнику за куркуму"></div>
+      <div style="grid-column:span 2;"><label>Під прихідну накладну (необов'язково)</label><select id="cash-receipt" onchange="cashReceiptPicked()"></select></div>
     </div>
     <button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="addCashTransaction()">Додати операцію</button>
   </div></div>
@@ -1844,6 +1845,9 @@ let catalog = [
   {id: nextCatalogId++, name: 'Суміш для плову', category: 'Спеція', unit: 'г', cost: 0.29, composition: []},
 ];
 
+let receipts = [];      // прихідні документи: [{id, number, date, supplier, note, costMethod:'last'|'avg', status:'draft'|'posted', lines:[...], postedAt}]
+let nextReceiptId = 1;
+let receiptEditId = null;
 let tareTypes = []; // види тари: [{id, name}] — порядок у списку = порядок груп у списках товарів
 let nextTareId = 1;
 let nextKitId = 1;
@@ -2721,9 +2725,11 @@ function toggleCatalog(){
 
 function catalogItem(id){ return catalog.find(c => c.id === id); }
 
+let catNewId = null; // щойно додана позиція — показуємо нагорі списку, поки її не назвали
+function catCmp(a,b){ return ((b.id===catNewId)-(a.id===catNewId)) || String(a.name||'').localeCompare(String(b.name||''), 'uk'); }
 function renderCatalog(){
-  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
-  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
+  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка').sort(catCmp);
+  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція').sort(catCmp);
   renderCatalogArchive();
   document.getElementById('catalogPackaging').innerHTML = pack.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
   document.getElementById('catalogSpices').innerHTML = spices.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
@@ -3070,10 +3076,16 @@ function exportKitsExcel(){
 }
 
 function addCatalogItem(category){
-  catalog.push({id: nextCatalogId++, name: category==='Упаковка' ? 'Нова упаковка' : 'Новий інгредієнт', category, unit: category==='Упаковка'?'шт':'г', cost: 0, price: 0, composition: []});
+  const item = {id: nextCatalogId++, name: category==='Упаковка' ? 'Нова упаковка' : 'Новий інгредієнт', category, unit: category==='Упаковка'?'шт':'г', cost: 0, price: 0, composition: []};
+  catalog.push(item);
+  catNewId = item.id;
   renderCatalog();
   renderKits();
   scheduleSave();
+  // новий рядок стоїть нагорі списку — прокручуємо до нього й ставимо курсор у назву
+  const box = document.getElementById(category==='Упаковка' ? 'catalogPackaging' : 'catalogSpices');
+  const inp = box && box.querySelector('input[type="text"]');
+  if(inp){ inp.scrollIntoView({block:'center', behavior:'smooth'}); inp.focus(); inp.select(); }
 }
 
 function removeCatalogItem(id){
@@ -3099,6 +3111,7 @@ function updateCatalog(id, field, value){
   const c = catalogItem(id);
   if(!c) return;
   c[field] = (field === 'cost' || field === 'price') ? (parseFloat(value) || 0) : value;
+  if(field === 'name' && c.id === catNewId) catNewId = null;
   // продажна ціна товару-обгортки (щоб замовлення тягнуло актуальну розцінку)
   if(field === 'price') kits.forEach(k => { if(k.sourceCatalogId === id) k.price = c.price; });
   // Повне renderCatalog() потрібне лише коли міняється категорія (рядок має "переїхати" між списками
@@ -10082,9 +10095,12 @@ function addCashTransaction(){
   if(!amount || isNaN(amount) || amount <= 0){ alert('Вкажіть суму більше нуля.'); return; }
   cashTransactions.push({
     id: nextCashId++, date: dateInput.value || todayStr(), type, amount,
-    category, counterpartyId: counterpartySelect.value || '', note: noteInput.value || '', source:'manual', orderId:null
+    category, counterpartyId: counterpartySelect.value || '', note: noteInput.value || '', source:'manual', orderId:null,
+    receiptId: (document.getElementById('cash-receipt') && document.getElementById('cash-receipt').value) ? parseInt(document.getElementById('cash-receipt').value, 10) : ''
   });
   amountInput.value = ''; noteInput.value ='';
+  if(document.getElementById('cash-receipt')) document.getElementById('cash-receipt').value = '';
+  if(typeof renderReceipts === 'function') renderReceipts();
   counterpartySelect.value = '';
   renderCash();
   scheduleSave();
@@ -10134,6 +10150,7 @@ function renderCash(){
   `;
 
   const sorted = [...cashTransactions].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+  cashReceiptSelectRefresh();
 
   const typeEl = document.getElementById('cf-type');
   const categoryEl = document.getElementById('cf-category');
@@ -10172,7 +10189,7 @@ function renderCash(){
     return `
     <div class="wh-row">
       <div class="hint">${t.date||''}</div>
-      <div>${isManual ? cashCategorySelectHtml(t) : escapeAttr(t.category||'')}${t.note ? ' — '+escapeAttr(t.note) : ''}</div>
+      <div>${isManual ? cashCategorySelectHtml(t) : escapeAttr(t.category||'')}${t.note ? ' — '+escapeAttr(t.note) : ''}${t.receiptId ? ` <a href="#" onclick="receiptOpenFromCash(${t.receiptId});return false;" style="color:var(--saffron);white-space:nowrap;" title="Відкрити прихідну накладну">🧾 ${receiptById(t.receiptId) ? escapeAttr(receiptById(t.receiptId).number) : 'накладну видалено'}</a>` : ''}</div>
       <div>${isManual
         ? `<select onchange="updateCashTransaction(${t.id},'counterpartyId',this.value)" style="width:auto;display:inline-block;">${counterpartySelectOptionsHtml(t.counterpartyId)}</select>`
         : escapeAttr(counterparty ? counterparty.name : '')}</div>
@@ -13426,9 +13443,6 @@ autoConnectFirebase();
 
 /* ---------- ПРИХІДНІ ДОКУМЕНТИ: проведення → надходження на склад + оновлення собівартості за вхідною ціною ---------- */
 
-let receipts = [];      // [{id, number, date, supplier, note, costMethod:'last'|'avg', status:'draft'|'posted', lines:[...], postedAt}]
-let nextReceiptId = 1;
-let receiptEditId = null;
 
 // одиниці закупівлі, які можна обрати для позиції довідника (кг→г, л→мл) і множник до базової одиниці
 function receiptUnitsFor(baseUnit){ return baseUnit === 'г' ? ['г','кг'] : baseUnit === 'мл' ? ['мл','л'] : ['шт']; }
@@ -13492,6 +13506,7 @@ function receiptRemoveLine(id, i){
 function receiptDelete(id){
   const r = receiptById(id); if(!r) return;
   if(r.status === 'posted'){ alert('Проведений документ спершу треба скасувати (кнопка «Скасувати проведення»).'); return; }
+  if(receiptPaid(r) > 0){ alert('Під цю накладну в касі вже є витрати. Спершу видаліть або відв\'яжіть їх у «Касі».'); return; }
   if(!confirm(`Видалити чернетку ${r.number}?`)) return;
   const idx = receipts.indexOf(r);
   receipts = receipts.filter(x => x.id !== id);
@@ -13565,7 +13580,7 @@ function renderReceipts(){
       <div class="catalog-panel"><div style="padding:14px 16px;">` + (list.length ? list.map(x => `
         <div class="edit-list-row">
           <div class="edit-list-info" style="flex:1;">
-            <strong>${escapeAttr(x.number)}</strong> <span class="hint">· ${escapeHtml(x.date||'')}${x.supplier ? ' · ' + escapeHtml(x.supplier) : ''} · ${x.lines.length} поз. · ${fmt(receiptSum(x))} грн</span>
+            <strong>${escapeAttr(x.number)}</strong> <span class="hint">· ${escapeHtml(x.date||'')}${x.supplier ? ' · ' + escapeHtml(x.supplier) : ''} · ${x.lines.length} поз. · ${fmt(receiptSum(x))} грн · ${receiptPayText(x)}</span>
             <span class="status-badge" style="${x.status==='posted' ? 'background:var(--cardamom);color:#fff;' : 'background:var(--saffron);color:var(--saffron-text);'}">${x.status==='posted' ? 'проведено' : 'чернетка'}</span>
           </div>
           <button class="btn btn-sm" onclick="receiptOpen(${x.id})">Відкрити</button>
@@ -13619,7 +13634,9 @@ function renderReceipts(){
       <div class="rc-row rc-head"><div>Позиція</div><div>Кількість</div><div>Од.</div><div>Ціна за од., грн</div><div style="text-align:right;">Сума, грн</div><span></span></div>
       ${rows || '<div class="comp-empty">Рядків ще немає.</div>'}
       <div style="text-align:right;margin:10px 0 0;font-size:15px;">Разом: <strong>${fmt(receiptSum(r))} грн</strong></div>
+      <div class="hint" style="margin-top:8px;">Оплата: ${receiptPayText(r)}</div>
       <div class="fb-row" style="margin-top:12px;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="receiptToCash(${r.id})" title="Відкрити «Каса» з уже заповненою витратою під цю накладну">💸 Закласти витрату в касі</button>
         ${posted ? `<button class="btn btn-sm" onclick="receiptUnpost(${r.id})">↩ Скасувати проведення</button>` : `
         <button class="btn btn-sm" onclick="receiptAddLine(${r.id})">+ Рядок</button>
         <button class="btn btn-sm" id="rcPhotoBtn" onclick="document.getElementById('receiptPhotoInput').click()">📷 Розпізнати з фото накладної</button>
@@ -13691,6 +13708,50 @@ async function recognizeReceiptPhoto(base64, mediaType){
   let items; try{ items = JSON.parse(text.replace(/```json|```/g,'').trim()); }catch(e){ throw new Error('Не вдалося розпізнати структуру накладної'); }
   if(!Array.isArray(items)) throw new Error('Порожній результат розпізнавання');
   return items;
+}
+
+// --- зв'язок прихідної накладної з касою (витрата під накладну) ---
+function receiptPaid(r){ return cashTransactions.filter(t => t.type === 'Витрата' && t.receiptId === r.id).reduce((s,t) => s + (Number(t.amount)||0), 0); }
+function receiptPayText(r){
+  const sum = receiptSum(r), paid = receiptPaid(r);
+  if(!paid) return `<span style="color:var(--danger);">не оплачено</span>`;
+  const left = sum - paid;
+  if(left <= 0.5) return `<span style="color:var(--cardamom);">оплачено ${fmt(paid)} грн ✓</span>`;
+  return `<span style="color:var(--saffron);">оплачено ${fmt(paid)} з ${fmt(sum)} грн, залишок ${fmt(left)}</span>`;
+}
+function cashReceiptSelectRefresh(){
+  const sel = document.getElementById('cash-receipt'); if(!sel) return;
+  const cur = sel.value;
+  const list = [...receipts].sort((a,b) => b.id - a.id);
+  sel.innerHTML = '<option value="">— без накладної —</option>' + list.map(r => {
+    const left = receiptSum(r) - receiptPaid(r);
+    return `<option value="${r.id}">${escapeAttr(r.number)} · ${escapeAttr(r.date||'')}${r.supplier ? ' · ' + escapeAttr(r.supplier) : ''} · ${fmt(receiptSum(r))} грн${left > 0.5 ? ' (до сплати ' + fmt(left) + ')' : ' (оплачено)'}</option>`;
+  }).join('');
+  sel.value = cur;
+}
+function cashReceiptPicked(){
+  const sel = document.getElementById('cash-receipt'); if(!sel || !sel.value) return;
+  const r = receiptById(parseInt(sel.value, 10)); if(!r) return;
+  document.getElementById('cash-type').value = 'Витрата';
+  const left = Math.max(0, Math.round(receiptSum(r) - receiptPaid(r)));
+  document.getElementById('cash-amount').value = left || Math.round(receiptSum(r));
+  if(r.date) document.getElementById('cash-date').value = r.date;
+  const hasPack = r.lines.length && r.lines.every(l => { const c = catalogItem(l.catalogId); return c && c.category === 'Упаковка'; });
+  document.getElementById('cash-category').value = hasPack ? 'Упаковка' : 'Закупівля сировини';
+  const cp = counterparties.find(c => r.supplier && String(c.name).trim().toLowerCase() === String(r.supplier).trim().toLowerCase());
+  const cps = document.getElementById('cash-counterparty'); if(cps) cps.value = cp ? String(cp.id) : '';
+  document.getElementById('cash-note').value = `Оплата прихідної накладної ${r.number}`;
+}
+function receiptToCash(id){
+  showSection('cash');
+  renderCash();
+  const sel = document.getElementById('cash-receipt'); if(!sel) return;
+  sel.value = String(id); cashReceiptPicked();
+  sel.scrollIntoView({block:'center', behavior:'smooth'});
+}
+function receiptOpenFromCash(id){
+  if(!receiptById(id)) return;
+  showSection('warehouse'); showWarehouseTab('receipts'); receiptOpen(id);
 }
 </script>
 </body>
