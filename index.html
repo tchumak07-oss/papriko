@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.53.1 · 10.10.2026 13:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.54.0 · 13.10.2026 13:00</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -526,7 +526,7 @@
       <button class="app-nav-btn" id="nav-supplierorder" onclick="showSection('supplierorder')"><span class="nav-icon">📝</span>Замовлення постачальнику</button>
       <button class="app-nav-btn" id="nav-archive" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
       <button class="app-nav-btn" id="nav-cash" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
-      <button class="app-nav-btn" id="nav-invoices" onclick="showSection('invoices')"><span class="nav-icon">🧮</span>Рахунки</button>
+      <button class="app-nav-btn" id="nav-invoices" onclick="showSection('invoices')"><span class="nav-icon">🧮</span>Рахунки та накладні</button>
       <button class="app-nav-btn" id="nav-reports" onclick="showSection('reports')"><span class="nav-icon">📊</span>Звіти</button>
     </nav>
 
@@ -1512,7 +1512,7 @@
 
   <div id="section-invoices" class="app-section">
 
-  <div class="section-title" style="margin-top:0;">Рахунки</div>
+  <div class="section-title" style="margin-top:0;">Рахунки та накладні</div>
 
   <div class="catalog-panel" style="margin-bottom:14px;">
     <button class="catalog-toggle" onclick="toggleSellerSettingsPanel()">
@@ -1538,6 +1538,13 @@
   </div>
 
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+    <div class="delivery-grid" style="margin-bottom:10px;">
+      <div><label>Тип документа</label>
+        <select id="invoiceDocType" onchange="invoiceDocTypeChanged()">
+          <option value="invoice">Рахунок на оплату</option>
+          <option value="waybill">Видаткова накладна</option>
+        </select></div>
+    </div>
     <div class="catalog-group-title" id="invoiceDraftTitle">Новий рахунок</div>
     <div id="invoiceEditingNotice" class="hint" style="display:none;margin:-4px 0 10px;color:var(--saffron);"></div>
     <div class="delivery-grid">
@@ -1547,7 +1554,9 @@
       </div>
       <div><label>№ рахунку</label><input type="number" step="1" min="1" id="invoiceNumber"></div>
       <div><label>Дата рахунку</label><input type="date" id="invoiceDate"></div>
-      <div><label>Дійсний до (необов'язково)</label><input type="date" id="invoiceDueDate"></div>
+      <div id="invoiceDueWrap"><label>Дійсний до (необов'язково)</label><input type="date" id="invoiceDueDate"></div>
+      <div style="grid-column:span 2;"><label>Покупець / одержувач без картки контрагента (ПІБ)</label><input type="text" id="invoiceBuyerName" placeholder="напр. Ткач Ганна Василівна (якщо контрагент не вибраний)"></div>
+      <div><label>Телефон одержувача</label><input type="text" id="invoiceBuyerPhone" placeholder="0XXXXXXXXX"></div>
     </div>
     <p class="hint" style="margin:8px 0;">Немає потрібного контрагента з повними реквізитами? Додайте картку в «Каса» → «База контрагентів» (ЄДРПОУ/ІПН, адреса, контактна особа, документи).</p>
 
@@ -1584,7 +1593,7 @@
 
   <div class="catalog-panel"><div style="padding:14px 16px;">
     <div class="catalog-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-      <span>Виставлені рахунки</span>
+      <span>Виставлені рахунки та накладні</span>
       <button class="btn btn-sm" onclick="exportInvoicesHistoryExcel()">⬇ Excel</button>
     </div>
     <p class="hint" style="margin:-4px 0 10px;">Щоб виправити назву товару чи іншу деталь у вже сформованому рахунку — натисніть «Редагувати», внесіть зміни у формі вище й знову «Сформувати рахунок»: номер і дата рахунку збережуться, зміниться лише вміст.</p>
@@ -1848,6 +1857,7 @@ let catalog = [
 let receipts = [];      // прихідні документи: [{id, number, date, supplier, note, costMethod:'last'|'avg', status:'draft'|'posted', lines:[...], postedAt}]
 let nextReceiptId = 1;
 let receiptEditId = null;
+let invoiceDraftOrderId = null; // замовлення, з якого формується накладна
 let tareTypes = []; // види тари: [{id, name}] — порядок у списку = порядок груп у списках товарів
 let nextTareId = 1;
 let nextKitId = 1;
@@ -9706,7 +9716,8 @@ function initInvoicesSection(){
   const dateEl = document.getElementById('invoiceDate');
   if(dateEl && !dateEl.value) dateEl.value = todayStr();
   const numEl = document.getElementById('invoiceNumber');
-  if(numEl && !numEl.value) numEl.value = nextInvoiceNumber;
+  if(numEl && !numEl.value) numEl.value = nextDocNumber(curDocType());
+  invoiceDocUi();
   renderInvoiceItemsList();
   renderInvoicesHistory();
 }
@@ -9817,16 +9828,16 @@ function clearInvoiceDraft(){
   document.getElementById('invoiceDueDate').value = '';
   document.getElementById('invoiceNotes').value = '';
   document.getElementById('invoiceDate').value = todayStr();
-  document.getElementById('invoiceNumber').value = nextInvoiceNumber;
+  document.getElementById('invoiceNumber').value = nextDocNumber(curDocType());
   document.getElementById('invoiceDiscountType').value = 'none';
   document.getElementById('invoiceDiscountValue').value = '';
+  const bn = document.getElementById('invoiceBuyerName'); if(bn) bn.value = '';
+  const bp = document.getElementById('invoiceBuyerPhone'); if(bp) bp.value = '';
+  invoiceDraftOrderId = null;
   renderInvoiceItemsList();
-  const titleEl = document.getElementById('invoiceDraftTitle');
-  if(titleEl) titleEl.textContent = 'Новий рахунок';
   const noticeEl = document.getElementById('invoiceEditingNotice');
   if(noticeEl) noticeEl.style.display = 'none';
-  const btnEl = document.getElementById('invoiceSubmitBtn');
-  if(btnEl) btnEl.textContent = 'Сформувати рахунок (друк / PDF)';
+  invoiceDocUi();
 }
 
 function numberToUaWords(n){
@@ -9837,6 +9848,8 @@ function numberToUaWords(n){
 }
 
 function buildInvoiceHtml(inv){
+  const isWb = inv.docType === 'waybill';
+  const docName = isWb ? 'Видаткова накладна' : 'Рахунок на оплату';
   const itemsRows = inv.items.map((it,idx) => `
     <tr>
       <td style="text-align:center;">${idx+1}</td>
@@ -9866,7 +9879,7 @@ function buildInvoiceHtml(inv){
   ].filter(Boolean).join('<br>');
 
   return `<!DOCTYPE html>
-<html lang="uk"><head><meta charset="UTF-8"><title>Рахунок №${escapeHtml(String(inv.number))}</title>
+<html lang="uk"><head><meta charset="UTF-8"><title>${isWb ? 'Видаткова накладна' : 'Рахунок'} №${escapeHtml(String(inv.number))}</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:32px;max-width:820px;margin:0 auto;}
   h1{font-size:20px;margin:0 0 4px;}
@@ -9885,11 +9898,11 @@ function buildInvoiceHtml(inv){
 </style></head>
 <body>
   <button class="print-btn" onclick="window.print()">🖨 Друк / Зберегти як PDF</button>
-  <h1>Рахунок на оплату № ${escapeHtml(String(inv.number))}</h1>
-  <p class="sub">від ${escapeHtml(inv.date)}${inv.dueDate ? ' · дійсний до '+escapeHtml(inv.dueDate) : ''}</p>
+  <h1>${docName} № ${escapeHtml(String(inv.number))}</h1>
+  <p class="sub">від ${escapeHtml(inv.date)}${!isWb && inv.dueDate ? ' · дійсний до '+escapeHtml(inv.dueDate) : ''}</p>
   <div class="parties">
-    <div class="party"><div class="party-title">Продавець</div>${sellerBlock || '<span style="color:#999;">не заповнено — див. «Реквізити продавця»</span>'}</div>
-    <div class="party"><div class="party-title">Покупець</div>${buyerBlock || '<span style="color:#999;">не заповнено</span>'}</div>
+    <div class="party"><div class="party-title">${isWb ? 'Постачальник' : 'Продавець'}</div>${sellerBlock || '<span style="color:#999;">не заповнено — див. «Реквізити продавця»</span>'}</div>
+    <div class="party"><div class="party-title">${isWb ? 'Одержувач' : 'Покупець'}</div>${buyerBlock || '<span style="color:#999;">не заповнено</span>'}</div>
   </div>
   <table>
     <thead><tr><th>№</th><th>Найменування</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr></thead>
@@ -9897,13 +9910,16 @@ function buildInvoiceHtml(inv){
     <tfoot>
       ${inv.discount > 0 ? `<tr><td colspan="5" style="text-align:right;border:none;background:none;">Проміжна сума:</td><td style="text-align:right;border:none;background:none;">${fmt1(inv.subtotal)} грн</td></tr>
       <tr><td colspan="5" style="text-align:right;border:none;background:none;">Знижка${inv.discountType==='percent' ? ` (${fmt1(inv.discountValue)}%)` : ''}:</td><td style="text-align:right;border:none;background:none;">−${fmt1(inv.discount)} грн</td></tr>` : ''}
-      <tr class="total-row"><td colspan="5" style="text-align:right;">Разом до сплати:</td><td style="text-align:right;">${fmt1(inv.total)} грн</td></tr>
+      <tr class="total-row"><td colspan="5" style="text-align:right;">${isWb ? 'Разом на суму:' : 'Разом до сплати:'}</td><td style="text-align:right;">${fmt1(inv.total)} грн</td></tr>
     </tfoot>
   </table>
   <p class="notes">Без ПДВ.</p>
   <p class="notes">Сума прописом: ${escapeHtml(numberToUaWords(inv.total))}</p>
   ${inv.notes ? `<p class="notes">${escapeHtml(inv.notes)}</p>` : ''}
-  <p class="signature">Виконавець: ____________________ / Чумак Т.В. /</p>
+  ${isWb
+    ? `<div class="signature" style="display:flex;gap:40px;"><div style="flex:1;">Відпустив: ____________________ / Чумак Т.В. /</div><div style="flex:1;">Отримав: ____________________ / ${escapeHtml(inv.buyer.name || '________________')} /</div></div>
+       <p class="notes" style="margin-top:20px;font-size:12px;color:#666;">Претензій щодо кількості та якості товару не маю.</p>`
+    : `<p class="signature">Виконавець: ____________________ / Чумак Т.В. /</p>`}
 </body></html>`;
 }
 
@@ -9915,10 +9931,11 @@ function generateInvoice(){
   const cp = cpId ? counterpartyById(cpId) : null;
   const number = Number(document.getElementById('invoiceNumber').value) || 0;
   if(!number || number < 1){ alert('Вкажіть коректний номер рахунку (більше 0).'); return; }
-  const dup = invoices.find(i => i.number === number && i.id !== editingInvoiceId);
-  if(dup){ alert(`Рахунок з номером ${number} вже існує (для контрагента «${dup.buyer.name||'без контрагента'}» від ${dup.date}). Вкажіть інший номер.`); return; }
+  const docType = curDocType();
+  const dup = invoices.find(i => (i.docType||'invoice') === docType && i.number === number && i.id !== editingInvoiceId);
+  if(dup){ alert(`Документ з номером ${number} (${docType==='waybill'?'накладна':'рахунок'}) вже існує (для контрагента «${dup.buyer.name||'без контрагента'}» від ${dup.date}). Вкажіть інший номер.`); return; }
   const date = document.getElementById('invoiceDate').value || todayStr();
-  const dueDate = document.getElementById('invoiceDueDate').value || '';
+  const dueDate = docType === 'waybill' ? '' : (document.getElementById('invoiceDueDate').value || '');
   const notes = (document.getElementById('invoiceNotes').value || '').trim();
   const subtotal = invoiceDraftItems.reduce((s,it) => s + (it.qty||0)*(it.price||0), 0);
   const discountType = document.getElementById('invoiceDiscountType').value || 'none';
@@ -9926,7 +9943,9 @@ function generateInvoice(){
   const {discount, total} = calcInvoiceDiscount(subtotal);
 
   const seller = {name:sellerName, edrpou:sellerEdrpou, ipn:sellerIpn, address:sellerAddress, bankName:sellerBankName, iban:sellerIban, phone:sellerPhone};
-  const buyer = cp ? {name:cp.name, edrpou:cp.edrpou, ipn:cp.ipn, address:cp.address, contactPerson:cp.contactPerson, contactPhone:cp.contactPhone, phone:cp.phone} : {name:'', edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'', phone:''};
+  const manualName = (document.getElementById('invoiceBuyerName').value || '').trim();
+  const manualPhone = (document.getElementById('invoiceBuyerPhone').value || '').trim();
+  const buyer = cp ? {name:cp.name, edrpou:cp.edrpou, ipn:cp.ipn, address:cp.address, contactPerson:cp.contactPerson, contactPhone:cp.contactPhone, phone:cp.phone} : {name:manualName, edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'', phone:manualPhone};
   const items = invoiceDraftItems.map(it => ({...it}));
 
   let inv;
@@ -9934,7 +9953,7 @@ function generateInvoice(){
     inv = invoices.find(i => i.id === editingInvoiceId);
     if(!inv){ alert('Рахунок для редагування не знайдено — можливо, його вже видалили.'); editingInvoiceId = null; clearInvoiceDraft(); return; }
     // дату створення (createdAt) лишаємо як була, а номер і дату рахунку тепер можна міняти вручну
-    inv.number = number; inv.date = date; inv.dueDate = dueDate; inv.notes = notes; inv.total = total;
+    inv.docType = docType; inv.number = number; inv.date = date; inv.dueDate = dueDate; inv.notes = notes; inv.total = total;
     inv.subtotal = subtotal; inv.discountType = discountType; inv.discountValue = discountValue; inv.discount = discount;
     inv.counterpartyId = cp ? cp.id : null;
     inv.seller = seller; inv.buyer = buyer; inv.items = items;
@@ -9942,6 +9961,7 @@ function generateInvoice(){
   } else {
     inv = {
       id: nextInvoiceId++,
+      docType, orderId: invoiceDraftOrderId || '',
       number,
       date, dueDate, notes, total,
       subtotal, discountType, discountValue, discount,
@@ -9951,7 +9971,7 @@ function generateInvoice(){
     };
     invoices.push(inv);
   }
-  if(number >= nextInvoiceNumber) nextInvoiceNumber = number + 1;
+  if(docType === 'invoice' && number >= nextInvoiceNumber) nextInvoiceNumber = number + 1;
   editingInvoiceId = null;
   invoiceDraftItems = [];
   clearInvoiceDraft();
@@ -9966,7 +9986,11 @@ function editInvoiceDraft(id){
   const inv = invoices.find(i => i.id === id);
   if(!inv) return;
   editingInvoiceId = id;
+  document.getElementById('invoiceDocType').value = inv.docType || 'invoice';
   document.getElementById('invoiceCounterparty').value = inv.counterpartyId || '';
+  document.getElementById('invoiceBuyerName').value = inv.counterpartyId ? '' : (inv.buyer.name || '');
+  document.getElementById('invoiceBuyerPhone').value = inv.counterpartyId ? '' : (inv.buyer.phone || '');
+  invoiceDraftOrderId = inv.orderId || null;
   document.getElementById('invoiceNumber').value = inv.number;
   document.getElementById('invoiceDate').value = inv.date || '';
   document.getElementById('invoiceDueDate').value = inv.dueDate || '';
@@ -9975,10 +9999,11 @@ function editInvoiceDraft(id){
   document.getElementById('invoiceDiscountValue').value = inv.discountValue || '';
   invoiceDraftItems = inv.items.map(it => ({...it}));
   renderInvoiceItemsList();
+  invoiceDocUi();
   const titleEl = document.getElementById('invoiceDraftTitle');
-  if(titleEl) titleEl.textContent = `Редагування рахунку № ${inv.number}`;
+  if(titleEl) titleEl.textContent = `Редагування: ${(inv.docType||'invoice')==='waybill' ? 'накладна' : 'рахунок'} № ${inv.number}`;
   const noticeEl = document.getElementById('invoiceEditingNotice');
-  if(noticeEl){ noticeEl.style.display = ''; noticeEl.textContent = `Ви редагуєте вже сформований рахунок № ${inv.number} — за потреби можете змінити номер і дату рахунку нижче.`; }
+  if(noticeEl){ noticeEl.style.display = ''; noticeEl.textContent = `Ви редагуєте вже сформований документ № ${inv.number} — за потреби можете змінити номер і дату рахунку нижче.`; }
   const btnEl = document.getElementById('invoiceSubmitBtn');
   if(btnEl) btnEl.textContent = 'Зберегти зміни (друк / PDF)';
   document.getElementById('invoiceCounterparty').scrollIntoView({behavior:'smooth', block:'center'});
@@ -10011,13 +10036,13 @@ function renderInvoicesHistory(){
   const el = document.getElementById('invoicesHistoryList');
   if(!el) return;
   if(invoices.length === 0){
-    el.innerHTML = '<div class="comp-empty">Ще немає виставлених рахунків.</div>';
+    el.innerHTML = '<div class="comp-empty">Ще немає виставлених рахунків чи накладних.</div>';
     return;
   }
   const sorted = [...invoices].sort((a,b) => b.number - a.number);
   el.innerHTML = sorted.map(inv => `
-    <div class="wh-row" style="grid-template-columns:60px 1fr 120px 110px 70px 90px 32px;align-items:center;">
-      <div>№ ${inv.number}</div>
+    <div class="wh-row" style="grid-template-columns:150px 1fr 120px 110px 70px 90px 32px;align-items:center;">
+      <div>${(inv.docType||'invoice')==='waybill' ? '<span class="status-badge" style="background:var(--cardamom);color:#fff;">накладна</span>' : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">рахунок</span>'} № ${inv.number}</div>
       <div>${escapeHtml(inv.buyer.name || '(без контрагента)')}${inv.editedAt ? ' <span class="hint">(відредаговано)</span>' : ''}</div>
       <div class="hint">${escapeHtml(inv.date)}</div>
       <div style="text-align:right;">${fmt1(inv.total)} грн</div>
@@ -10035,10 +10060,10 @@ function exportInvoicesHistoryExcel(){
     downloadName: `rahunky_${todayStr()}.xlsx`,
     sheetName: 'Рахунки',
     headers: [
-      {header:'№', width:8}, {header:'Контрагент', width:26}, {header:'Дата', width:12},
+      {header:'Тип', width:12}, {header:'№', width:8}, {header:'Контрагент', width:26}, {header:'Дата', width:12},
       {header:'Дійсний до', width:12}, {header:'Позицій', width:10}, {header:'Знижка', width:12}, {header:'Сума', width:14}
     ],
-    rows: sorted.map(inv => [inv.number, inv.buyer.name || '(без контрагента)', inv.date||'', inv.dueDate||'', inv.items.length, inv.discount > 0 ? fmt1(inv.discount) : '', fmt1(inv.total)])
+    rows: sorted.map(inv => [(inv.docType||'invoice')==='waybill' ? 'Накладна' : 'Рахунок', inv.number, inv.buyer.name || '(без контрагента)', inv.date||'', inv.dueDate||'', inv.items.length, inv.discount > 0 ? fmt1(inv.discount) : '', fmt1(inv.total)])
   });
 }
 
@@ -11295,6 +11320,7 @@ function orderCollapsedHtml(o, num){
           <button class="btn btn-sm" onclick="editOrder(${o.id})">Редагувати</button>
           <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
           <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
+          <button class="btn btn-sm" onclick="waybillFromOrder(${o.id})" title="Виписати видаткову накладну клієнту з цього замовлення">🧾 Накладна</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
@@ -11370,6 +11396,7 @@ function orderExpandedHtml(o, num){
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
           <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
           <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
+          <button class="btn btn-sm" onclick="waybillFromOrder(${o.id})" title="Виписати видаткову накладну клієнту з цього замовлення">🧾 Накладна</button>
           <button class="btn btn-sm" onclick="refreshOrderPrices(${o.id})" title="Підставити поточні ціни продажу з «Товарів» у всі позиції цього замовлення">🔄 Оновити ціни</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
@@ -13797,6 +13824,43 @@ function receiptToCash(id){
 function receiptOpenFromCash(id){
   if(!receiptById(id)) return;
   showSection('warehouse'); showWarehouseTab('receipts'); receiptOpen(id);
+}
+
+/* ---------- видаткова накладна (поряд із рахунком): той самий конструктор документів, тип обирається зверху ---------- */
+function curDocType(){ const el = document.getElementById('invoiceDocType'); return el && el.value === 'waybill' ? 'waybill' : 'invoice'; }
+function nextDocNumber(type){
+  if(type !== 'waybill') return nextInvoiceNumber;
+  return Math.max(0, ...invoices.filter(i => i.docType === 'waybill').map(i => Number(i.number)||0)) + 1;
+}
+function invoiceDocUi(){
+  const wb = curDocType() === 'waybill';
+  const titleEl = document.getElementById('invoiceDraftTitle');
+  if(titleEl && !editingInvoiceId) titleEl.textContent = wb ? 'Нова видаткова накладна' : 'Новий рахунок';
+  const btnEl = document.getElementById('invoiceSubmitBtn');
+  if(btnEl && !editingInvoiceId) btnEl.textContent = wb ? 'Сформувати накладну (друк / PDF)' : 'Сформувати рахунок (друк / PDF)';
+  const due = document.getElementById('invoiceDueWrap'); if(due) due.style.display = wb ? 'none' : '';
+}
+function invoiceDocTypeChanged(){
+  invoiceDocUi();
+  if(!editingInvoiceId){ const n = document.getElementById('invoiceNumber'); if(n) n.value = nextDocNumber(curDocType()); }
+}
+// кнопка «🧾 Накладна» в замовленні: відкриває конструктор документів із уже заповненими позиціями, знижкою й одержувачем
+function waybillFromOrder(id){
+  const o = orderById(id); if(!o) return;
+  showSection('invoices');
+  clearInvoiceDraft();
+  document.getElementById('invoiceDocType').value = 'waybill';
+  invoiceDocTypeChanged();
+  invoiceDraftItems = o.items.map(it => { const k = kitById(it.kitId); return {name: k ? k.name : '(товар)', unit:'шт', qty: it.qty, price: it.price}; });
+  document.getElementById('invoiceBuyerName').value = o.customer || '';
+  document.getElementById('invoiceBuyerPhone').value = o.phone || '';
+  document.getElementById('invoiceDate').value = o.date || todayStr();
+  document.getElementById('invoiceDiscountType').value = (o.discountType === 'percent' || o.discountType === 'amount') ? o.discountType : 'none';
+  document.getElementById('invoiceDiscountValue').value = o.discountValue || '';
+  document.getElementById('invoiceNotes').value = `Замовлення: ${o.customer || '#' + o.id}`;
+  invoiceDraftOrderId = o.id;
+  renderInvoiceItemsList();
+  document.getElementById('invoiceDocType').scrollIntoView({behavior:'smooth', block:'start'});
 }
 </script>
 </body>
