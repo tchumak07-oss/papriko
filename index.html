@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.54.1 · 13.10.2026 17:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.55.0 · 14.10.2026 09:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -10046,13 +10046,14 @@ function renderInvoicesHistory(){
   }
   const sorted = [...invoices].sort((a,b) => b.number - a.number);
   el.innerHTML = sorted.map(inv => `
-    <div class="wh-row" style="grid-template-columns:150px 1fr 120px 110px 70px 90px 32px;align-items:center;">
+    <div class="wh-row" style="grid-template-columns:150px 1fr 110px 100px 70px 90px 90px 32px;align-items:center;">
       <div>${(inv.docType||'invoice')==='waybill' ? '<span class="status-badge" style="background:var(--cardamom);color:#fff;">накладна</span>' : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">рахунок</span>'} № ${inv.number}</div>
       <div>${escapeHtml(inv.buyer.name || '(без контрагента)')}${inv.editedAt ? ' <span class="hint">(відредаговано)</span>' : ''}</div>
       <div class="hint">${escapeHtml(inv.date)}</div>
       <div style="text-align:right;">${fmt1(inv.total)} грн</div>
       <button class="btn btn-sm" type="button" onclick="reopenInvoice(${inv.id})">Відкрити</button>
       <button class="btn btn-sm" type="button" onclick="editInvoiceDraft(${inv.id})">Редагувати</button>
+      <button class="btn btn-sm" type="button" onclick="copyInvoiceDraft(${inv.id})" title="Створити новий документ на основі цього (новий номер і дата)">⧉ Копія</button>
       <button class="btn-ghost" onclick="removeInvoice(${inv.id})" aria-label="Видалити рахунок">×</button>
     </div>
   `).join('');
@@ -13877,6 +13878,24 @@ function waybillFromOrder(id){
   invoiceDraftOrderId = o.id;
   renderInvoiceItemsList();
   document.getElementById('invoiceDocType').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// копія наявного рахунку/накладної: підвантажує всі дані у форму як НОВИЙ документ (новий номер, сьогоднішня дата)
+function copyInvoiceDraft(id){
+  const inv = invoices.find(i => i.id === id); if(!inv) return;
+  editInvoiceDraft(id);                 // заповнює форму даними документа
+  editingInvoiceId = null;              // але це новий документ, а не правка старого
+  invoiceDraftOrderId = null;
+  const type = inv.docType || 'invoice';
+  document.getElementById('invoiceDocType').value = type;
+  document.getElementById('invoiceNumber').value = nextDocNumber(type);
+  document.getElementById('invoiceDate').value = todayStr();
+  document.getElementById('invoiceDueDate').value = '';
+  invoiceDocUi();
+  const titleEl = document.getElementById('invoiceDraftTitle');
+  if(titleEl) titleEl.textContent = (type === 'waybill' ? 'Нова видаткова накладна' : 'Новий рахунок') + ` (копія № ${inv.number})`;
+  const noticeEl = document.getElementById('invoiceEditingNotice');
+  if(noticeEl){ noticeEl.style.display = ''; noticeEl.textContent = `Це копія документа № ${inv.number}: номер і дату змінено, решту дані перенесено. Перевірте й натисніть «Сформувати».`; }
 }
 </script>
 </body>
