@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.56.0 · 15.10.2026 11:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.56.1 · 15.10.2026 11:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -736,7 +736,7 @@
       <button class="btn btn-sm" onclick="openTrackLookupModal()">Перевірити трек-номер</button>
       <button class="btn btn-sm" onclick="openNpImportModal()">Синхронізувати кабінет НП</button>
       <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Відправити в Telegram відправлення за сьогодні</button>
-      <button class="btn btn-sm" onclick="sendSmsToTodayClients()">Відправити повідомлення клієнтам за сьогодні</button>
+      <button class="btn btn-sm" onclick="sendSmsToTodayClients()">✉ SMS відправленим сьогодні</button>
       <button class="btn btn-sm" onclick="document.getElementById('orderScreenshotInput').click()">Розпізнати замовлення зі скріншота</button>
       <button class="btn btn-sm" onclick="toggleOrderTextForm()">📋 Розпізнати замовлення з тексту</button>
       <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
@@ -5003,24 +5003,10 @@ async function sendBranchReminderSmsToAll(){
   alert(msg);
 }
 
-async function sendSmsToTodayClients(){
-  if(!smsToken){ alert('Спочатку налаштуйте SMS (API-ключ) в «Налаштування доставки».'); return; }
+function sendSmsToTodayClients(){
   const today = todayStr();
-  const todays = orders.filter(o => o.date === today && !isArchived(o) && o.phone && (o.ttnNumber || o.ukrTtnNumber));
-  if(todays.length === 0){ alert('Сьогодні немає відправлень з ТТН і телефоном клієнта.'); return; }
-  if(!confirm(`Надіслати SMS ${todays.length} клієнт(ам) за сьогодні?`)) return;
-
-  let sent = 0, failed = 0;
-  const errors = [];
-  for(const o of todays){
-    const res = await notifyCustomerSms(o);
-    if(res.ok){ sent++; o.customerSmsSent = true; }
-    else { failed++; errors.push(`${o.customer||'?'}: ${res.error}`); }
-  }
-  scheduleSave();
-  let msg = `Надіслано: ${sent}. Помилок: ${failed}.`;
-  if(errors.length > 0) msg += `\n\n${errors.slice(0,5).join('\n')}${errors.length>5?'\n…':''}`;
-  alert(msg);
+  const todays = orders.filter(o => o.date === today && !isArchived(o));
+  return smsSendToOrders(todays, {skipSent:true, emptyMsg:'Сьогодні немає відправлень, яким ще не надсилали SMS (потрібні ТТН і телефон).'});
 }
 
 /* ---------- telegram: обробка натискань кнопки в групі (тільки поки відкрита ця вкладка) ---------- */
@@ -9005,12 +8991,13 @@ function bulkSetOrdersDate(){
 }
 
 let bulkSmsBusy = false;
-async function bulkSendSms(){
-  if(bulkSmsBusy || selectedOrderIds.size === 0) return;
+// спільна розсилка SMS за шаблоном (з ТТН і сумою) для списку замовлень: перегляд, пропуски, захист від повторів
+async function smsSendToOrders(chosen, opts){
+  opts = opts || {};
+  if(bulkSmsBusy) return;
   if(!smsToken){ alert('Спочатку налаштуйте SMS (API-ключ) в «Налаштування доставки» → «SMS клієнту».'); return; }
-  const chosen = [...selectedOrderIds].map(orderById).filter(Boolean);
   const skipped = [];
-  const ready = [];
+  let ready = [];
   chosen.forEach(o => {
     const name = o.customer || ('№'+o.id);
     if(!o.phone) skipped.push(name+' — немає телефону');
@@ -9018,10 +9005,21 @@ async function bulkSendSms(){
     else if(!(o.ttnNumber || o.ukrTtnNumber)) skipped.push(name+' — немає ТТН');
     else ready.push(o);
   });
-  if(ready.length === 0){ alert('Нікому надсилати:\n\n'+skipped.slice(0,8).join('\n')); return; }
-  const already = ready.filter(o => o.customerSmsSent).length;
+  let already = 0;
+  if(opts.skipSent){
+    already = ready.filter(o => o.customerSmsSent).length;
+    ready = ready.filter(o => !o.customerSmsSent);
+  }
+  if(ready.length === 0){
+    let m = opts.emptyMsg || 'Нікому надсилати.';
+    if(already) m += `\n\nВже отримали SMS раніше: ${already}.`;
+    if(skipped.length) m += '\n\n'+skipped.slice(0,8).join('\n');
+    alert(m); return;
+  }
+  const sentBefore = opts.skipSent ? 0 : ready.filter(o => o.customerSmsSent).length;
   let q = `Надіслати SMS ${ready.length} клієнт(ам)?\n\nПриклад (${ready[0].customer||'?'}):\n${fillSmsTemplate(ready[0])}`;
-  if(already) q += `\n\n⚠ ${already} з них уже отримували SMS про відправку раніше.`;
+  if(sentBefore) q += `\n\n⚠ ${sentBefore} з них уже отримували SMS про відправку раніше.`;
+  if(already) q += `\n\nПропущено ${already}, які вже отримали SMS.`;
   if(skipped.length) q += `\n\nБуде пропущено ${skipped.length}:\n${skipped.slice(0,6).join('\n')}${skipped.length>6?'\n…':''}`;
   if(!confirm(q)) return;
   bulkSmsBusy = true;
@@ -9035,9 +9033,14 @@ async function bulkSendSms(){
   } finally { bulkSmsBusy = false; }
   scheduleSave();
   renderOrders();
-  let msg = `Надіслано: ${sent}. Помилок: ${errors.length}. Пропущено: ${skipped.length}.`;
+  let msg = `Надіслано: ${sent}. Помилок: ${errors.length}. Пропущено: ${skipped.length + already}.`;
   if(errors.length) msg += `\n\n${errors.slice(0,5).join('\n')}${errors.length>5?'\n…':''}`;
   alert(msg);
+}
+
+function bulkSendSms(){
+  if(selectedOrderIds.size === 0) return;
+  return smsSendToOrders([...selectedOrderIds].map(orderById).filter(Boolean), {});
 }
 
 function bulkArchiveOrders(){
