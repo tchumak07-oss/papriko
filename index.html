@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.55.0 · 14.10.2026 09:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.56.0 · 15.10.2026 11:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1181,6 +1181,7 @@
       </label>
       <input type="date" id="bulkDateInput" style="width:auto;">
       <button class="btn btn-sm" type="button" onclick="bulkSetOrdersDate()">Змінити дату</button>
+      <button class="btn btn-sm" type="button" onclick="bulkSendSms()" title="Надіслати SMS за шаблоном (з ТТН і сумою) клієнтам виділених замовлень">✉ SMS</button>
       <button class="btn btn-sm" type="button" onclick="bulkArchiveOrders()">В архів</button>
       <button class="btn btn-sm" type="button" style="color:var(--danger);" onclick="bulkDeleteOrders()">Видалити</button>
       <button class="btn-ghost" type="button" onclick="clearOrderSelection()">Зняти виділення</button>
@@ -1808,7 +1809,7 @@
       <input type="text" id="branchWaitSearch" placeholder="Пошук за клієнтом або телефоном..." oninput="renderReports()" style="max-width:280px;">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);white-space:nowrap;">
         нагадувати від
-        <input type="number" id="branchReminderThreshold" value="5" min="0" style="width:60px;" oninput="renderReports()">
+        <input type="number" id="branchReminderThreshold" value="4" min="0" style="width:60px;" oninput="renderReports()">
         днів
       </label>
     </div>
@@ -8003,7 +8004,11 @@ function applyNpStatus(o, statusItem){
   // ставиться один раз при першому виявленні статусу "прибуло/очікує", і знімається,
   // якщо посилка більше не в цьому стані (видано, повернено тощо)
   if(isAtBranchAwaitingPickup(o)){
-    if(!o.atBranchSince) o.atBranchSince = todayStr();
+    // реальна дата прибуття з відповіді НП (якщо є) точніша за «день, коли ми вперше це помітили»:
+    // інакше посилка, що прибула кілька днів тому, а синхронізували ми лише сьогодні, показувалась би як «0 днів»
+    const arrived = parseFlexibleDateToIso(statusItem.DateFirstDayStorage) || parseFlexibleDateToIso(statusItem.ActualDeliveryDate);
+    if(arrived && arrived <= todayStr() && (!o.atBranchSince || arrived < o.atBranchSince)) o.atBranchSince = arrived;
+    else if(!o.atBranchSince) o.atBranchSince = todayStr();
   } else {
     o.atBranchSince = '';
   }
@@ -8997,6 +9002,42 @@ function bulkSetOrdersDate(){
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
+}
+
+let bulkSmsBusy = false;
+async function bulkSendSms(){
+  if(bulkSmsBusy || selectedOrderIds.size === 0) return;
+  if(!smsToken){ alert('Спочатку налаштуйте SMS (API-ключ) в «Налаштування доставки» → «SMS клієнту».'); return; }
+  const chosen = [...selectedOrderIds].map(orderById).filter(Boolean);
+  const skipped = [];
+  const ready = [];
+  chosen.forEach(o => {
+    const name = o.customer || ('№'+o.id);
+    if(!o.phone) skipped.push(name+' — немає телефону');
+    else if(toIntlPhone(o.phone).length !== 12) skipped.push(name+' — невірний телефон');
+    else if(!(o.ttnNumber || o.ukrTtnNumber)) skipped.push(name+' — немає ТТН');
+    else ready.push(o);
+  });
+  if(ready.length === 0){ alert('Нікому надсилати:\n\n'+skipped.slice(0,8).join('\n')); return; }
+  const already = ready.filter(o => o.customerSmsSent).length;
+  let q = `Надіслати SMS ${ready.length} клієнт(ам)?\n\nПриклад (${ready[0].customer||'?'}):\n${fillSmsTemplate(ready[0])}`;
+  if(already) q += `\n\n⚠ ${already} з них уже отримували SMS про відправку раніше.`;
+  if(skipped.length) q += `\n\nБуде пропущено ${skipped.length}:\n${skipped.slice(0,6).join('\n')}${skipped.length>6?'\n…':''}`;
+  if(!confirm(q)) return;
+  bulkSmsBusy = true;
+  let sent = 0; const errors = [];
+  try{
+    for(const o of ready){
+      const res = await notifyCustomerSms(o);
+      if(res.ok){ sent++; o.customerSmsSent = true; }
+      else errors.push(`${o.customer||'?'}: ${res.error}`);
+    }
+  } finally { bulkSmsBusy = false; }
+  scheduleSave();
+  renderOrders();
+  let msg = `Надіслано: ${sent}. Помилок: ${errors.length}. Пропущено: ${skipped.length}.`;
+  if(errors.length) msg += `\n\n${errors.slice(0,5).join('\n')}${errors.length>5?'\n…':''}`;
+  alert(msg);
 }
 
 function bulkArchiveOrders(){
