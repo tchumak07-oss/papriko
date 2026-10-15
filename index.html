@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.56.2 · 15.10.2026 17:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.57.0 · 15.10.2026 17:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1818,6 +1818,25 @@
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
       <div class="wh-row-head" style="grid-template-columns:80px 100px 1fr 1fr 1fr 130px 1fr 160px;"><div>Днів</div><div>Дата прибуття</div><div>Клієнт</div><div>Телефон</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div><div></div></div>
       <div id="reportBranchWait"></div>
+    </div></div>
+  </div>
+
+  <div class="section-title">
+    <span id="rb-smsday-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-smsday');renderSmsDayReport()">▸ SMS клієнтам за день</span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="smsDaySendMissing()">✉ Надіслати тим, кому ні</button>
+      <button class="btn btn-sm" onclick="exportSmsDayExcel()">⬇ Excel</button>
+    </span>
+  </div>
+  <div id="rb-smsday" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Кому з замовлень за обрану дату надіслано SMS, а кому ні. Червоним позначено тих, кому SMS не пішло (немає телефону чи ТТН, помилка або ще не надсилали).</p>
+    <div class="fb-row" style="margin:0 0 12px;align-items:center;">
+      <input type="date" id="smsDayDate" style="width:auto;" oninput="renderSmsDayReport()">
+      <span class="hint" id="smsDaySummary"></span>
+    </div>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:130px 1fr 130px 150px 1fr 110px;"><div>Статус</div><div>Клієнт</div><div>Телефон</div><div>ТТН</div><div>Примітка</div><div></div></div>
+      <div id="reportSmsDay"></div>
     </div></div>
   </div>
 
@@ -4900,7 +4919,7 @@ async function sendSms(phone, text){
     const data = await res.json();
     if(data.success !== 1){
       const err = (data.data && (data.data.error || data.data.description)) || data.error || data.description || 'Помилка SMS Fly';
-      return {ok:false, error: typeof err === 'string' ? err : JSON.stringify(err)};
+      return {ok:false, error: typeof err === 'string' ? err : ((err && (err.description||err.code)) || JSON.stringify(err))};
     }
     const smsStatus = data.data && data.data.sms && data.data.sms.status;
     if(smsStatus === 'REJECTD' || smsStatus === 'UNDELIV') return {ok:false, error: 'SMS Fly відхилив повідомлення (статус '+smsStatus+')'};
@@ -4961,9 +4980,100 @@ function fillSmsTemplate(o){
   return tpl.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '').replace(/\{sum\}/g, sum);
 }
 
+// відправка + запис у журнал замовлення (коли, який тип, чи вдалося) — звідси звіт «SMS клієнтам за день»
 async function notifyCustomerSms(o){
   if(!o.phone) return {ok:false, error:'У клієнта немає телефону'};
-  return sendSms(o.phone, fillSmsTemplate(o));
+  const kind = isAtBranchAwaitingPickup(o) ? 'arrived' : 'shipped';
+  const res = await sendSms(o.phone, fillSmsTemplate(o));
+  const d = new Date(), z = n => String(n).padStart(2,'0');
+  if(!Array.isArray(o.smsLog)) o.smsLog = [];
+  o.smsLog.push({date: todayStr(), time: z(d.getHours())+':'+z(d.getMinutes()), kind, ok: !!res.ok, error: res.ok ? '' : String(res.error||'').slice(0,160)});
+  if(o.smsLog.length > 8) o.smsLog = o.smsLog.slice(-8);
+  if(res.ok) o.customerSmsSent = true;
+  return res;
+}
+
+/* ---------- звіт: SMS клієнтам за день ---------- */
+function smsDayRows(day){
+  const rows = [];
+  orders.forEach(o => {
+    const log = (o.smsLog||[]).filter(l => l.date === day);
+    const inScope = (!isArchived(o) && o.date === day) || log.length;
+    if(!inScope) return;
+    const okEntry = [...log].reverse().find(l => l.ok);
+    const failEntry = [...log].reverse().find(l => !l.ok);
+    let state, note;
+    if(okEntry){ state = 'sent'; note = okEntry.time + (okEntry.kind==='arrived' ? ' · «прибула у відділення»' : ' · «відправлено»'); }
+    else if(failEntry){ state = 'error'; note = failEntry.error || 'помилка'; }
+    else if(o.customerSmsSent){ state = 'before'; note = 'надіслано раніше (без дати)'; }
+    else if(!o.phone){ state = 'no'; note = 'немає телефону'; }
+    else if(toIntlPhone(o.phone).length !== 12){ state = 'no'; note = 'невірний телефон'; }
+    else if(!(o.ttnNumber || o.ukrTtnNumber)){ state = 'no'; note = 'немає ТТН'; }
+    else { state = 'no'; note = 'ще не надсилали'; }
+    rows.push({o, state, note});
+  });
+  const order = {error:0, no:1, before:2, sent:3};
+  rows.sort((a,b) => order[a.state]-order[b.state] || String(a.o.customer||'').localeCompare(String(b.o.customer||''), 'uk'));
+  return rows;
+}
+function smsDayRetryTargets(day){
+  return smsDayRows(day).filter(r => (r.state==='no' || r.state==='error') && r.o.phone && toIntlPhone(r.o.phone).length===12 && (r.o.ttnNumber||r.o.ukrTtnNumber)).map(r => r.o);
+}
+function renderSmsDayReport(){
+  const el = document.getElementById('reportSmsDay');
+  if(!el) return;
+  const dayInput = document.getElementById('smsDayDate');
+  if(dayInput && !dayInput.value) dayInput.value = todayStr();
+  const day = (dayInput && dayInput.value) || todayStr();
+  const rows = smsDayRows(day);
+  const cnt = st => rows.filter(r => r.state===st).length;
+  const sum = document.getElementById('smsDaySummary');
+  if(sum) sum.innerHTML = rows.length
+    ? `Усього: <strong>${rows.length}</strong> · <span style="color:var(--cardamom);">надіслано: <strong>${cnt('sent')}</strong></span> · <span style="color:var(--danger);">не надіслано: <strong>${cnt('no')+cnt('error')}</strong></span>${cnt('before')?` · раніше: ${cnt('before')}`:''}`
+    : '';
+  if(!rows.length){ el.innerHTML = '<div class="comp-empty">За цю дату немає замовлень.</div>'; return; }
+  el.innerHTML = rows.map(({o, state, note}) => {
+    const bad = state==='no' || state==='error';
+    const col = state==='sent' ? 'var(--cardamom)' : (bad ? 'var(--danger)' : 'var(--text-muted)');
+    const mark = state==='sent' ? '✓ Надіслано' : (state==='error' ? '✗ Помилка' : (state==='before' ? '• Раніше' : '✗ Не надіслано'));
+    const canSend = bad && o.phone && toIntlPhone(o.phone).length===12 && (o.ttnNumber||o.ukrTtnNumber);
+    return `<div class="wh-row" style="grid-template-columns:130px 1fr 130px 150px 1fr 110px;${bad?'background:rgba(180,60,40,0.07);':''}">
+      <div class="cv" style="color:${col};font-weight:600;">${mark}</div>
+      <div>${escapeAttr(o.customer||'Без імені')}</div>
+      <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.phone||'—')}</div>
+      <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber||o.ukrTtnNumber||'—')}</div>
+      <div class="hint" style="color:${bad?'var(--danger)':'inherit'};">${escapeAttr(note)}</div>
+      <div>${canSend ? `<button class="btn btn-sm" onclick="smsSendToOrders([orderById(${o.id})],{}).then(renderSmsDayReport)">Надіслати</button>` : ''}</div>
+    </div>`;
+  }).join('');
+}
+async function smsDaySendMissing(){
+  const day = document.getElementById('smsDayDate').value || todayStr();
+  const list = smsDayRetryTargets(day);
+  await smsSendToOrders(list, {skipSent:true, emptyMsg:'Усім, кому можна, SMS уже надіслано. Решті бракує телефону чи ТТН — вони позначені в звіті.'});
+  renderSmsDayReport();
+}
+async function exportSmsDayExcel(){
+  const day = document.getElementById('smsDayDate').value || todayStr();
+  const rows = smsDayRows(day);
+  if(!rows.length){ alert('За цю дату немає замовлень.'); return; }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('SMS '+day);
+  ws.columns = [{header:'Статус',key:'st',width:16},{header:'Клієнт',key:'c',width:26},{header:'Телефон',key:'p',width:16},{header:'ТТН',key:'t',width:22},{header:'Примітка',key:'n',width:36}];
+  const label = {sent:'Надіслано', error:'Помилка', before:'Раніше', no:'Не надіслано'};
+  const B = {top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}};
+  ws.getRow(1).font = {bold:true};
+  ws.getRow(1).eachCell(c => { c.border = B; c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFD9B896'}}; });
+  rows.forEach(({o,state,note}) => {
+    const r = ws.addRow({st:label[state], c:o.customer||'Без імені', p:o.phone||'', t:o.ttnNumber||o.ukrTtnNumber||'', n:note});
+    r.eachCell({includeEmpty:true}, c => { c.border = B; if(state==='no'||state==='error') c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFF3C6C0'}}; });
+  });
+  ws.views = [{state:'frozen', ySplit:1}];
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], {type:'application/octet-stream'}));
+  a.download = `sms_${day}.xlsx`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
 }
 
 function fillBranchReminderTemplate(o, days){
@@ -5499,6 +5609,7 @@ function duplicateOrder(sourceId){
   copy.npStatusCode = '';
   copy.ttnTelegramNotified = false;
   copy.customerSmsSent = false;
+  copy.smsLog = [];
   copy.sendToTelegram = false;
   copy.sendSms = false;
   orders.push(copy);
@@ -6173,9 +6284,12 @@ async function saveOrder(id){
   const wantTg = !!o.sendToTelegram;
   const wantSms = !!o.sendSms && !!(o.city || o.ukrCity || o.address);
   if(wantSms){
-    o.customerSmsSent = true;
     o.sendSms = false;
-    notifyCustomerSms(o);
+    // прапорець «надіслано» і журнал виставляє сама notifyCustomerSms — лише при успіху
+    notifyCustomerSms(o).then(res => {
+      if(!res.ok) alert('SMS клієнту не надіслано: ' + res.error);
+      scheduleSave(); renderOrders();
+    });
   }
   renderOrders();
   renderOrdersSummary();
@@ -6212,7 +6326,6 @@ async function resendShipmentNotifications(id){
   if(resultEl) resultEl.innerHTML = '<div class="hint">Надсилаю...</div>';
 
   o.ttnTelegramNotified = true;
-  o.customerSmsSent = true;
 
   const [tgRes, smsRes] = await Promise.all([
     notifyTelegramShipment(o),
@@ -11325,6 +11438,8 @@ function renderReports(){
       }).join('');
     }
   }
+
+  renderSmsDayReport();
 
   // ---- повернення (для контролю повернення коштів) ----
   const returnedEl = document.getElementById('reportReturned');
