@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.56.1 · 15.10.2026 11:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.56.2 · 15.10.2026 17:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1043,6 +1043,8 @@
         </div>
         <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!</textarea>
         <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН), <code>{name}</code> (ім'я клієнта) та <code>{sum}</code> (сума замовлення). Текст латиницею навмисно — кирилична SMS вкладається лише в 70 символів на сегмент, латиниця/цифри — 160, тож так виходить дешевше (1 SMS замість 2).</p>
+        <textarea class="order-notes" id="smsArrivedTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон, коли посилка вже у відділенні">Vasha posylka pributla u viddilennya. TTN: {ttn}. Suma zamovlennya: {sum} grn. Zaberit, bud laska!</textarea>
+        <p class="hint" style="margin:4px 0 0;">Шаблон для галочки «Відправити SMS», якщо посилка вже прибула у відділення (замість «відправлено»). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{sum}</code>.</p>
         <textarea class="order-notes" id="smsBranchReminderTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон нагадування про відділення">Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}</textarea>
         <p class="hint" style="margin:4px 0 0;">Шаблон нагадування «довго у відділенні» (вкладка Звіти). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{days}</code> (днів очікування).</p>
         <div class="fb-row" style="margin-top:10px;">
@@ -1942,7 +1944,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 function buildStatePayload(){
   const payload = {
     catalog, kits, orders, clients, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
-    ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsBranchReminderTemplate, anthropicApiKey,
+    ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsArrivedTemplate, smsBranchReminderTemplate, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, receipts, nextReceiptId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
     quickOrderKitId, tgProcessedIds, tgLastUpdateId, autoSyncEnabled, autoSyncBaselineDone, ownerPhone, tareTypes, nextTareId,
@@ -2002,6 +2004,7 @@ function applyRemoteData(data){
   smsToken = data.smsToken || '';
   smsSender = data.smsSender || 'Papriko';
   smsTemplate = data.smsTemplate || smsTemplate;
+  smsArrivedTemplate = data.smsArrivedTemplate || smsArrivedTemplate;
   smsBranchReminderTemplate = data.smsBranchReminderTemplate || smsBranchReminderTemplate;
   anthropicApiKey = data.anthropicApiKey || '';
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
@@ -2100,6 +2103,8 @@ function applyRemoteData(data){
   if(smsSenderInput) smsSenderInput.value = smsSender;
   const smsTemplateInput = document.getElementById('smsTemplateInput');
   if(smsTemplateInput) smsTemplateInput.value = smsTemplate;
+  const smsArrivedTemplateInput = document.getElementById('smsArrivedTemplateInput');
+  if(smsArrivedTemplateInput) smsArrivedTemplateInput.value = smsArrivedTemplate;
   const smsBranchReminderTemplateInput = document.getElementById('smsBranchReminderTemplateInput');
   if(smsBranchReminderTemplateInput) smsBranchReminderTemplateInput.value = smsBranchReminderTemplate;
   const anthropicKeyInput = document.getElementById('anthropicKeyInput');
@@ -4843,12 +4848,14 @@ function saveAnthropicKey(){
 let smsToken = '';
 let smsSender = 'Papriko';
 let smsTemplate = 'Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!';
+let smsArrivedTemplate = 'Vasha posylka pributla u viddilennya. TTN: {ttn}. Suma zamovlennya: {sum} grn. Zaberit, bud laska!';
 let smsBranchReminderTemplate = 'Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}';
 
 function saveSmsSettings(){
   smsToken = document.getElementById('smsTokenInput').value.trim();
   smsSender = document.getElementById('smsSenderInput').value.trim();
   smsTemplate = document.getElementById('smsTemplateInput').value.trim() || smsTemplate;
+  smsArrivedTemplate = document.getElementById('smsArrivedTemplateInput').value.trim() || smsArrivedTemplate;
   smsBranchReminderTemplate = document.getElementById('smsBranchReminderTemplateInput').value.trim() || smsBranchReminderTemplate;
   document.getElementById('smsStatus').textContent = smsToken ? 'Збережено.' + (smsSender ? '' : ' (без імені відправника — буде дефолтне від SMS Fly)') : 'Ключ порожній.';
   scheduleSave();
@@ -4949,7 +4956,9 @@ async function sendTestSms(){
 function fillSmsTemplate(o){
   const ttn = o.ttnNumber || o.ukrTtnNumber || '';
   const sum = fmt(calcOrder(o).total);
-  return smsTemplate.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '').replace(/\{sum\}/g, sum);
+  // посилка вже у відділенні — шлемо «прибула», а не «відправлено»
+  const tpl = isAtBranchAwaitingPickup(o) ? smsArrivedTemplate : smsTemplate;
+  return tpl.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '').replace(/\{sum\}/g, sum);
 }
 
 async function notifyCustomerSms(o){
