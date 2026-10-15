@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.57.0 · 15.10.2026 17:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.57.1 · 15.10.2026 18:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1829,7 +1829,7 @@
     </span>
   </div>
   <div id="rb-smsday" style="display:none;">
-    <p class="hint" style="margin:-8px 0 14px;">Кому з замовлень за обрану дату надіслано SMS, а кому ні. Червоним позначено тих, кому SMS не пішло (немає телефону чи ТТН, помилка або ще не надсилали).</p>
+    <p class="hint" style="margin:-8px 0 14px;">Кому з замовлень за обрану дату надіслано SMS, а кому ні. У звіті за сьогодні також усі посилки, що зараз чекають у відділенні, — їм піде SMS «прибула у відділення». Червоним позначено тих, кому SMS не пішло (немає телефону чи ТТН, помилка або ще не надсилали).</p>
     <div class="fb-row" style="margin:0 0 12px;align-items:center;">
       <input type="date" id="smsDayDate" style="width:auto;" oninput="renderSmsDayReport()">
       <span class="hint" id="smsDaySummary"></span>
@@ -4996,15 +4996,27 @@ async function notifyCustomerSms(o){
 /* ---------- звіт: SMS клієнтам за день ---------- */
 function smsDayRows(day){
   const rows = [];
+  const isToday = day === todayStr();
   orders.forEach(o => {
-    const log = (o.smsLog||[]).filter(l => l.date === day);
-    const inScope = (!isArchived(o) && o.date === day) || log.length;
+    // посилки, що зараз чекають у відділенні, показуємо в звіті за сьогодні — їм потрібне окреме SMS «прибула»
+    const atBranch = isToday && !isArchived(o) && isAtBranchAwaitingPickup(o);
+    let log = (o.smsLog||[]).filter(l => l.date === day);
+    if(atBranch) log = log.filter(l => l.kind === 'arrived'); // раніше надіслане «відправлено» не рахується
+    const inScope = (!isArchived(o) && o.date === day) || log.length || atBranch;
     if(!inScope) return;
     const okEntry = [...log].reverse().find(l => l.ok);
     const failEntry = [...log].reverse().find(l => !l.ok);
+    const days = atBranch && o.atBranchSince ? daysBetween(o.atBranchSince, day) : 0;
+    const bTag = atBranch ? '📦 у відділенні' + (o.atBranchSince ? ' ' + days + ' дн.' : '') + ' · ' : '';
+    const lastArrived = atBranch ? [...(o.smsLog||[])].reverse().find(l => l.ok && l.kind==='arrived') : null;
     let state, note;
-    if(okEntry){ state = 'sent'; note = okEntry.time + (okEntry.kind==='arrived' ? ' · «прибула у відділення»' : ' · «відправлено»'); }
-    else if(failEntry){ state = 'error'; note = failEntry.error || 'помилка'; }
+    if(okEntry){ state = 'sent'; note = bTag + okEntry.time + (okEntry.kind==='arrived' ? ' · «прибула у відділення»' : ' · «відправлено»'); }
+    else if(failEntry){ state = 'error'; note = bTag + (failEntry.error || 'помилка'); }
+    else if(atBranch && lastArrived){ state = 'no'; note = bTag + 'про прибуття повідомляли ' + lastArrived.date; }
+    else if(atBranch && !o.phone){ state = 'no'; note = bTag + 'немає телефону'; }
+    else if(atBranch && toIntlPhone(o.phone).length !== 12){ state = 'no'; note = bTag + 'невірний телефон'; }
+    else if(atBranch && !(o.ttnNumber || o.ukrTtnNumber)){ state = 'no'; note = bTag + 'немає ТТН'; }
+    else if(atBranch){ state = 'no'; note = bTag + 'про прибуття не повідомляли'; }
     else if(o.customerSmsSent){ state = 'before'; note = 'надіслано раніше (без дати)'; }
     else if(!o.phone){ state = 'no'; note = 'немає телефону'; }
     else if(toIntlPhone(o.phone).length !== 12){ state = 'no'; note = 'невірний телефон'; }
@@ -5050,7 +5062,7 @@ function renderSmsDayReport(){
 async function smsDaySendMissing(){
   const day = document.getElementById('smsDayDate').value || todayStr();
   const list = smsDayRetryTargets(day);
-  await smsSendToOrders(list, {skipSent:true, emptyMsg:'Усім, кому можна, SMS уже надіслано. Решті бракує телефону чи ТТН — вони позначені в звіті.'});
+  await smsSendToOrders(list, {emptyMsg:'Усім, кому можна, SMS уже надіслано. Решті бракує телефону чи ТТН — вони позначені в звіті.'});
   renderSmsDayReport();
 }
 async function exportSmsDayExcel(){
@@ -9138,7 +9150,7 @@ async function smsSendToOrders(chosen, opts){
     if(skipped.length) m += '\n\n'+skipped.slice(0,8).join('\n');
     alert(m); return;
   }
-  const sentBefore = opts.skipSent ? 0 : ready.filter(o => o.customerSmsSent).length;
+  const sentBefore = opts.skipSent ? 0 : ready.filter(o => isAtBranchAwaitingPickup(o) ? (o.smsLog||[]).some(l => l.ok && l.kind==='arrived') : o.customerSmsSent).length;
   let q = `Надіслати SMS ${ready.length} клієнт(ам)?\n\nПриклад (${ready[0].customer||'?'}):\n${fillSmsTemplate(ready[0])}`;
   if(sentBefore) q += `\n\n⚠ ${sentBefore} з них уже отримували SMS про відправку раніше.`;
   if(already) q += `\n\nПропущено ${already}, які вже отримали SMS.`;
