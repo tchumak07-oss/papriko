@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.58.4 · 18.10.2026 01:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.58.5 · 18.10.2026 01:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -882,7 +882,7 @@
 
       <div class="fb-row" style="margin-bottom:14px;">
         <button class="btn btn-primary btn-sm" onclick="exportTodayShipmentsExcel()">Експортувати в Excel</button>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" title="В Excel (і в файлі для господині та в Telegram) лише 5 стовпчиків: клієнт, телефон, ТТН, товари, примітка"><input type="checkbox" id="tsShortExcel" style="width:auto;accent-color:var(--saffron);">скорочений (клієнт, телефон, ТТН, товари, примітка)</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" title="В Excel (і в файлі для господині та в Telegram) лише 6 стовпчиків: НП/УП/СВ, клієнт, телефон, ТТН, товари, примітка"><input type="checkbox" id="tsShortExcel" style="width:auto;accent-color:var(--saffron);">скорочений (НП/УП/СВ, клієнт, телефон, ТТН, товари, примітка)</label>
         <button class="btn btn-sm" onclick="sendFilteredShipmentsToTelegram()">Відправити в Telegram</button>
         <button class="btn btn-sm" onclick="sendShipmentsExcelToTelegram()" title="Надсилає Excel-файл (повний або скорочений — за галочкою) у Telegram-групу від бота">📎 Excel у Telegram-групу</button>
         <button class="btn btn-sm" onclick="sendShipmentsToOwner('viber')" title="Завантажує той самий Excel і відкриває чат у Viber із господинею">📨 Господині: Viber</button>
@@ -5954,16 +5954,21 @@ async function buildTodayShipmentsExcel(shortMode){
   if(shortMode){
     const wbS = new ExcelJS.Workbook();
     const wsS = wbS.addWorksheet('Відправлення');
-    wsS.columns = [{header:'Клієнт', key:'customer', width:30}, {header:'Телефон', key:'phone', width:16}, {header:'ТТН', key:'ttn', width:24}, {header:'Товари', key:'items', width:36}, {header:'Примітка', key:'notes', width:32}];
+    wsS.columns = [{header:'Дост.', key:'carrier', width:6}, {header:'Клієнт', key:'customer', width:30}, {header:'Телефон', key:'phone', width:16}, {header:'ТТН', key:'ttn', width:24}, {header:'Товари', key:'items', width:36}, {header:'Примітка', key:'notes', width:32}];
     const thin = {style:'thin', color:{argb:'FFB0A08C'}};
     const bd = {top:thin,left:thin,bottom:thin,right:thin};
     wsS.getRow(1).font = {bold:true};
     wsS.getRow(1).eachCell(c => { c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFD9B896'}}; c.border = bd; });
     list.forEach(o => {
       const itemsTextS = o.items.map(it => { const k = kitById(it.kitId); return `${k ? k.name : '(товар)'} x${it.qty}`; }).join('; ');
-      const r = wsS.addRow({customer: o.customer || '', phone: o.phone || '', ttn: o.ttnNumber || o.ukrTtnNumber || '', items: itemsTextS, notes: o.notes || ''});
+      const code = ({'Нова Пошта':'НП', 'Укрпошта':'УП', 'Самовивіз':'СВ'})[o.deliveryMethod] || '';
+      const r = wsS.addRow({carrier: code, customer: o.customer || '', phone: o.phone || '', ttn: o.ttnNumber || o.ukrTtnNumber || '', items: itemsTextS, notes: o.notes || ''});
       r.eachCell({includeEmpty:true}, c => { c.border = bd; });
       r.getCell('ttn').font = {size:13, bold:true};
+      const cc = r.getCell('carrier');
+      cc.font = {bold:true}; cc.alignment = {horizontal:'center'};
+      const fillArgb = {'НП':'FFF5E3A8', 'УП':'FFF3C6C0', 'СВ':'FFC6E8C6'}[code];
+      if(fillArgb) cc.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillArgb}};
     });
     wsS.views = [{state:'frozen', ySplit:1}];
     xlsWrapAll(wsS, 1);
