@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.57.1 · 15.10.2026 18:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.58.2 · 18.10.2026 00:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -882,6 +882,7 @@
 
       <div class="fb-row" style="margin-bottom:14px;">
         <button class="btn btn-primary btn-sm" onclick="exportTodayShipmentsExcel()">Експортувати в Excel</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" title="В Excel (і в файлі для господині) лише 3 стовпчики: клієнт, телефон, ТТН"><input type="checkbox" id="tsShortExcel" style="width:auto;accent-color:var(--saffron);">скорочений (клієнт, телефон, ТТН)</label>
         <button class="btn btn-sm" onclick="sendFilteredShipmentsToTelegram()">Відправити в Telegram</button>
         <button class="btn btn-sm" onclick="sendShipmentsToOwner('viber')" title="Завантажує той самий Excel і відкриває чат у Viber із господинею">📨 Господині: Viber</button>
         <button class="btn btn-sm" onclick="sendShipmentsToOwner('telegram')" title="Завантажує той самий Excel і відкриває чат у Telegram із господинею">📨 Господині: Telegram</button>
@@ -1591,6 +1592,7 @@
 
     <div class="fb-row" style="margin-top:14px;">
       <button class="btn btn-primary btn-sm" id="invoiceSubmitBtn" onclick="generateInvoice()">Сформувати рахунок (друк / PDF)</button>
+      <button class="btn btn-sm" id="invoiceExcelBtn" onclick="generateInvoice('excel')">📊 Сформувати в Excel</button>
       <button class="btn btn-sm" onclick="clearInvoiceDraft()">Очистити</button>
     </div>
   </div></div>
@@ -2746,6 +2748,8 @@ function autoConnectFirebase(){
 
 function fmt(n){ return Math.round(n).toLocaleString('uk-UA'); }
 function fmt1(n){ return (Math.round(n*10)/10).toFixed(1); }
+// ціле, якщо без копійок; інакше один знак (для проміжних сум з дробовими цінами)
+function fmtA(n){ const r = Math.round((n||0)*10)/10; return Number.isInteger(r) ? String(r) : r.toFixed(1); }
 function fmt2(n){ return (Math.round((n||0)*100)/100).toString(); }
 
 /* ---------- catalog ---------- */
@@ -5841,6 +5845,31 @@ const XLS_YELLOW = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF5E3A8'}};
 // rows — масив рядків-масивів значень (у тому ж порядку, що headers); preamble — опційні рядки-заголовки
 // перед таблицею (масив рядків-масивів); footer — опційний підсумковий рядок-масив;
 // rowStyleFn(row, values, idx) — опційна функція для додаткового підсвічування конкретного рядка.
+// перенос по словах у всіх клітинках таблиці + висота рядка підлаштовується під довгий текст
+// (ширина стовпчика та сама, рядок стає «товстішим») — особливо для стовпчика «Товари»
+function xlsWrapAll(ws, fromRow){
+  const first = fromRow || 1;
+  ws.eachRow({includeEmpty:false}, (row, rn) => {
+    if(rn < first) return;
+    let lines = 1;
+    row.eachCell({includeEmpty:true}, (cell, col) => {
+      cell.alignment = Object.assign({}, cell.alignment || {}, {wrapText:true, vertical:'top'});
+      if(cell.isMerged) return;
+      const v = cell.value;
+      let t = '';
+      if(v != null){
+        if(typeof v === 'object') t = v.richText ? v.richText.map(x => x.text).join('') : (v.result !== undefined ? String(v.result) : String(v.text || ''));
+        else t = String(v);
+      }
+      const cpl = Math.max(1, Math.floor((ws.getColumn(col).width || 10)));
+      let n = 0;
+      t.split('\n').forEach(seg => { n += Math.max(1, Math.ceil(seg.length / cpl)); });
+      if(n > lines) lines = n;
+    });
+    if(lines > 1) row.height = lines * 15 + 3;
+  });
+}
+
 async function exportStyledExcel({downloadName, sheetName, headers, rows, preamble, footer, rowStyleFn}){
   if(typeof ExcelJS === 'undefined'){ alert('Бібліотека Excel ще не завантажилась — спробуйте за кілька секунд.'); return; }
   const wb = new ExcelJS.Workbook();
@@ -5869,6 +5898,7 @@ async function exportStyledExcel({downloadName, sheetName, headers, rows, preamb
   }
 
   ws.views = [{state:'frozen', ySplit: headerRowNumber}];
+  xlsWrapAll(ws, headerRowNumber);
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {type:'application/octet-stream'});
@@ -5897,9 +5927,30 @@ async function exportTodayShipmentsExcel(){
 
 // Збирає той самий Excel-файл, що й кнопка «Експортувати в Excel», але повертає його (а не завантажує) —
 // щоб його можна було й завантажити, і поділитися ним (господині).
-async function buildTodayShipmentsExcel(){
+async function buildTodayShipmentsExcel(shortMode){
   const {orders: list, from, to} = getFilteredShipments();
   if(list.length === 0){ alert('Нічого не знайдено за цими фільтрами.'); return null; }
+  if(shortMode === undefined){ const cb = document.getElementById('tsShortExcel'); shortMode = !!(cb && cb.checked); }
+
+  // скорочений варіант: лише клієнт, телефон і номер декларації (ТТН)
+  if(shortMode){
+    const wbS = new ExcelJS.Workbook();
+    const wsS = wbS.addWorksheet('Відправлення');
+    wsS.columns = [{header:'Клієнт', key:'customer', width:30}, {header:'Телефон', key:'phone', width:16}, {header:'ТТН', key:'ttn', width:24}];
+    const thin = {style:'thin', color:{argb:'FFB0A08C'}};
+    const bd = {top:thin,left:thin,bottom:thin,right:thin};
+    wsS.getRow(1).font = {bold:true};
+    wsS.getRow(1).eachCell(c => { c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFD9B896'}}; c.border = bd; });
+    list.forEach(o => {
+      const r = wsS.addRow({customer: o.customer || '', phone: o.phone || '', ttn: o.ttnNumber || o.ukrTtnNumber || ''});
+      r.eachCell({includeEmpty:true}, c => { c.border = bd; });
+      r.getCell('ttn').font = {size:13, bold:true};
+    });
+    wsS.views = [{state:'frozen', ySplit:1}];
+    xlsWrapAll(wsS, 1);
+    const bufS = await wbS.xlsx.writeBuffer();
+    return {blob: new Blob([bufS], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fileName: `vidpravlennya_kor_${from}_${to}.xlsx`, count: list.length};
+  }
 
   // стовпчик «За наш рахунок» додаємо лише якщо серед вигружених є хоч одна така доставка — інакше він просто пустий і займає місце.
   const hasOurExpense = list.some(o => o.payerType === 'Відправник');
@@ -5992,6 +6043,7 @@ async function buildTodayShipmentsExcel(){
   });
 
   ws.views = [{state:'frozen', ySplit:1}];
+  xlsWrapAll(ws, 1);
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
@@ -6148,6 +6200,7 @@ async function exportBranchWaitExcel(){
   });
 
   ws.views = [{state:'frozen', ySplit:1}];
+  xlsWrapAll(ws, 1);
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {type:'application/octet-stream'});
@@ -9902,17 +9955,19 @@ function initInvoicesSection(){
 }
 
 // та сама логіка знижки, що й у замовленнях (calcOrder): відсоток або фіксована сума, не більша за суму.
-function calcInvoiceDiscount(subtotal){
+function calcInvoiceDiscount(subtotal, typeOverride, valOverride){
   const typeEl = document.getElementById('invoiceDiscountType');
   const valEl = document.getElementById('invoiceDiscountValue');
-  const type = typeEl ? typeEl.value : 'none';
-  const dVal = valEl ? (Number(valEl.value) || 0) : 0;
+  const type = typeOverride !== undefined ? typeOverride : (typeEl ? typeEl.value : 'none');
+  const dVal = valOverride !== undefined ? (Number(valOverride) || 0) : (valEl ? (Number(valEl.value) || 0) : 0);
   let discount = 0;
   if(dVal > 0){
     if(type === 'percent') discount = subtotal * Math.min(dVal, 100) / 100;
     else if(type === 'amount') discount = Math.min(dVal, subtotal);
   }
-  const total = Math.max(0, subtotal - discount);
+  // знижка й підсумок в документах — цілі гривні (копійки не показуємо)
+  discount = Math.round(discount);
+  const total = Math.max(0, Math.round(subtotal - discount));
   return {discount, total};
 }
 
@@ -9984,13 +10039,13 @@ function renderInvoiceItemsList(){
   }).join('');
   const {discount, total} = calcInvoiceDiscount(subtotal);
   if(discount > 0){
-    if(subtotalEl){ subtotalEl.style.display = ''; subtotalEl.textContent = `Проміжна сума: ${fmt1(subtotal)} грн`; }
-    if(discountLabelEl){ discountLabelEl.style.display = ''; discountLabelEl.textContent = `Знижка: −${fmt1(discount)} грн`; }
+    if(subtotalEl){ subtotalEl.style.display = ''; subtotalEl.textContent = `Проміжна сума: ${fmtA(subtotal)} грн`; }
+    if(discountLabelEl){ discountLabelEl.style.display = ''; discountLabelEl.textContent = `Знижка: −${fmt(discount)} грн`; }
   } else {
     if(subtotalEl) subtotalEl.style.display = 'none';
     if(discountLabelEl) discountLabelEl.style.display = 'none';
   }
-  if(totalEl) totalEl.textContent = `Разом: ${fmt1(total)} грн (без ПДВ)`;
+  if(totalEl) totalEl.textContent = `Разом: ${fmt(total)} грн (без ПДВ)`;
   if(focusInfo){
     const restored = el.querySelector(`input[data-idx="${focusInfo.idx}"][data-field="${focusInfo.field}"]`);
     if(restored){
@@ -10089,13 +10144,13 @@ function buildInvoiceHtml(inv){
     <thead><tr><th>№</th><th>Найменування</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr></thead>
     <tbody>${itemsRows}</tbody>
     <tfoot>
-      ${inv.discount > 0 ? `<tr><td colspan="5" style="text-align:right;border:none;background:none;">Проміжна сума:</td><td style="text-align:right;border:none;background:none;">${fmt1(inv.subtotal)} грн</td></tr>
-      <tr><td colspan="5" style="text-align:right;border:none;background:none;">Знижка${inv.discountType==='percent' ? ` (${fmt1(inv.discountValue)}%)` : ''}:</td><td style="text-align:right;border:none;background:none;">−${fmt1(inv.discount)} грн</td></tr>` : ''}
-      <tr class="total-row"><td colspan="5" style="text-align:right;">${isWb ? 'Разом на суму:' : 'Разом до сплати:'}</td><td style="text-align:right;">${fmt1(inv.total)} грн</td></tr>
+      ${inv.discount > 0 ? `<tr><td colspan="5" style="text-align:right;border:none;background:none;">Проміжна сума:</td><td style="text-align:right;border:none;background:none;">${fmtA(inv.subtotal)} грн</td></tr>
+      <tr><td colspan="5" style="text-align:right;border:none;background:none;">Знижка${inv.discountType==='percent' ? ` (${fmt1(inv.discountValue)}%)` : ''}:</td><td style="text-align:right;border:none;background:none;">−${fmt(inv.discount)} грн</td></tr>` : ''}
+      <tr class="total-row"><td colspan="5" style="text-align:right;">${isWb ? 'Разом на суму:' : 'Разом до сплати:'}</td><td style="text-align:right;">${fmt(inv.total)} грн</td></tr>
     </tfoot>
   </table>
   <p class="notes">Без ПДВ.</p>
-  <p class="notes">Сума прописом: ${escapeHtml(numberToUaWords(inv.total))}</p>
+  <p class="notes">Сума прописом: ${escapeHtml(numberToUaWords(Math.round(inv.total)))}</p>
   ${inv.notes ? `<p class="notes">${escapeHtml(inv.notes)}</p>` : ''}
   ${isWb
     ? `<div class="signature" style="display:flex;gap:40px;"><div style="flex:1;">Відпустив: ____________________ / Чумак Т.В. /</div><div style="flex:1;">Отримав: ____________________ / ${escapeHtml(inv.buyer.name || '________________')} /</div></div>
@@ -10104,7 +10159,7 @@ function buildInvoiceHtml(inv){
 </body></html>`;
 }
 
-function generateInvoice(){
+function generateInvoice(fmt){
   if(invoiceDraftItems.length === 0){ alert('Додайте хоча б одну позицію в рахунок.'); return; }
   if(invoiceDraftItems.some(it => !it.name.trim())){ alert('Заповніть назву в кожному рядку.'); return; }
 
@@ -10159,7 +10214,7 @@ function generateInvoice(){
   clearInvoiceDraft();
   renderInvoicesHistory();
   scheduleSave();
-  openInvoiceWindow(inv);
+  if(fmt === 'excel') exportInvoiceExcel(inv); else openInvoiceWindow(inv);
 }
 
 // підвантажує вже сформований рахунок назад у форму вище для правки (напр. виправити назву SKU, номер чи дату) —
@@ -10224,12 +10279,13 @@ function renderInvoicesHistory(){
   }
   const sorted = [...invoices].sort((a,b) => b.number - a.number);
   el.innerHTML = sorted.map(inv => `
-    <div class="wh-row" style="grid-template-columns:150px 1fr 110px 100px 70px 90px 90px 32px;align-items:center;">
+    <div class="wh-row" style="grid-template-columns:150px 1fr 110px 100px 70px 90px 90px 90px 32px;align-items:center;">
       <div>${(inv.docType||'invoice')==='waybill' ? '<span class="status-badge" style="background:var(--cardamom);color:#fff;">накладна</span>' : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">рахунок</span>'} № ${inv.number}</div>
       <div>${escapeHtml(inv.buyer.name || '(без контрагента)')}${inv.editedAt ? ' <span class="hint">(відредаговано)</span>' : ''}</div>
       <div class="hint">${escapeHtml(inv.date)}</div>
-      <div style="text-align:right;">${fmt1(inv.total)} грн</div>
-      <button class="btn btn-sm" type="button" onclick="reopenInvoice(${inv.id})">Відкрити</button>
+      <div style="text-align:right;">${fmt(inv.total)} грн</div>
+      <button class="btn btn-sm" type="button" onclick="reopenInvoice(${inv.id})" title="Відкрити для друку / збереження в PDF">Відкрити</button>
+      <button class="btn btn-sm" type="button" onclick="exportInvoiceExcel(invoices.find(i=>i.id===${inv.id}))" title="Завантажити цей документ в Excel">📊 Excel</button>
       <button class="btn btn-sm" type="button" onclick="editInvoiceDraft(${inv.id})">Редагувати</button>
       <button class="btn btn-sm" type="button" onclick="copyInvoiceDraft(${inv.id})" title="Створити новий документ на основі цього (новий номер і дата)">⧉ Копія</button>
       <button class="btn-ghost" onclick="removeInvoice(${inv.id})" aria-label="Видалити рахунок">×</button>
@@ -11506,7 +11562,7 @@ function orderCollapsedHtml(o, num){
           <button class="btn btn-sm" onclick="editOrder(${o.id})">Редагувати</button>
           <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
           <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
-          <button class="btn btn-sm" onclick="waybillFromOrder(${o.id})" title="Виписати видаткову накладну клієнту з цього замовлення">🧾 Накладна</button>
+          <button class="btn btn-sm" onclick="orderDocChoose(${o.id})" title="Накладна клієнту з цього замовлення: Excel або PDF">🧾 Накладна</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
@@ -11582,7 +11638,7 @@ function orderExpandedHtml(o, num){
           <button class="btn btn-primary btn-sm" onclick="saveOrder(${o.id})">Зберегти</button>
           <button class="btn btn-sm" onclick="duplicateOrder(${o.id})" title="Створити нове замовлення на основі цього">Копіювати</button>
           <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
-          <button class="btn btn-sm" onclick="waybillFromOrder(${o.id})" title="Виписати видаткову накладну клієнту з цього замовлення">🧾 Накладна</button>
+          <button class="btn btn-sm" onclick="orderDocChoose(${o.id})" title="Накладна клієнту з цього замовлення: Excel або PDF">🧾 Накладна</button>
           <button class="btn btn-sm" onclick="refreshOrderPrices(${o.id})" title="Підставити поточні ціни продажу з «Товарів» у всі позиції цього замовлення">🔄 Оновити ціни</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
@@ -14058,6 +14114,125 @@ function waybillFromOrder(id){
   invoiceDraftOrderId = o.id;
   renderInvoiceItemsList();
   document.getElementById('invoiceDocType').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+/* ---------- Excel-версія накладної/рахунку ---------- */
+function uaDate(d){ const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d||''); }
+async function exportInvoiceExcel(inv){
+  if(!inv){ alert('Документ не знайдено.'); return; }
+  if(typeof ExcelJS === 'undefined'){ alert('Бібліотека Excel не завантажилась — перевірте інтернет і оновіть сторінку.'); return; }
+  const isWb = inv.docType === 'waybill';
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(isWb ? 'Накладна' : 'Рахунок');
+  ws.columns = [{width:6},{width:52},{width:8},{width:9},{width:13},{width:14}];
+  const thin = {style:'thin', color:{argb:'FF999999'}};
+  const box = {top:thin,left:thin,bottom:thin,right:thin};
+  const merge = (r, text, opts) => { ws.mergeCells(`A${r}:F${r}`); const c = ws.getCell(`A${r}`); c.value = text; c.alignment = {wrapText:true, vertical:'top', ...(opts&&opts.align?{horizontal:opts.align}:{})}; if(opts&&opts.font) c.font = opts.font; return c; };
+  let r = 1;
+  merge(r++, `${isWb ? 'Видаткова накладна' : 'Рахунок на оплату'} № ${inv.number}`, {font:{bold:true,size:14}});
+  merge(r++, `від ${uaDate(inv.date)}${!isWb && inv.dueDate ? ' · дійсний до ' + uaDate(inv.dueDate) : ''}`, {font:{color:{argb:'FF555555'}}});
+  r++;
+  const party = (title, p, extra) => {
+    merge(r++, title, {font:{bold:true,color:{argb:'FF888888'}}});
+    const lines = [p.name, p.edrpou && 'ЄДРПОУ: '+p.edrpou, p.ipn && 'ІПН: '+p.ipn, p.address && 'Адреса: '+p.address, p.bankName && 'Банк: '+p.bankName, p.iban && 'IBAN: '+p.iban, p.contactPerson && 'Контактна особа: '+p.contactPerson, (p.contactPhone||p.phone) && 'Тел.: '+(p.contactPhone||p.phone)].filter(Boolean);
+    lines.forEach((l,i) => merge(r++, l, i===0 ? {font:{bold:true}} : null));
+    if(!lines.length) merge(r++, 'не заповнено');
+    r++;
+  };
+  party(isWb ? 'Постачальник' : 'Продавець', inv.seller || {});
+  party(isWb ? 'Одержувач' : 'Покупець', inv.buyer || {});
+  if(isWb && inv.unloadPoint){ merge(r++, 'Точка вивантаження: ' + inv.unloadPoint, {font:{bold:true}}); r++; }
+  const head = ws.getRow(r++);
+  ['№','Найменування','Од.','К-сть','Ціна, грн','Сума, грн'].forEach((t,i) => {
+    const c = head.getCell(i+1); c.value = t; c.font = {bold:true}; c.border = box;
+    c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFF2ECE2'}}; c.alignment = {horizontal: i<2?'left':'center'};
+  });
+  (inv.items||[]).forEach((it,idx) => {
+    const row = ws.getRow(r++);
+    const vals = [idx+1, it.name||'', it.unit||'шт', it.qty, it.price, (it.qty||0)*(it.price||0)];
+    vals.forEach((v,i) => { const c = row.getCell(i+1); c.value = v; c.border = box;
+      if(i===0||i===2||i===3) c.alignment = {horizontal:'center'};
+      if(i===4||i===5){ c.numFmt = '#,##0.00'; c.alignment = {horizontal:'right'}; }
+      if(i===1) c.alignment = {wrapText:true, vertical:'top'}; });
+  });
+  const totalRow = (label, val, bold) => {
+    ws.mergeCells(`A${r}:E${r}`);
+    const l = ws.getCell(`A${r}`); l.value = label; l.alignment = {horizontal:'right'}; if(bold) l.font = {bold:true};
+    const c = ws.getCell(`F${r}`); c.value = val; c.numFmt = '#,##0.##'; c.alignment = {horizontal:'right'}; if(bold){ c.font = {bold:true}; c.border = box; c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFFAF6EE'}}; }
+    r++;
+  };
+  if(inv.discount > 0){
+    totalRow('Проміжна сума:', Math.round((inv.subtotal||0)*10)/10);
+    totalRow('Знижка' + (inv.discountType==='percent' ? ` (${fmt1(inv.discountValue)}%)` : '') + ':', -Math.round(inv.discount));
+  }
+  totalRow(isWb ? 'Разом на суму, грн:' : 'Разом до сплати, грн:', Math.round(inv.total), true);
+  r++;
+  merge(r++, 'Без ПДВ.');
+  merge(r++, 'Сума прописом: ' + numberToUaWords(Math.round(inv.total)));
+  if(inv.notes) merge(r++, 'Примітка: ' + inv.notes);
+  r++;
+  if(isWb){
+    merge(r++, `Відпустив: ____________________ / Чумак Т.В. /          Отримав: ____________________ / ${inv.buyer && inv.buyer.name ? inv.buyer.name : ''} /`);
+    merge(r++, 'Претензій щодо кількості та якості товару не маю.', {font:{size:10,color:{argb:'FF666666'}}});
+  } else {
+    merge(r++, 'Виконавець: ____________________ / Чумак Т.В. /');
+  }
+  ws.pageSetup = {paperSize:9, orientation:'portrait', fitToPage:true, fitToWidth:1, fitToHeight:0};
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], {type:'application/octet-stream'}));
+  a.download = `${isWb ? 'nakladna' : 'rahunok'}_${inv.number}_${inv.date||todayStr()}.xlsx`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
+}
+
+/* ---------- накладна прямо із замовлення (без переходу в меню «Накладні»): вибір Excel / PDF ---------- */
+// створює накладну із замовлення; якщо для цього замовлення вона вже є — оновлює її (той самий номер), без дублів
+function waybillDocFromOrder(o){
+  const items = o.items.map(it => { const k = kitById(it.kitId); return {name: k ? k.name : '(товар)', unit:'шт', qty: it.qty, price: it.price}; });
+  const subtotal = items.reduce((t,it) => t + (it.qty||0)*(it.price||0), 0);
+  const dType = (o.discountType === 'percent' || o.discountType === 'amount') ? o.discountType : 'none';
+  const dVal = o.discountValue || 0;
+  const {discount, total} = calcInvoiceDiscount(subtotal, dType, dVal);
+  const seller = {name:sellerName, edrpou:sellerEdrpou, ipn:sellerIpn, address:sellerAddress, bankName:sellerBankName, iban:sellerIban, phone:sellerPhone};
+  const buyer = {name:o.customer||'', edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'', phone:o.phone||''};
+  let inv = invoices.find(i => i.docType === 'waybill' && String(i.orderId) === String(o.id));
+  if(inv){
+    Object.assign(inv, {unloadPoint: unloadPointFromOrder(o), subtotal, discountType:dType, discountValue:dVal, discount, total, seller, buyer, items, editedAt:new Date().toISOString()});
+    inv.counterpartyId = null;
+  } else {
+    inv = {id: nextInvoiceId++, docType:'waybill', unloadPoint: unloadPointFromOrder(o), orderId:o.id, number: nextDocNumber('waybill'),
+      date: o.date || todayStr(), dueDate:'', notes:`Замовлення: ${o.customer || '#' + o.id}`, total, subtotal, discountType:dType, discountValue:dVal, discount,
+      counterpartyId:null, seller, buyer, items, createdAt:new Date().toISOString()};
+    invoices.push(inv);
+  }
+  renderInvoicesHistory();
+  scheduleSave();
+  return inv;
+}
+function orderDocChoose(id){
+  const o = orderById(id); if(!o) return;
+  if(!o.items || !o.items.length){ alert('У замовленні немає позицій.'); return; }
+  const old = document.getElementById('orderDocModal'); if(old) old.remove();
+  const ex = invoices.find(i => i.docType === 'waybill' && String(i.orderId) === String(o.id));
+  const m = document.createElement('div');
+  m.id = 'orderDocModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML = `<div class="catalog-panel" style="max-width:380px;width:100%;padding:20px;">
+    <div style="font-family:'Fraunces',serif;font-size:18px;margin-bottom:4px;">Накладна клієнту</div>
+    <div class="hint" style="margin-bottom:14px;">${escapeHtml(o.customer||'Без імені')} · ${fmt(calcOrder(o).total)} грн${ex ? '<br>Накладну № '+ex.number+' уже створено — вона оновиться з поточного замовлення.' : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-primary" id="orderDocXlsx">📊 Завантажити в Excel</button>
+      <button class="btn" id="orderDocPdf">🖨 PDF (друк)</button>
+      <button class="btn btn-sm" id="orderDocForm" title="Відкрити в розділі «Накладні», щоб змінити позиції чи реквізити вручну">✏ Відкрити у формі (редагувати)</button>
+      <button class="btn-ghost" id="orderDocCancel">Скасувати</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close = () => m.remove();
+  m.addEventListener('mousedown', e => { if(e.target === m) close(); });
+  document.getElementById('orderDocCancel').onclick = close;
+  document.getElementById('orderDocXlsx').onclick = () => { const inv = waybillDocFromOrder(o); close(); exportInvoiceExcel(inv); };
+  document.getElementById('orderDocPdf').onclick = () => { const inv = waybillDocFromOrder(o); close(); openInvoiceWindow(inv); };
+  document.getElementById('orderDocForm').onclick = () => { close(); waybillFromOrder(o.id); };
 }
 
 // копія наявного рахунку/накладної: підвантажує всі дані у форму як НОВИЙ документ (новий номер, сьогоднішня дата)
