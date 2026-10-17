@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.58.5 · 18.10.2026 01:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.59.0 · 18.10.2026 01:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -881,10 +881,12 @@
       </div>
 
       <div class="fb-row" style="margin-bottom:14px;">
-        <button class="btn btn-primary btn-sm" onclick="exportTodayShipmentsExcel()">Експортувати в Excel</button>
+        <button class="btn btn-primary btn-sm" onclick="exportTodayShipmentsExcel()">⬇ Завантажити (Excel / фото)</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;" title="У якому вигляді вигружати й надсилати: Excel-файл або картинка (фото таблиці)">Формат:
+          <select id="tsFormat" style="width:auto;"><option value="excel">Excel</option><option value="photo">Фото (PNG)</option></select></label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" title="В Excel (і в файлі для господині та в Telegram) лише 6 стовпчиків: НП/УП/СВ, клієнт, телефон, ТТН, товари, примітка"><input type="checkbox" id="tsShortExcel" style="width:auto;accent-color:var(--saffron);">скорочений (НП/УП/СВ, клієнт, телефон, ТТН, товари, примітка)</label>
         <button class="btn btn-sm" onclick="sendFilteredShipmentsToTelegram()">Відправити в Telegram</button>
-        <button class="btn btn-sm" onclick="sendShipmentsExcelToTelegram()" title="Надсилає Excel-файл (повний або скорочений — за галочкою) у Telegram-групу від бота">📎 Excel у Telegram-групу</button>
+        <button class="btn btn-sm" onclick="sendShipmentsExcelToTelegram()" title="Надсилає Excel-файл (повний або скорочений — за галочкою) у Telegram-групу від бота">📎 У Telegram-групу (Excel / фото)</button>
         <button class="btn btn-sm" onclick="sendShipmentsToOwner('viber')" title="Завантажує той самий Excel і відкриває чат у Viber із господинею">📨 Господині: Viber</button>
         <button class="btn btn-sm" onclick="sendShipmentsToOwner('telegram')" title="Завантажує той самий Excel і відкриває чат у Telegram із господинею">📨 Господині: Telegram</button>
         <button class="btn btn-sm" id="ownerShareBtn" style="display:none;" onclick="sendShipmentsToOwner('share')">📤 Поділитися…</button>
@@ -4783,6 +4785,22 @@ async function sendTelegramMessage(text, replyMarkup){
   }
 }
 
+async function sendTelegramPhoto(blob, fileName, caption){
+  if(!tgBotToken || !tgChatId) return {ok:false, error:'Telegram не налаштовано'};
+  try{
+    const fd = new FormData();
+    fd.append('chat_id', tgChatId);
+    if(caption) fd.append('caption', caption);
+    fd.append('photo', blob, fileName);
+    const res = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendPhoto`, {method:'POST', body: fd});
+    const data = await res.json();
+    if(!data.ok) return {ok:false, error: data.description || 'Помилка Telegram API'};
+    return {ok:true};
+  }catch(err){
+    return {ok:false, error: err.message};
+  }
+}
+
 // надсилає файл (Excel) у Telegram-групу від бота
 async function sendTelegramDocument(blob, fileName, caption){
   if(!tgBotToken || !tgChatId) return {ok:false, error:'Telegram не налаштовано'};
@@ -5930,8 +5948,91 @@ async function exportStyledExcel({downloadName, sheetName, headers, rows, preamb
   URL.revokeObjectURL(url);
 }
 
-async function exportTodayShipmentsExcel(){
+// «Фото» таблиці: малює ту саму таблицю (з аркуша Excel) на canvas і віддає PNG — щоб надсилати як картинку
+function wsToPng(ws, scale){
+  const cols = ws.columnCount;
+  const widths = [];
+  for(let c = 1; c <= cols; c++) widths.push(Math.round((ws.getColumn(c).width || 10) * 7.2 + 10));
+  const pad = 7, fontFamily = 'Arial, "Helvetica Neue", sans-serif';
+  const measureCtx = document.createElement('canvas').getContext('2d');
+  const fontOf = cell => { const f = cell.font || {}; return `${f.bold ? 'bold ' : ''}${f.size && f.size > 12 ? 16 : 14}px ${fontFamily}`; };
+  const wrap = (text, maxW) => {
+    const out = [];
+    String(text).split('\n').forEach(par => {
+      let line = '';
+      par.split(' ').forEach(word => {
+        // дуже довге слово ламаємо по символах
+        while(measureCtx.measureText(word).width > maxW && word.length > 1){
+          let cut = word.length - 1;
+          while(cut > 1 && measureCtx.measureText(word.slice(0, cut)).width > maxW) cut--;
+          if(line){ out.push(line); line = ''; }
+          out.push(word.slice(0, cut)); word = word.slice(cut);
+        }
+        const trial = line ? line + ' ' + word : word;
+        if(line && measureCtx.measureText(trial).width > maxW){ out.push(line); line = word; } else line = trial;
+      });
+      out.push(line);
+    });
+    return out;
+  };
+  const rows = [];
+  ws.eachRow({includeEmpty:false}, row => {
+    const cells = []; let maxLines = 1;
+    for(let c = 1; c <= cols; c++){
+      const cell = row.getCell(c);
+      const v = cell.value;
+      const text = v == null ? '' : (typeof v === 'object' ? String(v.result !== undefined ? v.result : (v.text || '')) : String(v));
+      measureCtx.font = fontOf(cell);
+      const lines = wrap(text, widths[c-1] - pad*2);
+      if(lines.length > maxLines) maxLines = lines.length;
+      cells.push({lines, cell});
+    }
+    rows.push({cells, h: maxLines * 19 + pad*2 - 4});
+  });
+  const W = widths.reduce((a,b) => a+b, 0) + 1;
+  const H = rows.reduce((a,r) => a + r.h, 0) + 1;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * scale; canvas.height = H * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+  ctx.textBaseline = 'top';
+  let y = 0;
+  rows.forEach(r => {
+    let x = 0;
+    r.cells.forEach((cc, i) => {
+      const w = widths[i];
+      const argb = cc.cell.fill && cc.cell.fill.fgColor && cc.cell.fill.fgColor.argb;
+      if(argb){ ctx.fillStyle = '#' + argb.slice(2); ctx.fillRect(x, y, w, r.h); }
+      ctx.strokeStyle = '#B0A08C'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, r.h);
+      ctx.fillStyle = '#1a1a1a'; ctx.font = fontOf(cc.cell);
+      const al = cc.cell.alignment && cc.cell.alignment.horizontal;
+      cc.lines.forEach((ln, li) => {
+        let tx = x + pad;
+        const tw = ctx.measureText(ln).width;
+        if(al === 'center') tx = x + (w - tw) / 2; else if(al === 'right') tx = x + w - pad - tw;
+        ctx.fillText(ln, tx, y + pad - 1 + li * 19);
+      });
+      x += w;
+    });
+    y += r.h;
+  });
+  return new Promise(resolve => canvas.toBlob(blob => resolve({blob, w: canvas.width, h: canvas.height}), 'image/png'));
+}
+
+// збирає файл звіту у вибраному форматі: Excel або фото (PNG) тієї самої таблиці
+async function buildTodayShipmentsOutput(){
   const res = await buildTodayShipmentsExcel();
+  if(!res) return null;
+  const fmtSel = document.getElementById('tsFormat');
+  if(!(fmtSel && fmtSel.value === 'photo')) return res;
+  let img = await wsToPng(res.ws, 2);
+  if(img.w + img.h > 9500) img = await wsToPng(res.ws, 1); // ліміт Telegram для фото: сума сторін ≤ 10000
+  return {blob: img.blob, fileName: res.fileName.replace(/\.xlsx$/, '.png'), count: res.count, isImage: true, w: img.w, h: img.h};
+}
+
+async function exportTodayShipmentsExcel(){
+  const res = await buildTodayShipmentsOutput();
   if(!res) return;
   const url = URL.createObjectURL(res.blob);
   const a = document.createElement('a');
@@ -5973,7 +6074,7 @@ async function buildTodayShipmentsExcel(shortMode){
     wsS.views = [{state:'frozen', ySplit:1}];
     xlsWrapAll(wsS, 1);
     const bufS = await wbS.xlsx.writeBuffer();
-    return {blob: new Blob([bufS], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fileName: `vidpravlennya_kor_${from}_${to}.xlsx`, count: list.length};
+    return {blob: new Blob([bufS], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fileName: `vidpravlennya_kor_${from}_${to}.xlsx`, count: list.length, ws: wsS};
   }
 
   // стовпчик «За наш рахунок» додаємо лише якщо серед вигружених є хоч одна така доставка — інакше він просто пустий і займає місце.
@@ -6071,7 +6172,7 @@ async function buildTodayShipmentsExcel(shortMode){
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-  return {blob, fileName: `vidpravlennya_${from}_${to}.xlsx`, count: list.length};
+  return {blob, fileName: `vidpravlennya_${from}_${to}.xlsx`, count: list.length, ws};
 }
 
 // Excel одного конкретного замовлення: шапка (клієнт, доставка, статуси) + таблиця позицій + підсумок.
@@ -6257,11 +6358,11 @@ function changeOwnerPhone(){
 
 async function sendShipmentsToOwner(channel){
   const st = document.getElementById('shipmentsOwnerStatus');
-  st.textContent = 'Готую Excel…';
-  const res = await buildTodayShipmentsExcel();
+  st.textContent = 'Готую файл…';
+  const res = await buildTodayShipmentsOutput();
   if(!res){ st.textContent = ''; return; }
   const digits = ownerPhone.replace(/\D/g, '');
-  const xlsxType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const xlsxType = res.isImage ? 'image/png' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
   if(channel === 'share'){
     const file = new File([res.blob], res.fileName, {type: xlsxType});
@@ -6302,13 +6403,15 @@ async function sendShipmentsToOwner(channel){
 async function sendShipmentsExcelToTelegram(){
   if(!tgBotToken || !tgChatId){ alert('Спочатку налаштуйте Telegram (токен і ID групи) в «Налаштування доставки».'); return; }
   const st = document.getElementById('shipmentsOwnerStatus');
-  if(st) st.textContent = 'Готую Excel…';
-  const res = await buildTodayShipmentsExcel();
+  if(st) st.textContent = 'Готую файл…';
+  const res = await buildTodayShipmentsOutput();
   if(!res){ if(st) st.textContent = ''; return; }
-  if(st) st.textContent = 'Надсилаю файл у Telegram…';
+  if(st) st.textContent = 'Надсилаю в Telegram…';
   const {from, to} = getFilteredShipments();
   const period = from === to ? from : `${from} — ${to}`;
-  const r = await sendTelegramDocument(res.blob, res.fileName, `Відправлення за ${period}: ${res.count} шт.`);
+  const cap = `Відправлення за ${period}: ${res.count} шт.`;
+  // картинку шлемо як фото; якщо вона завелика для Telegram (сума сторін > 10000) — як файл
+  const r = (res.isImage && res.w + res.h <= 10000) ? await sendTelegramPhoto(res.blob, res.fileName, cap) : await sendTelegramDocument(res.blob, res.fileName, cap);
   if(st) st.textContent = r.ok ? `Файл ${res.fileName} надіслано в Telegram ✓` : ('Помилка Telegram: ' + r.error);
   if(!r.ok) alert('Не вдалося надіслати файл у Telegram: ' + r.error);
 }
