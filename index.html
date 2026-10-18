@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.59.1 · 18.10.2026 15:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.59.4 · 18.10.2026 17:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -469,6 +469,8 @@
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="pl-onlyTtn" onchange="renderPackList()" style="width:auto;accent-color:var(--saffron);"> Лише з готовою ТТН</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="pl-onlyToday" onchange="renderPackList()" style="width:auto;accent-color:var(--saffron);"> Лише створені сьогодні</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" title="Під кожним набором у замовленнях показати його склад (інгредієнти й кількість на це замовлення)"><input type="checkbox" id="pl-showComp" checked onchange="renderPackList()" style="width:auto;accent-color:var(--saffron);"> Показувати склад наборів</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" title="За замовчуванням готові набори зі складу віднімаються, і інгредієнти рахуються лише на те, що ще треба зібрати. З цією галочкою інгредієнти рахуються на ВСІ замовлення."><input type="checkbox" id="pl-ignoreStock" onchange="renderPackList()" style="width:auto;accent-color:var(--saffron);"> Інгредієнти на всі замовлення (не віднімати готові набори)</label>
       </div>
       <div id="packListBody"></div>
       <div class="fb-row" style="margin-top:14px;">
@@ -11041,6 +11043,8 @@ let packListLast = null;
 function packListCollect(){
   const onlyTtn = document.getElementById('pl-onlyTtn').checked;
   const onlyToday = document.getElementById('pl-onlyToday').checked;
+  const ignoreStock = !!(document.getElementById('pl-ignoreStock') && document.getElementById('pl-ignoreStock').checked);
+  const showComp = !!(document.getElementById('pl-showComp') && document.getElementById('pl-showComp').checked);
   const today = todayStr();
   const list = orders.filter(o => !o.shipped && !o.delivered && !isArchived(o) && isLiveOrder(o) && (o.items || []).length > 0
       && (!onlyTtn || o.ttnNumber || o.ukrTtnNumber)
@@ -11052,7 +11056,8 @@ function packListCollect(){
   const kitRows = [...kitQty.entries()].map(([kid, qty]) => {
     const k = kitById(kid);
     const ready = Math.max(0, computeBalance('kit', kid));
-    return {k, qty, ready, toMake: Math.max(0, qty - ready)};
+    // noComps: у наборі не заповнений склад (компоненти) — інгредієнти для нього порахувати неможливо
+    return {k, qty, ready, toMake: ignoreStock ? qty : Math.max(0, qty - ready), noComps: Object.keys(flattenKitComponents(kid, 1)).length === 0};
   }).sort((a, b) => a.k.name.localeCompare(b.k.name));
 
   const need = {};
@@ -11067,28 +11072,51 @@ function packListCollect(){
     return {item, need: amt, balance, short: Math.max(0, amt - Math.max(0, balance))};
   }).filter(Boolean).sort((a, b) => (b.short > 0) - (a.short > 0) || a.item.name.localeCompare(b.item.name));
 
-  return {list, kitRows, ingRows};
+  return {list, kitRows, ingRows, showComp};
 }
 
-function packNum(n){ return (Math.round(n * 10) / 10).toString(); }
+// склад набору текстом: «Інгредієнт 0,1 г; …» (на mult штук); пропорції ≤ 2 знаків після коми, щоб 0,08 не округлялось до 0,1
+function packCompText(kitId, mult){
+  const comp = flattenKitComponents(kitId, mult || 1);
+  const rows = Object.entries(comp).map(([cid, amt]) => {
+    const item = catalogItem(parseInt(cid, 10));
+    return item ? {name: item.name, amt, unit: item.unit || ''} : null;
+  }).filter(Boolean);
+  return rows.map(r => `${escapeHtml(r.name)} ${(Math.round(r.amt * 100) / 100).toString().replace('.', ',')} ${escapeHtml(r.unit)}`).join('; ');
+}
+
+function packNum(n){ return (Math.round(n * 100) / 100).toString(); }
 
 function packListHtml(d){
   if(!d.list.length) return '<p class="hint">Немає невідправлених замовлень за цими умовами. ✓</p>';
   const ords = d.list.map(o => {
-    const items = o.items.map(it => { const k = kitById(it.kitId); return escapeHtml(k ? k.name : '?') + (it.qty > 1 ? ' ×' + it.qty : ''); }).join('; ');
+    const items = o.items.map(it => {
+      const k = kitById(it.kitId);
+      const comp = d.showComp && k ? packCompText(k.id, it.qty || 1) : '';
+      return escapeHtml(k ? k.name : '?') + (it.qty > 1 ? ' ×' + it.qty : '') + (comp ? `<div class="hint" style="font-size:11px;margin:2px 0 4px;">Склад: ${comp}</div>` : (d.showComp && k ? '<div class="pl-bad" style="font-size:11px;">склад не заповнено</div>' : ''));
+    }).join(d.showComp ? '' : '; ');
     const place = [o.deliveryMethod, o.city || o.ukrCity].filter(Boolean).join(', ');
     const ttn = o.ttnNumber || o.ukrTtnNumber || '';
     return `<tr><td>№${o.id}</td><td>${escapeHtml(o.customer || 'Без імені')}${o.phone ? '<br><span class="hint">' + escapeHtml(o.phone) + '</span>' : ''}</td><td>${items}${o.notes ? '<br><em>' + escapeHtml(o.notes) + '</em>' : ''}</td><td>${escapeHtml(place)}</td><td>${escapeHtml(ttn) || '—'}</td></tr>`;
   }).join('');
-  const kitsHtml = d.kitRows.map(r => `<tr><td>${escapeHtml(r.k.name)}${r.k.sku ? ' <span class="hint">(' + escapeHtml(r.k.sku) + ')</span>' : ''}</td><td class="r">${r.qty}</td><td class="r">${r.ready}</td><td class="r"><b>${r.toMake}</b></td></tr>`).join('');
-  const ingHtml = d.ingRows.length ? d.ingRows.map(r => `<tr><td>${escapeHtml(r.item.name)}</td><td class="r">${packNum(r.need)} ${escapeHtml(r.item.unit || '')}</td><td class="r">${packNum(r.balance)}</td><td class="r ${r.short > 0 ? 'pl-bad' : ''}">${r.short > 0 ? 'не вистачає ' + packNum(r.short) : '✓'}</td></tr>`).join('') : '<tr><td colspan="4" class="hint">Усе вже є в готових товарах — збирати нічого не треба.</td></tr>';
+  const kitsHtml = d.kitRows.map(r => `<tr><td>${escapeHtml(r.k.name)}${r.k.sku ? ' <span class="hint">(' + escapeHtml(r.k.sku) + ')</span>' : ''}${r.noComps && r.toMake > 0 ? ' <span class="pl-bad">⚠ склад не заповнено</span>' : ''}</td><td class="r">${r.qty}</td><td class="r">${r.ready}</td><td class="r"><b>${r.toMake}</b></td></tr>`).join('');
+  const ingHtml = d.ingRows.length ? d.ingRows.map(r => `<tr><td>${escapeHtml(r.item.name)}</td><td class="r">${packNum(r.need)} ${escapeHtml(r.item.unit || '')}</td><td class="r">${packNum(r.balance)}</td><td class="r ${r.short > 0 ? 'pl-bad' : ''}">${r.short > 0 ? 'не вистачає ' + packNum(r.short) : '✓'}</td></tr>`).join('') : `<tr><td colspan="4" class="hint">${d.kitRows.some(r => r.noComps && r.toMake > 0) ? 'Нічого порахувати — у наборах не заповнений склад (див. попередження вище).' : 'Усе вже є в готових товарах — збирати нічого не треба.'}</td></tr>`;
   const shortCount = d.ingRows.filter(r => r.short > 0).length;
+  const coveredKits = d.kitRows.filter(r => r.toMake <= 0 && r.qty > 0);
+  const coveredHtml = (!d.ingRows.length && coveredKits.length)
+    ? `<p class="hint" style="margin:6px 0;">Інгредієнти не потрібні, бо готових наборів на складі вистачає: ${coveredKits.map(r => escapeHtml(r.k.name) + ' (треба ' + r.qty + ', готових ' + r.ready + ')').join('; ')}. Щоб побачити інгредієнти на всі замовлення, поставте галочку «Інгредієнти на всі замовлення».</p>`
+    : '';
+  const noCompKits = d.kitRows.filter(r => r.noComps && r.toMake > 0);
+  const noCompHtml = noCompKits.length
+    ? `<p class="pl-bad" style="margin:6px 0;">⚠ Інгредієнти не пораховано для: ${noCompKits.map(r => escapeHtml(r.k.name)).join(', ')} — у цих наборах не заповнений склад. Додайте склад у розділі «Товари»: розкрийте набір, оберіть інгредієнт, вкажіть кількість і натисніть «Додати» — тоді вони з'являться тут.</p>`
+    : '';
   return `
     <div class="pl-h">Замовлення (${d.list.length})</div>
     <table class="pl-t"><tr><th>№</th><th>Клієнт</th><th>Що</th><th>Куди</th><th>ТТН</th></tr>${ords}</table>
     <div class="pl-h">Усього товарів</div>
     <table class="pl-t"><tr><th>Товар</th><th class="r">Треба</th><th class="r">Готових на складі</th><th class="r">Зібрати</th></tr>${kitsHtml}</table>
     <div class="pl-h">Інгредієнти й упаковка${shortCount ? ' <span class="pl-bad">— нестача: ' + shortCount + '</span>' : ''}</div>
+    ${noCompHtml}${coveredHtml}
     <table class="pl-t"><tr><th>Позиція</th><th class="r">Потрібно</th><th class="r">На складі</th><th class="r">Статус</th></tr>${ingHtml}</table>
     <p class="hint" style="margin-top:8px;">Якщо залишки на складі не ведуться, «на складі» буде 0, а нестача покаже повну потребу.</p>`;
 }
