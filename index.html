@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.59.0 · 18.10.2026 01:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.59.1 · 18.10.2026 15:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -8250,11 +8250,14 @@ async function cancelNpWaybill(orderId){
 // відомого статусу (НП чи Укrpошта), який ми вже зберігаємо в кожному замовленні.
 function isAtBranchAwaitingPickup(o){
   if(o.delivered || !o.shipped) return false;
+  // Нова Пошта: код 7 — «Прибув на відділення», 8 — «Прибув на відділення (поштомат)»
+  const code = String(o.npStatusCode || '');
+  if(!o.ukrStatusText && (code === '7' || code === '8')) return true;
   const text = ((o.npStatusText || o.ukrStatusText || '')).toLowerCase();
-  // "прибул..." + "відділенн..." ловить будь-який прийменник (до/у/на) — напр. "Прибуло до Відділення",
-  // "прибув у відділення", "прибуло на відділення" тощо.
-  if(text.includes('прибул') && text.includes('відділенн')) return true;
-  return text.includes('очікує отримання') || text.includes('на відділенні') || text.includes('очікує клієнта');
+  // «прибув/прибуло/прибула» + «відділення/поштомат/пункт» — будь-який прийменник і рід, напр. «Прибув на відділення»,
+  // «Відправлення прибуло до відділення». (Слово «прибуття» сюди не підпадає — це «очікуйте повідомлення про прибуття».)
+  if(/прибув|прибул/.test(text) && /відділен|поштомат|пункт/.test(text)) return true;
+  return text.includes('очікує отримання') || text.includes('на відділенні') || text.includes('очікує клієнта') || text.includes('очікує одержувача');
 }
 function isInTransitOnly(o){
   return !!o.shipped && !o.delivered && !isAtBranchAwaitingPickup(o);
