@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.61.0 · 19.10.2026 16:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.61.1 · 19.10.2026 16:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -7112,14 +7112,26 @@ async function changeUkrRecipientPhone(orderId){
       if(!recUuid) throw new Error('Не знайшов отримувача у відправленні');
       o.ukrRecipientUuid = recUuid;
     }
-    await ukrApiCall('PUT', `/clients/${recUuid}`, {phoneNumber: digits});
+    const putRes = await ukrApiCall('PUT', `/clients/${recUuid}`, {phoneNumber: digits});
+    // «200 OK» ще не означає, що Укрпошта змінила дані — читаємо назад і порівнюємо
+    const d = v => String(v || '').replace(/\D/g, '');
+    let cl = null, sh2 = null;
+    try{ cl = await ukrApiCall('GET', `/clients/${recUuid}`); }catch(e){}
+    try{ sh2 = await ukrApiCall('GET', `/shipments/${o.ukrShipmentUuid}`); }catch(e){}
+    const clPhone = cl && (cl.phoneNumber || (cl.phones && cl.phones[0] && cl.phones[0].phoneNumber));
+    const shPhone = sh2 && sh2.recipient && sh2.recipient.phoneNumber;
+    const okClient = clPhone && d(clPhone).endsWith(digits.slice(-9));
+    const okShip = shPhone && d(shPhone).endsWith(digits.slice(-9));
+    console.log('[ukr phone] PUT response', putRes, 'client', cl, 'shipment.recipient', sh2 && sh2.recipient);
     o.phone = digits;
     scheduleSave();
     renderOrders();
     const st2 = document.getElementById(`ukr-phone-status-${orderId}`);
-    if(st2) st2.innerHTML = ` <span style="color:var(--cardamom);">✓ Телефон змінено: ${escapeAttr(digits)}</span>`;
+    if(st2){
+      if(okClient && okShip) st2.innerHTML = ` <span style="color:var(--cardamom);">✓ Укрпошта підтвердила: ${escapeAttr(digits)}</span>`;
+      else st2.innerHTML = ` <span style="color:var(--danger);">⚠ Укрпошта НЕ змінила номер. У картці клієнта: ${escapeAttr(clPhone||'—')}; у відправленні: ${escapeAttr(shPhone||'—')}. У замовленні в програмі номер оновлено (${escapeAttr(digits)}).</span>`;
+    }
     return;
-    if(statusEl) statusEl.innerHTML = ` <span style="color:var(--cardamom);">✓ Телефон змінено: ${escapeAttr(digits)}</span>`;
   }catch(err){
     if(statusEl) statusEl.innerHTML = ` <span style="color:var(--danger);">Укрпошта: ${escapeAttr(err.message)}</span>`;
   }
