@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.61.1 · 19.10.2026 16:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.61.2 · 19.10.2026 17:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -7113,16 +7113,18 @@ async function changeUkrRecipientPhone(orderId){
       o.ukrRecipientUuid = recUuid;
     }
     const putRes = await ukrApiCall('PUT', `/clients/${recUuid}`, {phoneNumber: digits});
+    // за документацією Укрпошти: після зміни клієнта треба ще змінити параметр recipientPhone у самому відправленні
+    const putShip = await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, {recipientPhone: digits});
     // «200 OK» ще не означає, що Укрпошта змінила дані — читаємо назад і порівнюємо
     const d = v => String(v || '').replace(/\D/g, '');
     let cl = null, sh2 = null;
     try{ cl = await ukrApiCall('GET', `/clients/${recUuid}`); }catch(e){}
     try{ sh2 = await ukrApiCall('GET', `/shipments/${o.ukrShipmentUuid}`); }catch(e){}
     const clPhone = cl && (cl.phoneNumber || (cl.phones && cl.phones[0] && cl.phones[0].phoneNumber));
-    const shPhone = sh2 && sh2.recipient && sh2.recipient.phoneNumber;
+    const shPhone = sh2 && (sh2.recipientPhone || (sh2.recipient && sh2.recipient.phoneNumber));
     const okClient = clPhone && d(clPhone).endsWith(digits.slice(-9));
     const okShip = shPhone && d(shPhone).endsWith(digits.slice(-9));
-    console.log('[ukr phone] PUT response', putRes, 'client', cl, 'shipment.recipient', sh2 && sh2.recipient);
+    console.log('[ukr phone] PUT response', putRes, 'shipment PUT', putShip, 'recipientPhone', sh2 && sh2.recipientPhone, 'client', cl, 'shipment.recipient', sh2 && sh2.recipient);
     o.phone = digits;
     scheduleSave();
     renderOrders();
