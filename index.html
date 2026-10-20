@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.61.2 · 19.10.2026 17:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.62.0 · 19.10.2026 21:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -638,6 +638,7 @@
     </div>
   </div>
 
+  <input type="text" id="kitSearch" placeholder="🔍 Пошук товару за назвою або SKU…" oninput="renderKits()" style="margin:0 0 12px;">
   <div id="kitList"></div>
 
   <!-- ===== CHART ===== -->
@@ -3637,9 +3638,11 @@ function kbRowDragStart(e, idx){
 
 function renderKits(){
   const list = document.getElementById('kitList');
-  const shownKits = kits.filter(k => !k.archived).sort((a,b) => tareRank(a) - tareRank(b) || (a.name||'').localeCompare(b.name||''));
+  const kq = ((document.getElementById('kitSearch') || {}).value || '').trim().toLowerCase();
+  const allKits = kits.filter(k => !k.archived);
+  const shownKits = allKits.filter(k => !kq || ((k.name || '') + ' ' + (k.sku || '')).toLowerCase().includes(kq)).sort((a,b) => tareRank(a) - tareRank(b) || (a.name||'').localeCompare(b.name||''));
   if(shownKits.length === 0){
-    list.innerHTML = '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
+    list.innerHTML = kq && allKits.length ? '<div class="comp-empty">Нічого не знайдено за запитом.</div>' : '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
   } else {
     const anyTare = shownKits.some(k => tareName(k));
     let prevLabel = null;
@@ -3657,7 +3660,7 @@ function renderKits(){
     }).join('');
     shownKits.forEach(k => { if(!k.collapsed) renderKitComponents(k.id); renderKitStats(k.id); });
   }
-  document.getElementById('kitCount').textContent = shownKits.length;
+  document.getElementById('kitCount').textContent = kq ? `${shownKits.length} з ${allKits.length}` : shownKits.length;
   if(typeof renderKitArchiveBadge === 'function') renderKitArchiveBadge();
   renderQuickOrderKitSelect();
 }
@@ -7114,7 +7117,9 @@ async function changeUkrRecipientPhone(orderId){
     }
     const putRes = await ukrApiCall('PUT', `/clients/${recUuid}`, {phoneNumber: digits});
     // за документацією Укрпошти: після зміни клієнта треба ще змінити параметр recipientPhone у самому відправленні
-    const putShip = await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, {recipientPhone: digits});
+    let putShip = null, shipErr = '';
+    try{ putShip = await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, {recipientPhone: digits}); }
+    catch(e){ shipErr = e.message || String(e); }
     // «200 OK» ще не означає, що Укрпошта змінила дані — читаємо назад і порівнюємо
     const d = v => String(v || '').replace(/\D/g, '');
     let cl = null, sh2 = null;
@@ -7130,7 +7135,8 @@ async function changeUkrRecipientPhone(orderId){
     renderOrders();
     const st2 = document.getElementById(`ukr-phone-status-${orderId}`);
     if(st2){
-      if(okClient && okShip) st2.innerHTML = ` <span style="color:var(--cardamom);">✓ Укрпошта підтвердила: ${escapeAttr(digits)}</span>`;
+      if(shipErr) st2.innerHTML = ` <span style="color:var(--danger);">⚠ Картку клієнта в Укрпошті оновлено, але саме відправлення змінити не можна: ${escapeAttr(shipErr)}. У замовленні в програмі номер оновлено (${escapeAttr(digits)}).</span>`;
+      else if(okClient && okShip) st2.innerHTML = ` <span style="color:var(--cardamom);">✓ Укрпошта підтвердила: ${escapeAttr(digits)}</span>`;
       else st2.innerHTML = ` <span style="color:var(--danger);">⚠ Укрпошта НЕ змінила номер. У картці клієнта: ${escapeAttr(clPhone||'—')}; у відправленні: ${escapeAttr(shPhone||'—')}. У замовленні в програмі номер оновлено (${escapeAttr(digits)}).</span>`;
     }
     return;
