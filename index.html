@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.62.0 · 19.10.2026 21:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.63.0 · 20.10.2026 12:35</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1837,9 +1837,13 @@
     </span>
   </div>
   <div id="rb-smsday" style="display:none;">
-    <p class="hint" style="margin:-8px 0 14px;">Кому з замовлень за обрану дату надіслано SMS, а кому ні. У звіті за сьогодні також усі посилки, що зараз чекають у відділенні, — їм піде SMS «прибула у відділення». Червоним позначено тих, кому SMS не пішло (немає телефону чи ТТН, помилка або ще не надсилали).</p>
+    <p class="hint" style="margin:-8px 0 14px;">Кому з замовлень за обрану дату або період («з — по») надіслано SMS, а кому ні. У звіті за сьогодні також усі посилки, що зараз чекають у відділенні, — їм піде SMS «прибула у відділення». Червоним позначено тих, кому SMS не пішло (немає телефону чи ТТН, помилка або ще не надсилали).</p>
     <div class="fb-row" style="margin:0 0 12px;align-items:center;">
-      <input type="date" id="smsDayDate" style="width:auto;" oninput="renderSmsDayReport()">
+      <input type="date" id="smsDayDate" style="width:auto;" oninput="renderSmsDayReport()" title="З дати">
+      <span class="hint">—</span>
+      <input type="date" id="smsDayDateTo" style="width:auto;" oninput="renderSmsDayReport()" title="По дату (порожньо — лише один день)">
+      <button class="btn btn-sm" onclick="document.getElementById('smsDayDateTo').value='';document.getElementById('smsDayDate').value=todayStr();renderSmsDayReport()">Сьогодні</button>
+      <button class="btn btn-sm" onclick="(function(){const d=new Date();d.setDate(d.getDate()-6);const f=document.getElementById('smsDayDate');f.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');document.getElementById('smsDayDateTo').value=todayStr();renderSmsDayReport();})()">7 днів</button>
       <span class="hint" id="smsDaySummary"></span>
     </div>
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
@@ -5093,19 +5097,29 @@ async function notifyCustomerSms(o){
 }
 
 /* ---------- звіт: SMS клієнтам за день ---------- */
-function smsDayRows(day){
+// діапазон дат звіту: «з» і необов'язкове «по» (якщо порожнє — лише один день)
+function smsRange(){
+  const f = document.getElementById('smsDayDate'), t = document.getElementById('smsDayDateTo');
+  const from = (f && f.value) || todayStr();
+  let to = (t && t.value) || from;
+  if(to < from) to = from;
+  return {from, to};
+}
+function smsDayRows(day, dayTo){
   const rows = [];
-  const isToday = day === todayStr();
+  const to = dayTo || day;
+  const inR = d => d && d >= day && d <= to;
+  const isToday = todayStr() >= day && todayStr() <= to;
   orders.forEach(o => {
     // посилки, що зараз чекають у відділенні, показуємо в звіті за сьогодні — їм потрібне окреме SMS «прибула»
     const atBranch = isToday && !isArchived(o) && isAtBranchAwaitingPickup(o);
-    let log = (o.smsLog||[]).filter(l => l.date === day);
+    let log = (o.smsLog||[]).filter(l => inR(l.date));
     if(atBranch) log = log.filter(l => l.kind === 'arrived'); // раніше надіслане «відправлено» не рахується
-    const inScope = (!isArchived(o) && o.date === day) || log.length || atBranch;
+    const inScope = (!isArchived(o) && inR(o.date)) || log.length || atBranch;
     if(!inScope) return;
     const okEntry = [...log].reverse().find(l => l.ok);
     const failEntry = [...log].reverse().find(l => !l.ok);
-    const days = atBranch && o.atBranchSince ? daysBetween(o.atBranchSince, day) : 0;
+    const days = atBranch && o.atBranchSince ? daysBetween(o.atBranchSince, todayStr()) : 0;
     const bTag = atBranch ? '📦 у відділенні' + (o.atBranchSince ? ' ' + days + ' дн.' : '') + ' · ' : '';
     const lastArrived = atBranch ? [...(o.smsLog||[])].reverse().find(l => l.ok && l.kind==='arrived') : null;
     let state, note;
@@ -5127,22 +5141,22 @@ function smsDayRows(day){
   rows.sort((a,b) => order[a.state]-order[b.state] || String(a.o.customer||'').localeCompare(String(b.o.customer||''), 'uk'));
   return rows;
 }
-function smsDayRetryTargets(day){
-  return smsDayRows(day).filter(r => (r.state==='no' || r.state==='error') && r.o.phone && toIntlPhone(r.o.phone).length===12 && (r.o.ttnNumber||r.o.ukrTtnNumber)).map(r => r.o);
+function smsDayRetryTargets(day, dayTo){
+  return smsDayRows(day, dayTo).filter(r => (r.state==='no' || r.state==='error') && r.o.phone && toIntlPhone(r.o.phone).length===12 && (r.o.ttnNumber||r.o.ukrTtnNumber)).map(r => r.o);
 }
 function renderSmsDayReport(){
   const el = document.getElementById('reportSmsDay');
   if(!el) return;
   const dayInput = document.getElementById('smsDayDate');
   if(dayInput && !dayInput.value) dayInput.value = todayStr();
-  const day = (dayInput && dayInput.value) || todayStr();
-  const rows = smsDayRows(day);
+  const {from: day, to: dayTo} = smsRange();
+  const rows = smsDayRows(day, dayTo);
   const cnt = st => rows.filter(r => r.state===st).length;
   const sum = document.getElementById('smsDaySummary');
   if(sum) sum.innerHTML = rows.length
     ? `Усього: <strong>${rows.length}</strong> · <span style="color:var(--cardamom);">надіслано: <strong>${cnt('sent')}</strong></span> · <span style="color:var(--danger);">не надіслано: <strong>${cnt('no')+cnt('error')}</strong></span>${cnt('before')?` · раніше: ${cnt('before')}`:''}`
     : '';
-  if(!rows.length){ el.innerHTML = '<div class="comp-empty">За цю дату немає замовлень.</div>'; return; }
+  if(!rows.length){ el.innerHTML = '<div class="comp-empty">За цей період немає замовлень.</div>'; return; }
   el.innerHTML = rows.map(({o, state, note}) => {
     const bad = state==='no' || state==='error';
     const col = state==='sent' ? 'var(--cardamom)' : (bad ? 'var(--danger)' : 'var(--text-muted)');
@@ -5159,15 +5173,16 @@ function renderSmsDayReport(){
   }).join('');
 }
 async function smsDaySendMissing(){
-  const day = document.getElementById('smsDayDate').value || todayStr();
-  const list = smsDayRetryTargets(day);
+  const {from: day, to: dayTo} = smsRange();
+  const list = smsDayRetryTargets(day, dayTo);
   await smsSendToOrders(list, {emptyMsg:'Усім, кому можна, SMS уже надіслано. Решті бракує телефону чи ТТН — вони позначені в звіті.'});
   renderSmsDayReport();
 }
 async function exportSmsDayExcel(){
-  const day = document.getElementById('smsDayDate').value || todayStr();
-  const rows = smsDayRows(day);
-  if(!rows.length){ alert('За цю дату немає замовлень.'); return; }
+  const {from: day0, to: dayTo} = smsRange();
+  const day = dayTo !== day0 ? `${day0}_${dayTo}` : day0;
+  const rows = smsDayRows(day0, dayTo);
+  if(!rows.length){ alert('За цей період немає замовлень.'); return; }
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('SMS '+day);
   ws.columns = [{header:'Статус',key:'st',width:16},{header:'Клієнт',key:'c',width:26},{header:'Телефон',key:'p',width:16},{header:'ТТН',key:'t',width:22},{header:'Примітка',key:'n',width:36}];
