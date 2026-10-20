@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.63.0 · 20.10.2026 12:35</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.65.0 · 20.10.2026 16:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -530,6 +530,7 @@
       <button class="app-nav-btn" id="nav-cash" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
       <button class="app-nav-btn" id="nav-invoices" onclick="showSection('invoices')"><span class="nav-icon">🧮</span>Рахунки та накладні</button>
       <button class="app-nav-btn" id="nav-reports" onclick="showSection('reports')"><span class="nav-icon">📊</span>Звіти</button>
+      <button class="app-nav-btn" id="nav-settings" onclick="showSection('settings')"><span class="nav-icon">⚙️</span>Налаштування</button>
     </nav>
 
     <div class="app-main">
@@ -1614,6 +1615,20 @@
 
   </div><!-- /section-invoices -->
 
+  <div id="section-settings" class="app-section">
+    <div class="section-title" style="margin-top:0;">Налаштування</div>
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">SMS клієнтам</div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;cursor:pointer;margin-top:6px;">
+        <input type="checkbox" id="setAutoSmsArrived" onchange="saveAppSettings()" style="width:auto;margin-top:3px;accent-color:var(--saffron);">
+        <span><strong>Автоматично надсилати SMS, коли посилка прибула у відділення</strong><br>
+        <span class="hint">Під час оновлення статусів Нової Пошти та Укрпошти (кнопка, автооновлення, масова перевірка) програма надішле клієнту SMS за шаблоном «прибула у відділення» — по одному разу на посилку. Не надсилається, якщо немає телефону чи ТТН, не вказано ключ SMS, SMS про прибуття вже надсилали, або посилка прибула понад 2 дні тому (щоб старі посилки не отримали SMS при першому оновленні).</span></span>
+      </label>
+      <div class="hint" id="setSaved" style="margin-top:8px;"></div>
+      <p class="hint" style="margin-top:12px;">Ключ SMS Fly, ім'я відправника і шаблони текстів лишаються в «Налаштування доставки» (вкладка «Замовлення»). Сюди додаватимемо решту перемикачів.</p>
+    </div></div>
+  </div><!-- /section-settings -->
+
   <div id="section-reports" class="app-section">
 
   <div class="section-title" style="margin-top:0;">Звіти</div>
@@ -1975,7 +1990,7 @@ const HARDCODED_FIREBASE_CONFIG = {
 function buildStatePayload(){
   const payload = {
     catalog, kits, orders, clients, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
-    ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsArrivedTemplate, smsBranchReminderTemplate, anthropicApiKey,
+    ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsArrivedTemplate, smsBranchReminderTemplate, appSettings, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, receipts, nextReceiptId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
     quickOrderKitId, tgProcessedIds, tgLastUpdateId, autoSyncEnabled, autoSyncBaselineDone, ownerPhone, tareTypes, nextTareId,
@@ -2037,6 +2052,8 @@ function applyRemoteData(data){
   smsTemplate = data.smsTemplate || smsTemplate;
   smsArrivedTemplate = data.smsArrivedTemplate || smsArrivedTemplate;
   smsBranchReminderTemplate = data.smsBranchReminderTemplate || smsBranchReminderTemplate;
+  appSettings = Object.assign({autoSmsArrived: false}, data.appSettings || {});
+  if(typeof renderAppSettings === 'function') renderAppSettings();
   anthropicApiKey = data.anthropicApiKey || '';
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
   invoices = data.invoices || [];
@@ -4971,6 +4988,31 @@ let smsToken = '';
 let smsSender = 'Papriko';
 let smsTemplate = 'Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!';
 let smsArrivedTemplate = 'Vasha posylka pributla u viddilennya. TTN: {ttn}. Suma zamovlennya: {sum} grn. Zaberit, bud laska!';
+let appSettings = {autoSmsArrived: false};
+function renderAppSettings(){
+  const c = document.getElementById('setAutoSmsArrived'); if(c) c.checked = !!appSettings.autoSmsArrived;
+}
+function saveAppSettings(){
+  appSettings.autoSmsArrived = !!document.getElementById('setAutoSmsArrived').checked;
+  const el = document.getElementById('setSaved'); if(el) el.textContent = 'Збережено.';
+  scheduleSave();
+}
+// автоматичне SMS «прибула у відділення» — викликається з applyNpStatus/applyUkrStatus, коли посилка щойно перейшла в цей стан
+const autoSmsInFlight = new Set();
+function maybeAutoArrivedSms(o){
+  if(!appSettings.autoSmsArrived || !smsToken) return;
+  if(autoSmsInFlight.has(o.id)) return;
+  if(!o.phone || toIntlPhone(o.phone).length !== 12 || !(o.ttnNumber || o.ukrTtnNumber)) return;
+  if((o.smsLog||[]).some(l => l.ok && l.kind === 'arrived')) return;
+  if(o.atBranchSince && daysBetween(o.atBranchSince, todayStr()) > 2) return;
+  autoSmsInFlight.add(o.id);
+  notifyCustomerSms(o).then(res => {
+    if(!res.ok) console.warn('[auto SMS] не надіслано', o.customer, res.error);
+    scheduleSave();
+    if(typeof renderOrders === 'function') renderOrders();
+  }).catch(e => console.warn('[auto SMS]', e)).finally(() => autoSmsInFlight.delete(o.id));
+}
+
 let smsBranchReminderTemplate = 'Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}';
 
 function saveSmsSettings(){
@@ -7346,6 +7388,7 @@ function applyUkrStatus(o, statusItem){
   if(!statusItem) return {shipped:false, delivered:false, returned:false, paid:false, completed:false};
   const wasShipped = o.shipped, wasDelivered = o.delivered, wasReturned = o.npReturned, wasPaid = o.paid;
   const wasCompleted = o.delivered && o.paid;
+  const wasAtBranch = isAtBranchAwaitingPickup(o);
   o.ukrStatusText = statusItem.eventName || '';
   const event = Number(statusItem.event);
   const reasonId = Number(statusItem.eventReason_id);
@@ -7378,6 +7421,7 @@ function applyUkrStatus(o, statusItem){
   // якщо посилка більше не в цьому стані (видано, повернено тощо)
   if(isAtBranchAwaitingPickup(o)){
     if(!o.atBranchSince) o.atBranchSince = todayStr();
+    if(!wasAtBranch) maybeAutoArrivedSms(o);
   } else {
     o.atBranchSince = '';
   }
@@ -8086,7 +8130,9 @@ function ttnResultHtml(o){
       · <a href="#" onclick="syncNpStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з НП</a>
       ${!isLinked ? `· <a href="#" onclick="unlinkTtn(${o.id});return false;" style="color:var(--saffron);">відкріпити (лишити в НП)</a>` : ''}
       · <a href="#" onclick="${isLinked ? `unlinkTtn(${o.id})` : `cancelNpWaybill(${o.id})`};return false;" style="color:var(--danger);">${isLinked ? 'відв\'язати ТТН' : 'видалити ТТН'}</a>
+      ${!isLinked ? `· <a href="#" onclick="updateNpRecipient(${o.id});return false;" style="color:var(--saffron);">оновити отримувача (ім'я, телефон)</a>` : ''}
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
+      <span id="ttn-recipient-status-${o.id}"></span>
       <span id="ttn-cod-status-${o.id}"></span>
       ${!isLinked ? `<div style="margin-top:6px;color:var(--saffron);">⚠️ Звірте прізвище на цій накладній у кабінеті <a href="https://new.novaposhta.ua" target="_blank" style="color:var(--saffron);text-decoration:underline;">my.novaposhta.ua</a> — НП іноді підставляє старе ім'я, якщо цей телефон вже раніше десь фігурував. Замовлення: <strong>${escapeAttr(o.customer)}</strong>.</div>` : ''}
       </div>`;
@@ -8182,6 +8228,45 @@ async function resolveNpRecipientByPhone(o, name){
     contactRef = c0.Ref; npName = c0.Description;
   }
   return {counterpartyRef: cp.Ref, contactRef, npName: npName || cp.Description || ''};
+}
+
+// Оновлює в уже створеній накладній НП ім'я та телефон отримувача з поточного замовлення.
+// Кроки: 1) контактна особа отримувача (ContactPerson/update) 2) накладна (InternetDocument/update)
+// 3) читаємо назад зі статусу накладної й порівнюємо — «ок» від НП ще не означає, що змінилось.
+async function updateNpRecipient(orderId){
+  const o = orderById(orderId);
+  if(!o || !o.ttnRef) return;
+  if(!o.customer || !o.phone){ alert('У замовленні має бути ім\'я та телефон отримувача.'); return; }
+  if(!confirm(`Оновити в накладній НП ${o.ttnNumber} отримувача на:\n${o.customer}, ${o.phone}?`)) return;
+  const el = document.getElementById(`ttn-recipient-status-${orderId}`);
+  const show = (msg, ok) => { if(el) el.innerHTML = ` <span style="color:var(--${ok===false?'danger':(ok?'cardamom':'text-muted')});">${msg}</span>`; };
+  let step = '';
+  try{
+    show('Оновлюю...');
+    const name = splitFullName(o.customer);
+    step = 'пошук отримувача';
+    const rec = await resolveNpRecipientByPhone(o, name);
+    step = 'оновлення контактної особи';
+    await npApiCall('ContactPerson', 'update', {
+      Ref: rec.contactRef, CounterpartyRef: rec.counterpartyRef,
+      FirstName: name.FirstName, MiddleName: name.MiddleName, LastName: name.LastName, Phone: npPhone(o.phone)
+    });
+    step = 'оновлення накладної';
+    await npApiCall('InternetDocument', 'update', {
+      Ref: o.ttnRef,
+      Recipient: rec.counterpartyRef, ContactRecipient: rec.contactRef, RecipientsPhone: npPhone(o.phone)
+    });
+    step = 'перевірка';
+    const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {Documents: [{DocumentNumber: o.ttnNumber, Phone: o.phone || ''}]});
+    const d = data && data[0];
+    const got = String((d && (d.RecipientFullName || d.RecipientFullNameEW)) || '').toLowerCase();
+    console.log('[np recipient] status after update', d);
+    const want = name.LastName.toLowerCase();
+    if(got && got.includes(want)) show(`✓ НП підтвердила отримувача: ${escapeAttr(d.RecipientFullName || d.RecipientFullNameEW)}`, true);
+    else show(`⚠ НП прийняла запит, але в накладній досі: «${escapeAttr((d && (d.RecipientFullName || d.RecipientFullNameEW)) || '—')}». Якщо посилка вже в дорозі, зміну даних треба робити в кабінеті НП («Зміна даних»).`, false);
+  }catch(err){
+    show(`Помилка (${step}): ${escapeAttr(err.message)}`, false);
+  }
 }
 
 async function updateNpCodAmount(orderId){
@@ -8395,6 +8480,7 @@ function isInTransitOnly(o){
 // Будь-який інший код означає, що відправлення вже рухається по мережі НП (це ще не доставка).
 function applyNpStatus(o, statusItem){
   if(!statusItem) return {shipped:false, delivered:false, archived:false, returned:false, paid:false, completed:false};
+  const wasAtBranchNp = isAtBranchAwaitingPickup(o); // до того, як запишемо новий статус
   o.npStatusText = statusItem.Status || '';
   o.npStatusCode = statusItem.StatusCode || '';
   const wasShipped = o.shipped;
@@ -8455,6 +8541,7 @@ function applyNpStatus(o, statusItem){
     const arrived = parseFlexibleDateToIso(statusItem.DateFirstDayStorage) || parseFlexibleDateToIso(statusItem.ActualDeliveryDate);
     if(arrived && arrived <= todayStr() && (!o.atBranchSince || arrived < o.atBranchSince)) o.atBranchSince = arrived;
     else if(!o.atBranchSince) o.atBranchSince = todayStr();
+    if(!wasAtBranchNp) maybeAutoArrivedSms(o);
   } else {
     o.atBranchSince = '';
   }
@@ -12183,7 +12270,7 @@ function syncQtyFromOrders(){
 
 /* ---------- navigation ---------- */
 
-const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','cash','invoices','reports'];
+const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','cash','invoices','reports','settings'];
 function showSection(name){
   SECTIONS.forEach(s => {
     document.getElementById('section-'+s).classList.toggle('active', s===name);
@@ -12198,6 +12285,7 @@ function showSection(name){
   if(name === 'cash') renderCash();
   if(name === 'invoices') initInvoicesSection();
   if(name === 'reports') renderReports();
+  if(name === 'settings') renderAppSettings();
   if(name === 'orders') startTelegramPolling(); else stopTelegramPolling();
 }
 
