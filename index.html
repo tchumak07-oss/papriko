@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.67.0 · 21.10.2026 20:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.67.1 · 21.10.2026 20:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5174,7 +5174,7 @@ function smsHistoryText(o){
 }
 function smsHistoryHtml(o){
   const log = (o.smsLog || []);
-  if(!log.length && !o.customerSmsSent) return '';
+  if(!log.length && !o.customerSmsSent) return `<div class="hint" style="margin-top:6px;"><strong>✉ Історія SMS:</strong> ще не надсилали</div>`;
   const okN = log.filter(l => l.ok).length;
   const rows = log.slice().reverse().map(l => `<div style="color:${l.ok?'var(--cardamom)':'var(--danger)'};">${l.ok?'✓':'✗'} ${smsLogDateUa(l.date)} ${escapeAttr(l.time||'')} — ${l.ok ? smsKindLabel(l.kind) : 'помилка: ' + escapeAttr(l.error||'')}</div>`).join('');
   return `<div class="hint" style="margin-top:6px;"><strong>✉ Історія SMS:</strong> надіслано ${okN} раз(ів)${log.length ? '' : ' (раніше, без дат)'}${rows ? '<div style="margin:2px 0 0 4px;">' + rows + '</div>' : ''}</div>`;
