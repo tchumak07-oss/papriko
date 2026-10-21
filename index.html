@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.66.0 · 21.10.2026 11:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.66.1 · 21.10.2026 13:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6731,6 +6731,14 @@ function toggleOrderPaid(id, checked){
 async function cancelCodControlOnPaid(o){
   const amount = Number(o.codAmount)||0;
   if(amount <= 0) return;
+  if(!o.ttnRef && !o.ukrShipmentUuid){
+    // ТТН ще не створена — просто прибираємо суму контролю оплати, щоб вона не потрапила в нову накладну
+    o.codAmountWas = amount;
+    o.codAmount = 0;
+    const inp = document.getElementById(`ship-cod-${o.id}`); if(inp) inp.value = '';
+    renderOrders(); scheduleSave();
+    return;
+  }
   const statusEl = document.getElementById(`ttn-cod-status-${o.id}`) || document.getElementById(`ukr-cod-status-${o.id}`);
   const say = (html)=>{ if(statusEl) statusEl.innerHTML = html; };
   try{
@@ -7598,7 +7606,7 @@ async function createUkrShipment(orderId){
         declaredPrice: Number(o.cost) || calcOrder(o).total || 100
       }]
     };
-    if(o.codAmount && Number(o.codAmount) > 0){
+    if(o.codAmount && Number(o.codAmount) > 0 && !o.paid){ // оплачене замовлення — без післяплати
       shipmentBody.postPay = Number(o.codAmount);
       if(ukrSender.iban){
         shipmentBody.transferPostPayToBankAccount = true;
@@ -8445,7 +8453,7 @@ async function createNpWaybill(orderId){
       RecipientsPhone: npPhone(o.phone),
       NewAddress: '1'
     };
-    if(o.codAmount && Number(o.codAmount) > 0){
+    if(o.codAmount && Number(o.codAmount) > 0 && !o.paid){ // оплачене замовлення — без контролю оплати
       // «Контроль оплати» — кошти йдуть напряму на розрахунковий рахунок ФОП (за договором з NovaPay),
       // на відміну від звичайної післяплати з поверненням на картку.
       docParams.AfterpaymentOnGoodsCost = String(o.codAmount);
