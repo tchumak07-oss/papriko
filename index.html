@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.65.0 · 20.10.2026 16:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.66.0 · 21.10.2026 11:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1624,6 +1624,11 @@
         <span><strong>Автоматично надсилати SMS, коли посилка прибула у відділення</strong><br>
         <span class="hint">Під час оновлення статусів Нової Пошти та Укрпошти (кнопка, автооновлення, масова перевірка) програма надішле клієнту SMS за шаблоном «прибула у відділення» — по одному разу на посилку. Не надсилається, якщо немає телефону чи ТТН, не вказано ключ SMS, SMS про прибуття вже надсилали, або посилка прибула понад 2 дні тому (щоб старі посилки не отримали SMS при першому оновленні).</span></span>
       </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;cursor:pointer;margin-top:14px;">
+        <input type="checkbox" id="setAutoSmsShipped" onchange="saveAppSettings()" style="width:auto;margin-top:3px;accent-color:var(--saffron);">
+        <span><strong>Автоматично надсилати SMS, коли посилка виїхала (відправлена)</strong><br>
+        <span class="hint">Коли оновлення статусу НП чи Укрпошти вперше показало, що посилка вже відправлена, клієнт отримає SMS за шаблоном «відправлено» — один раз. Не надсилається, якщо SMS про відправку вже йшла (у т.ч. через галочку в замовленні), немає телефону чи ТТН, замовлення старше 3 днів, або посилка вже у відділенні.</span></span>
+      </label>
       <div class="hint" id="setSaved" style="margin-top:8px;"></div>
       <p class="hint" style="margin-top:12px;">Ключ SMS Fly, ім'я відправника і шаблони текстів лишаються в «Налаштування доставки» (вкладка «Замовлення»). Сюди додаватимемо решту перемикачів.</p>
     </div></div>
@@ -2052,7 +2057,7 @@ function applyRemoteData(data){
   smsTemplate = data.smsTemplate || smsTemplate;
   smsArrivedTemplate = data.smsArrivedTemplate || smsArrivedTemplate;
   smsBranchReminderTemplate = data.smsBranchReminderTemplate || smsBranchReminderTemplate;
-  appSettings = Object.assign({autoSmsArrived: false}, data.appSettings || {});
+  appSettings = Object.assign({autoSmsArrived: false, autoSmsShipped: false}, data.appSettings || {});
   if(typeof renderAppSettings === 'function') renderAppSettings();
   anthropicApiKey = data.anthropicApiKey || '';
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
@@ -4988,12 +4993,14 @@ let smsToken = '';
 let smsSender = 'Papriko';
 let smsTemplate = 'Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!';
 let smsArrivedTemplate = 'Vasha posylka pributla u viddilennya. TTN: {ttn}. Suma zamovlennya: {sum} grn. Zaberit, bud laska!';
-let appSettings = {autoSmsArrived: false};
+let appSettings = {autoSmsArrived: false, autoSmsShipped: false};
 function renderAppSettings(){
   const c = document.getElementById('setAutoSmsArrived'); if(c) c.checked = !!appSettings.autoSmsArrived;
+  const c2 = document.getElementById('setAutoSmsShipped'); if(c2) c2.checked = !!appSettings.autoSmsShipped;
 }
 function saveAppSettings(){
   appSettings.autoSmsArrived = !!document.getElementById('setAutoSmsArrived').checked;
+  appSettings.autoSmsShipped = !!document.getElementById('setAutoSmsShipped').checked;
   const el = document.getElementById('setSaved'); if(el) el.textContent = 'Збережено.';
   scheduleSave();
 }
@@ -5011,6 +5018,22 @@ function maybeAutoArrivedSms(o){
     scheduleSave();
     if(typeof renderOrders === 'function') renderOrders();
   }).catch(e => console.warn('[auto SMS]', e)).finally(() => autoSmsInFlight.delete(o.id));
+}
+
+// автоматичне SMS «відправлено» — коли оновлення статусу НП/Укрпошти вперше показало, що посилка виїхала
+function maybeAutoShippedSms(o){
+  if(!appSettings.autoSmsShipped || !smsToken) return;
+  if(autoSmsInFlight.has(o.id)) return;
+  if(isAtBranchAwaitingPickup(o)) return; // вже у відділенні — для цього є SMS «прибула»
+  if(!o.phone || toIntlPhone(o.phone).length !== 12 || !(o.ttnNumber || o.ukrTtnNumber)) return;
+  if(o.customerSmsSent || (o.smsLog||[]).some(l => l.ok && l.kind === 'shipped')) return;
+  if(o.date && daysBetween(o.date, todayStr()) > 3) return; // старі замовлення при першому оновленні не чіпаємо
+  autoSmsInFlight.add(o.id);
+  notifyCustomerSms(o).then(res => {
+    if(!res.ok) console.warn('[auto SMS shipped] не надіслано', o.customer, res.error);
+    scheduleSave();
+    if(typeof renderOrders === 'function') renderOrders();
+  }).catch(e => console.warn('[auto SMS shipped]', e)).finally(() => autoSmsInFlight.delete(o.id));
 }
 
 let smsBranchReminderTemplate = 'Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}';
@@ -7435,6 +7458,7 @@ function applyUkrStatus(o, statusItem){
   }
 
   if(o.npReturned && o.status !== 'Скасовано') o.status = 'Повернено';
+  if(o.shipped && !wasShipped && !o.npReturned) maybeAutoShippedSms(o);
 
   return {
     shipped: o.shipped && !wasShipped,
@@ -8252,10 +8276,44 @@ async function updateNpRecipient(orderId){
       FirstName: name.FirstName, MiddleName: name.MiddleName, LastName: name.LastName, Phone: npPhone(o.phone)
     });
     step = 'оновлення накладної';
-    await npApiCall('InternetDocument', 'update', {
+    // НП вимагає для update повний набір полів накладної (інакше «CitySender not selected» тощо) —
+    // збираємо його так само, як при створенні, але отримувача задаємо Ref-ами
+    if(!npSender.citySenderRef || !npSender.senderRef || !npSender.senderAddressRef || !npSender.contactSenderRef){
+      throw new Error('Спочатку натисніть «Завантажити відправника з кабінету» в «Налаштування доставки».');
+    }
+    const seatsCount = parseInt(o.seatsAmount, 10) || 1;
+    const weightPerSeat = (Number(o.weight) || 0.5) / seatsCount;
+    const optionsSeat = Array.from({length: seatsCount}, () => ({
+      volumetricVolume: ((20 * 15 * 10) / 1000000).toFixed(4),
+      volumetricWidth: '15', volumetricLength: '20', volumetricHeight: '10',
+      weight: weightPerSeat.toFixed(2)
+    }));
+    const isCourier = o.npDeliveryType === 'courier';
+    const recipientAddress = isCourier ? (o.npRecipientAddressRef || await resolveNpRecipientAddressRef(o)) : o.warehouseRef;
+    const docDate = (typeof dateSortValue === 'function' && dateSortValue(o.date) < dateSortValue(todayStr())) ? todayStr() : o.date;
+    const upd = {
       Ref: o.ttnRef,
+      PayerType: o.payerType === 'Відправник' ? 'Sender' : 'Recipient',
+      PaymentMethod: o.paymentMethod === 'Безготівка' ? 'NonCash' : 'Cash',
+      DateTime: npDateFormat(docDate),
+      CargoType: 'Cargo',
+      Weight: String(o.weight || 0.5),
+      OptionsSeat: optionsSeat,
+      ServiceType: isCourier ? 'WarehouseDoors' : 'WarehouseWarehouse',
+      SeatsAmount: String(seatsCount),
+      Description: o.description || 'Товар',
+      Cost: String(o.cost || calcOrder(o).total || 100),
+      CitySender: npSender.citySenderRef,
+      Sender: npSender.senderRef,
+      SenderAddress: npSender.senderAddressRef,
+      ContactSender: npSender.contactSenderRef,
+      SendersPhone: npSender.sendersPhone,
+      CityRecipient: o.cityRef,
+      RecipientAddress: recipientAddress,
       Recipient: rec.counterpartyRef, ContactRecipient: rec.contactRef, RecipientsPhone: npPhone(o.phone)
-    });
+    };
+    if(o.codAmount && Number(o.codAmount) > 0) upd.AfterpaymentOnGoodsCost = String(o.codAmount);
+    await npApiCall('InternetDocument', 'update', upd);
     step = 'перевірка';
     const data = await npApiCall('TrackingDocument', 'getStatusDocuments', {Documents: [{DocumentNumber: o.ttnNumber, Phone: o.phone || ''}]});
     const d = data && data[0];
@@ -8545,6 +8603,7 @@ function applyNpStatus(o, statusItem){
   } else {
     o.atBranchSince = '';
   }
+  if(o.shipped && !wasShipped && !o.npReturned) maybeAutoShippedSms(o);
 
   return {
     shipped: o.shipped && !wasShipped,
