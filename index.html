@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.66.1 · 21.10.2026 13:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.67.0 · 21.10.2026 20:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1867,7 +1867,7 @@
       <span class="hint" id="smsDaySummary"></span>
     </div>
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-      <div class="wh-row-head" style="grid-template-columns:130px 1fr 130px 150px 1fr 110px;"><div>Статус</div><div>Клієнт</div><div>Телефон</div><div>ТТН</div><div>Примітка</div><div></div></div>
+      <div class="wh-row-head" style="grid-template-columns:120px 1fr 120px 140px 1fr 1.3fr 100px;"><div>Статус</div><div>Клієнт</div><div>Телефон</div><div>ТТН</div><div>Примітка</div><div>Коли надсилали SMS</div><div></div></div>
       <div id="reportSmsDay"></div>
     </div></div>
   </div>
@@ -5156,9 +5156,28 @@ async function notifyCustomerSms(o){
   const d = new Date(), z = n => String(n).padStart(2,'0');
   if(!Array.isArray(o.smsLog)) o.smsLog = [];
   o.smsLog.push({date: todayStr(), time: z(d.getHours())+':'+z(d.getMinutes()), kind, ok: !!res.ok, error: res.ok ? '' : String(res.error||'').slice(0,160)});
-  if(o.smsLog.length > 8) o.smsLog = o.smsLog.slice(-8);
+  if(o.smsLog.length > 40) o.smsLog = o.smsLog.slice(-40);
   if(res.ok) o.customerSmsSent = true;
   return res;
+}
+
+/* ---------- історія SMS замовлення ---------- */
+function smsLogDateUa(d){ const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d||'—'); }
+function smsKindLabel(k){ return k === 'arrived' ? 'прибула у відділення' : 'відправлено'; }
+// короткий текст: «2 SMS: 20.10.2026 12:30 відправлено; 21.10.2026 09:10 прибула у відділення»
+function smsHistoryText(o){
+  const log = (o.smsLog || []);
+  const ok = log.filter(l => l.ok);
+  if(!log.length) return o.customerSmsSent ? 'надіслано раніше (без дати)' : '—';
+  const parts = log.map(l => `${smsLogDateUa(l.date)} ${l.time||''} ${l.ok ? smsKindLabel(l.kind) : '✗ помилка'}`.replace(/\s+/g,' '));
+  return `${ok.length} SMS${ok.length !== log.length ? ` (спроб ${log.length})` : ''}: ` + parts.join('; ');
+}
+function smsHistoryHtml(o){
+  const log = (o.smsLog || []);
+  if(!log.length && !o.customerSmsSent) return '';
+  const okN = log.filter(l => l.ok).length;
+  const rows = log.slice().reverse().map(l => `<div style="color:${l.ok?'var(--cardamom)':'var(--danger)'};">${l.ok?'✓':'✗'} ${smsLogDateUa(l.date)} ${escapeAttr(l.time||'')} — ${l.ok ? smsKindLabel(l.kind) : 'помилка: ' + escapeAttr(l.error||'')}</div>`).join('');
+  return `<div class="hint" style="margin-top:6px;"><strong>✉ Історія SMS:</strong> надіслано ${okN} раз(ів)${log.length ? '' : ' (раніше, без дат)'}${rows ? '<div style="margin:2px 0 0 4px;">' + rows + '</div>' : ''}</div>`;
 }
 
 /* ---------- звіт: SMS клієнтам за день ---------- */
@@ -5227,12 +5246,13 @@ function renderSmsDayReport(){
     const col = state==='sent' ? 'var(--cardamom)' : (bad ? 'var(--danger)' : 'var(--text-muted)');
     const mark = state==='sent' ? '✓ Надіслано' : (state==='error' ? '✗ Помилка' : (state==='before' ? '• Раніше' : '✗ Не надіслано'));
     const canSend = bad && o.phone && toIntlPhone(o.phone).length===12 && (o.ttnNumber||o.ukrTtnNumber);
-    return `<div class="wh-row" style="grid-template-columns:130px 1fr 130px 150px 1fr 110px;${bad?'background:rgba(180,60,40,0.07);':''}">
+    return `<div class="wh-row" style="grid-template-columns:120px 1fr 120px 140px 1fr 1.3fr 100px;${bad?'background:rgba(180,60,40,0.07);':''}">
       <div class="cv" style="color:${col};font-weight:600;">${mark}</div>
       <div>${escapeAttr(o.customer||'Без імені')}</div>
       <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.phone||'—')}</div>
       <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber||o.ukrTtnNumber||'—')}</div>
       <div class="hint" style="color:${bad?'var(--danger)':'inherit'};">${escapeAttr(note)}</div>
+      <div class="hint" style="font-size:12px;">${escapeAttr(smsHistoryText(o))}</div>
       <div>${canSend ? `<button class="btn btn-sm" onclick="smsSendToOrders([orderById(${o.id})],{}).then(renderSmsDayReport)">Надіслати</button>` : ''}</div>
     </div>`;
   }).join('');
@@ -5250,13 +5270,13 @@ async function exportSmsDayExcel(){
   if(!rows.length){ alert('За цей період немає замовлень.'); return; }
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('SMS '+day);
-  ws.columns = [{header:'Статус',key:'st',width:16},{header:'Клієнт',key:'c',width:26},{header:'Телефон',key:'p',width:16},{header:'ТТН',key:'t',width:22},{header:'Примітка',key:'n',width:36}];
+  ws.columns = [{header:'Статус',key:'st',width:16},{header:'Клієнт',key:'c',width:26},{header:'Телефон',key:'p',width:16},{header:'ТТН',key:'t',width:22},{header:'Примітка',key:'n',width:36},{header:'Скільки разів і коли надсилали SMS',key:'h',width:60}];
   const label = {sent:'Надіслано', error:'Помилка', before:'Раніше', no:'Не надіслано'};
   const B = {top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}};
   ws.getRow(1).font = {bold:true};
   ws.getRow(1).eachCell(c => { c.border = B; c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFD9B896'}}; });
   rows.forEach(({o,state,note}) => {
-    const r = ws.addRow({st:label[state], c:o.customer||'Без імені', p:o.phone||'', t:o.ttnNumber||o.ukrTtnNumber||'', n:note});
+    const r = ws.addRow({st:label[state], c:o.customer||'Без імені', p:o.phone||'', t:o.ttnNumber||o.ukrTtnNumber||'', n:note, h:smsHistoryText(o)});
     r.eachCell({includeEmpty:true}, c => { c.border = B; if(state==='no'||state==='error') c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFF3C6C0'}}; });
   });
   ws.views = [{state:'frozen', ySplit:1}];
@@ -7269,6 +7289,7 @@ function ukrResultHtml(o){
       <span id="ukr-phone-status-${o.id}"></span>
       <span id="ukr-check-delivery-status-${o.id}"></span>
       <span id="ukr-cod-status-${o.id}"></span>
+      ${smsHistoryHtml(o)}
       </div>`;
   }
   return '';
@@ -8166,6 +8187,7 @@ function ttnResultHtml(o){
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
       <span id="ttn-recipient-status-${o.id}"></span>
       <span id="ttn-cod-status-${o.id}"></span>
+      ${smsHistoryHtml(o)}
       ${!isLinked ? `<div style="margin-top:6px;color:var(--saffron);">⚠️ Звірте прізвище на цій накладній у кабінеті <a href="https://new.novaposhta.ua" target="_blank" style="color:var(--saffron);text-decoration:underline;">my.novaposhta.ua</a> — НП іноді підставляє старе ім'я, якщо цей телефон вже раніше десь фігурував. Замовлення: <strong>${escapeAttr(o.customer)}</strong>.</div>` : ''}
       </div>`;
   }
