@@ -372,7 +372,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.67.1 · 21.10.2026 20:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.68.0 · 23.10.2026 17:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1870,6 +1870,24 @@
       <div class="wh-row-head" style="grid-template-columns:120px 1fr 120px 140px 1fr 1.3fr 100px;"><div>Статус</div><div>Клієнт</div><div>Телефон</div><div>ТТН</div><div>Примітка</div><div>Коли надсилали SMS</div><div></div></div>
       <div id="reportSmsDay"></div>
     </div></div>
+  </div>
+
+  <div class="section-title">
+    <span id="rb-pickup-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-pickup');renderPickupStats()">▸ Статистика: у які дні забирають посилки</span>
+  </div>
+  <div id="rb-pickup" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Скільки посилок клієнти забрали в кожен день тижня — окремо Нова Пошта й Укрпошта (самовивіз не враховується). Береться дата отримання з відстеження перевізника; якщо перевізник її не дав, — день, коли програма вперше побачила статус «отримано».</p>
+    <div class="fb-row" style="margin:0 0 12px;align-items:center;flex-wrap:wrap;">
+      <input type="date" id="pickFrom" style="width:auto;" oninput="renderPickupStats()" title="Забрано з">
+      <span class="hint">—</span>
+      <input type="date" id="pickTo" style="width:auto;" oninput="renderPickupStats()" title="Забрано по">
+      <button class="btn btn-sm" onclick="pickupSetRange(30)">30 днів</button>
+      <button class="btn btn-sm" onclick="pickupSetRange(90)">90 днів</button>
+      <button class="btn btn-sm" onclick="pickupSetRange(365)">Рік</button>
+      <button class="btn btn-sm" onclick="pickupSetRange(0)">Увесь час</button>
+      <span class="hint" id="pickSummary"></span>
+    </div>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;" id="reportPickup"></div></div>
   </div>
 
   <div class="section-title">
@@ -5162,6 +5180,58 @@ async function notifyCustomerSms(o){
 }
 
 /* ---------- історія SMS замовлення ---------- */
+/* ---------- статистика: у які дні тижня забирають посилки ---------- */
+function pickupSetRange(days){
+  const f = document.getElementById('pickFrom'), t = document.getElementById('pickTo');
+  t.value = todayStr();
+  if(days > 0){
+    const d = new Date(); d.setDate(d.getDate() - days + 1);
+    f.value = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  } else f.value = '';
+  renderPickupStats();
+}
+function pickupStatsData(from, to){
+  const names = ['Понеділок','Вівторок','Середа','Четвер',"П'ятниця",'Субота','Неділя'];
+  const rows = names.map(n => ({name:n, np:0, ukr:0}));
+  let total = 0, noDate = 0;
+  orders.forEach(o => {
+    if(!o.delivered || o.npReturned) return;
+    const carrier = o.deliveryMethod === 'Нова Пошта' ? 'np' : (o.deliveryMethod === 'Укрпошта' ? 'ukr' : '');
+    if(!carrier) return;
+    const ds = o.deliveredDate;
+    if(!ds || !/^\d{4}-\d{2}-\d{2}/.test(ds)){ noDate++; return; }
+    const day = ds.slice(0,10);
+    if((from && day < from) || (to && day > to)) return;
+    const [y,m,d] = day.split('-').map(Number);
+    const wd = (new Date(y, m-1, d).getDay() + 6) % 7; // 0 = понеділок
+    rows[wd][carrier]++; total++;
+  });
+  return {rows, total, noDate};
+}
+function renderPickupStats(){
+  const el = document.getElementById('reportPickup'); if(!el) return;
+  const f = document.getElementById('pickFrom'), t = document.getElementById('pickTo');
+  if(!f.value && !t.value && !f.dataset.init){ f.dataset.init = '1'; pickupSetRange(90); return; }
+  const {rows, total, noDate} = pickupStatsData(f.value, t.value);
+  document.getElementById('pickSummary').textContent = `Забрано: ${total}` + (noDate ? ` · без дати отримання (не враховано): ${noDate}` : '');
+  if(!total){ el.innerHTML = '<div class="comp-empty">За цей період немає забраних посилок з датою отримання.</div>'; return; }
+  const max = Math.max(1, ...rows.map(r => r.np + r.ukr));
+  const sum = k => rows.reduce((a,r) => a + r[k], 0);
+  const best = k => { const m = Math.max(...rows.map(r => r[k])); return m > 0 ? rows.filter(r => r[k] === m).map(r => r.name).join(', ') : '—'; };
+  const bar = (n, col) => n ? `<span style="display:inline-block;height:14px;width:${Math.round(n/max*100)}%;background:${col};border-radius:3px;vertical-align:middle;"></span>` : '';
+  const grid = 'grid-template-columns:110px 70px 70px 70px 1fr;';
+  el.innerHTML = `<div class="wh-row-head" style="${grid}"><div>День</div><div style="text-align:right;">НП</div><div style="text-align:right;">Укрпошта</div><div style="text-align:right;">Разом</div><div></div></div>` +
+    rows.map(r => {
+      const tot = r.np + r.ukr, hot = tot === max && tot > 0;
+      return `<div class="wh-row" style="${grid}${hot?'background:rgba(120,160,80,0.10);':''}">
+        <div class="cv"${hot?' style="font-weight:700;"':''}>${r.name}</div>
+        <div style="text-align:right;">${r.np}</div><div style="text-align:right;">${r.ukr}</div><div style="text-align:right;font-weight:600;">${tot}</div>
+        <div style="white-space:nowrap;">${bar(r.np,'var(--saffron)')}${bar(r.ukr,'var(--cardamom)')}</div></div>`;
+    }).join('') +
+    `<div class="wh-row" style="${grid}border-top:1px solid var(--border-soft);font-weight:600;"><div>Усього</div><div style="text-align:right;">${sum('np')}</div><div style="text-align:right;">${sum('ukr')}</div><div style="text-align:right;">${total}</div><div class="hint" style="font-weight:400;"><span style="color:var(--saffron);">■ НП</span> · <span style="color:var(--cardamom);">■ Укрпошта</span></div></div>
+    <p class="hint" style="margin:10px 0 0;">Найбільше забирають: <strong>Нова Пошта — ${best('np')}</strong>; <strong>Укрпошта — ${best('ukr')}</strong>.</p>`;
+}
+
 function smsLogDateUa(d){ const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d||'—'); }
 function smsKindLabel(k){ return k === 'arrived' ? 'прибула у відділення' : 'відправлено'; }
 // короткий текст: «2 SMS: 20.10.2026 12:30 відправлено; 21.10.2026 09:10 прибула у відділення»
