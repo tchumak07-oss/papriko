@@ -377,7 +377,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.69.0 · 23.10.2026 18:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.70.0 · 24.10.2026 10:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5184,6 +5184,79 @@ async function notifyCustomerSms(o){
   return res;
 }
 
+/* ---------- переадресація посилки (фіксація): клієнт відмовився → посилку переадресували на іншу людину ---------- */
+// Саму переадресацію створюють у кабінеті НП / Укрпошти; тут лише фіксуємо в замовленні: старий отримувач і ТТН
+// йдуть в історію, замовлення переходить на нового отримувача й нову декларацію (ТТН).
+function redirectHistoryHtml(o){
+  const list = o.redirects || [];
+  if(!list.length) return '';
+  const rows = list.slice().reverse().map(r => `<div>↪ ${smsLogDateUa(r.date)}: ${escapeAttr(r.fromName||'—')} (${escapeAttr(r.fromPhone||'—')}, ТТН ${escapeAttr(r.fromTtn||'—')}) → <strong>${escapeAttr(r.toName||'—')}</strong> (${escapeAttr(r.toPhone||'—')}, ТТН ${escapeAttr(r.toTtn||'—')})${r.dest ? ' · ' + escapeAttr(r.dest) : ''}${r.cost ? ' · переадресація ' + fmt(r.cost) + ' грн' : ''}${r.note ? ' · ' + escapeAttr(r.note) : ''}</div>`).join('');
+  return `<div class="hint" style="margin-top:6px;color:var(--saffron);"><strong>↪ Переадресовано (${list.length}):</strong><div style="margin:2px 0 0 4px;">${rows}</div></div>`;
+}
+function redirectOpen(orderId){
+  const o = orderById(orderId); if(!o) return;
+  const isUkr = o.deliveryMethod === 'Укрпошта';
+  const curTtn = isUkr ? (o.ukrTtnNumber || '') : (o.ttnNumber || '');
+  const old = document.getElementById('redirectModal'); if(old) old.remove();
+  const m = document.createElement('div');
+  m.id = 'redirectModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML = `<div class="catalog-panel" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:20px;">
+    <div style="font-family:'Fraunces',serif;font-size:20px;margin-bottom:6px;">↪ Переадресація посилки</div>
+    <p class="hint" style="margin:0 0 12px;">Зафіксуйте в замовленні, що посилка <strong>${escapeAttr(o.customer||'')}</strong> (ТТН ${escapeAttr(curTtn||'—')}) переадресована на іншу людину. Саму переадресацію створюють у кабінеті ${isUkr?'Укрпошти':'Нової Пошти'}; тут запам'ятовується історія, а замовлення переходить на нового отримувача й нову ТТН.</p>
+    <div class="delivery-grid">
+      <div style="grid-column:span 2;"><label>Новий отримувач (ПІБ)</label><input type="text" id="rdName" placeholder="Прізвище Ім'я По батькові"></div>
+      <div><label>Телефон нового отримувача</label><input type="text" id="rdPhone" placeholder="0XX XXX XX XX"></div>
+      <div><label>Нова ТТН / декларація</label><input type="text" id="rdTtn" placeholder="${isUkr?'номер ШКІ':'20 4515 ...'}"></div>
+      <div style="grid-column:span 2;"><label>Куди (місто, відділення) — для довідки</label><input type="text" id="rdDest" placeholder="напр. Київ, відділення №12"></div>
+      <div><label>Вартість переадресації, грн</label><input type="number" step="0.01" id="rdCost" placeholder="необов'язково"></div>
+      <div><label>Примітка</label><input type="text" id="rdNote" placeholder="напр. клієнт відмовився"></div>
+    </div>
+    <p class="hint" style="margin:10px 0 0;">Що зміниться в замовленні: ім'я й телефон, ТТН, статус посилки (відмова/повернення знімається, «Відправлено» лишається), SMS-історія старого отримувача зберігається в записі про переадресацію, а новий клієнт зможе отримати свої SMS. Старі ТТН і ім'я лишаються в історії. Можна скасувати кнопкою «Скасувати» внизу екрана.</p>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+      <button class="btn-ghost" id="rdCancel">Закрити</button>
+      <button class="btn btn-primary" id="rdApply">Зафіксувати переадресацію</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close = () => m.remove();
+  m.addEventListener('mousedown', e => { if(e.target === m) close(); });
+  document.getElementById('rdCancel').onclick = close;
+  document.getElementById('rdApply').onclick = () => {
+    const name = document.getElementById('rdName').value.trim();
+    const phone = document.getElementById('rdPhone').value.trim();
+    const ttn = normalizeTtnNumber(document.getElementById('rdTtn').value);
+    if(!name){ alert('Вкажіть нового отримувача.'); return; }
+    if(!phone){ alert('Вкажіть телефон нового отримувача.'); return; }
+    if(ttn.length < 10){ alert('Вкажіть номер нової ТТН (декларації) — мінімум 10 цифр.'); return; }
+    const dup = orders.find(x => x.id !== o.id && (normalizeTtnNumber(x.ttnNumber) === ttn || normalizeTtnNumber(x.ukrTtnNumber) === ttn));
+    if(dup && !confirm(`ТТН ${ttn} уже є в іншому замовленні («${dup.customer||'?'}»). Все одно зафіксувати?`)) return;
+    redirectApply(o.id, {name, phone, ttn, dest: document.getElementById('rdDest').value.trim(), cost: parseFloat(document.getElementById('rdCost').value) || 0, note: document.getElementById('rdNote').value.trim()});
+    close();
+  };
+}
+function redirectApply(orderId, r){
+  const o = orderById(orderId); if(!o) return;
+  const isUkr = o.deliveryMethod === 'Укрпошта';
+  const snapshot = JSON.parse(JSON.stringify(o));
+  const fromTtn = isUkr ? (o.ukrTtnNumber || '') : (o.ttnNumber || '');
+  if(!Array.isArray(o.redirects)) o.redirects = [];
+  o.redirects.push({date: todayStr(), fromName: o.customer || '', fromPhone: o.phone || '', fromTtn, toName: r.name, toPhone: r.phone, toTtn: r.ttn, dest: r.dest, cost: r.cost, note: r.note,
+    fromStatus: (isUkr ? o.ukrStatusText : o.npStatusText) || '', fromSmsLog: o.smsLog || []});
+  o.customer = r.name;
+  o.phone = r.phone;
+  if(isUkr){ o.ukrTtnNumber = r.ttn; o.ukrShipmentUuid = ''; o.ukrRecipientUuid = ''; o.ukrStatusText = ''; }
+  else { o.ttnNumber = r.ttn; o.ttnRef = ''; o.npStatusText = ''; o.npStatusCode = ''; }
+  o.npReturned = false; o.delivered = false; o.shipped = true;
+  o.atBranchSince = '';
+  o.smsLog = []; o.customerSmsSent = false;
+  o.ttnTelegramNotified = false;
+  o.notes = (o.notes ? o.notes + ' · ' : '') + `↪ Переадресовано ${smsLogDateUa(todayStr())}: ${r.dest || 'новий отримувач'}${r.note ? ' (' + r.note + ')' : ''}`;
+  undoStack.push({label:'Переадресація', restoreFn: () => { const i = orders.findIndex(x => x.id === orderId); if(i > -1){ orders[i] = snapshot; renderOrders(); renderOrdersSummary(); scheduleSave(); } }});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`Переадресацію зафіксовано: ${r.name}`, true);
+  renderOrders(); renderOrdersSummary(); scheduleSave();
+}
+
 /* ---------- історія SMS замовлення ---------- */
 /* ---------- статистика: у які дні тижня забирають посилки ---------- */
 function pickupSetRange(days){
@@ -7361,9 +7434,11 @@ function ukrResultHtml(o){
       ${o.ukrShipmentUuid ? `· <a href="#" onclick="cancelUkrShipment(${o.id});return false;" style="color:var(--danger);">видалити</a>` : `· <a href="#" onclick="unlinkUkrTtn(${o.id});return false;" style="color:var(--danger);">відв'язати</a>`}
       ${o.ukrStatusText ? `<br>Статус Укрпошти: <strong>${escapeAttr(o.ukrStatusText)}</strong>` : ''}
       ${o.ukrShipmentUuid ? `· <a href="#" onclick="changeUkrRecipientPhone(${o.id});return false;" style="color:var(--saffron);">змінити телефон отримувача</a>` : ''}
+      · <a href="#" onclick="redirectOpen(${o.id});return false;" style="color:var(--saffron);">↪ переадресація</a>
       <span id="ukr-phone-status-${o.id}"></span>
       <span id="ukr-check-delivery-status-${o.id}"></span>
       <span id="ukr-cod-status-${o.id}"></span>
+      ${redirectHistoryHtml(o)}
       ${smsHistoryHtml(o)}
       </div>`;
   }
@@ -8259,9 +8334,11 @@ function ttnResultHtml(o){
       ${!isLinked ? `· <a href="#" onclick="unlinkTtn(${o.id});return false;" style="color:var(--saffron);">відкріпити (лишити в НП)</a>` : ''}
       · <a href="#" onclick="${isLinked ? `unlinkTtn(${o.id})` : `cancelNpWaybill(${o.id})`};return false;" style="color:var(--danger);">${isLinked ? 'відв\'язати ТТН' : 'видалити ТТН'}</a>
       ${!isLinked ? `· <a href="#" onclick="updateNpRecipient(${o.id});return false;" style="color:var(--saffron);">оновити отримувача (ім'я, телефон)</a>` : ''}
+      · <a href="#" onclick="redirectOpen(${o.id});return false;" style="color:var(--saffron);">↪ переадресація</a>
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
       <span id="ttn-recipient-status-${o.id}"></span>
       <span id="ttn-cod-status-${o.id}"></span>
+      ${redirectHistoryHtml(o)}
       ${smsHistoryHtml(o)}
       ${!isLinked ? `<div style="margin-top:6px;color:var(--saffron);">⚠️ Звірте прізвище на цій накладній у кабінеті <a href="https://new.novaposhta.ua" target="_blank" style="color:var(--saffron);text-decoration:underline;">my.novaposhta.ua</a> — НП іноді підставляє старе ім'я, якщо цей телефон вже раніше десь фігурував. Замовлення: <strong>${escapeAttr(o.customer)}</strong>.</div>` : ''}
       </div>`;
@@ -12129,6 +12206,7 @@ function orderCollapsedHtml(o, num){
           ${o.shipped ? ((!o.delivered && !o.npReturned && isAtBranchAwaitingPickup(o)) ? `<span class="arrived-badge" title="Посилка вже на відділенні — чекає клієнта${o.atBranchSince ? ' (з ' + o.atBranchSince + ')' : ''}">📍 На місці${o.atBranchSince && daysBetween(o.atBranchSince, todayStr()) > 0 ? ' · ' + daysBetween(o.atBranchSince, todayStr()) + ' дн.' : ''}</span>` : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>') : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
           ${o.npReturned ? '<span class="status-badge" style="background:var(--danger);color:#fff;">⟲ Повернення</span>' : ''}
+          ${(o.redirects||[]).length ? `<span class="status-badge" style="background:var(--surface-2);color:var(--saffron);" title="Переадресовано: ${escapeAttr((o.redirects[o.redirects.length-1].fromName||'')+' → '+(o.redirects[o.redirects.length-1].toName||''))}">↪ Переадр.</span>` : ''}
           ${(o.delivered && !o.paid && Number(o.codAmount) > 0) ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);" title="НП API не передає підтвердження переказу по «Контролю оплати» — перевірте виписку банку">💰 Перевірте оплату</span>' : ''}
           ${c.discount > 0 ? `<span class="status-badge" style="background:var(--danger);color:#fff;" title="Знижка клієнту">🏷 −${fmt(c.discount)} грн</span>` : ''}
           ${o.importedFromNp && o.items.length===0 ? '<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);" title="Створено автоматично з кабінету НП — товари не вказані">⬇ з кабінету НП</span>' : ''}
