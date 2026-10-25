@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.75.0 · 25.10.2026 19:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.75.1 · 25.10.2026 19:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5155,6 +5155,20 @@ async function cbTestConnection(){
     st.innerHTML = `<span style="color:var(--cardamom);">✓ Вхід успішний.</span> Зміна: ${shift && shift.status ? escapeAttr(shift.status) : 'не відкрита (відкриється автоматично при першому чеку)'}.`;
   }catch(e){ st.innerHTML = `<span style="color:var(--danger);">${escapeAttr(e.message)}</span>`; }
 }
+// галочка «🧾 Чек Checkbox»: якщо ТТН уже є, а чека ще не було — пробиває чек одразу (з підтвердженням)
+function cbToggleReceipt(id, checked){
+  const o = orderById(id); if(!o) return;
+  o.fiscalReceipt = !!checked;
+  scheduleSave();
+  const hasTtn = !!(o.ttnNumber || o.ukrTtnNumber);
+  const done = !!(o.cbReceipt && o.cbReceipt.id);
+  if(checked && hasTtn && !done){
+    if(!cbCfg().license){ alert('Спочатку заповніть дані Checkbox: «Налаштування» → «Checkbox».'); renderOrders(); return; }
+    const t = fmt(calcOrder(o).total);
+    if(confirm(`ТТН для «${o.customer||'без імені'}» уже створена, а чека ще не було. Пробити фіскальний чек у Checkbox на ${t} грн зараз?`)){ cbIssueReceipt(id, true); return; }
+  }
+  renderOrders();
+}
 function cbWantsReceipt(o){ return o.fiscalReceipt === undefined ? !!cbCfg().defaultOn : !!o.fiscalReceipt; }
 function cbBuildSell(o){
   const c = cbCfg(), cal = calcOrder(o);
@@ -5227,7 +5241,7 @@ function cbReceiptHtml(o){
   if(r && r.id) return `<div class="hint" style="margin-top:6px;color:var(--cardamom);">🧾 Чек Checkbox пробито${r.fiscal ? ' · фіскальний № <strong>' + escapeAttr(r.fiscal) + '</strong>' : ''} · ${fmt(r.total||0)} грн · <a href="https://check.checkbox.ua/${encodeURIComponent(r.id)}" target="_blank" style="color:var(--saffron);">відкрити чек</a> · ${smsLogDateUa((r.at||'').slice(0,10))}</div>`;
   if(r && r.state === 'pending') return `<div class="hint" style="margin-top:6px;">🧾 Пробиваю чек...</div>`;
   if(r && (r.state === 'error' || r.state === 'unknown')) return `<div class="hint" style="margin-top:6px;color:var(--danger);">🧾 Чек ${r.state === 'unknown' ? 'не підтверджено (можливо, створений — перевірте кабінет Checkbox)' : 'не пробито'}: ${escapeAttr(r.error||'')} · <a href="#" onclick="cbIssueReceipt(${o.id}, true);return false;" style="color:var(--saffron);">пробити ще раз</a></div>`;
-  return wants ? `<div class="hint" style="margin-top:6px;">🧾 Чек Checkbox: ще не пробито · <a href="#" onclick="cbIssueReceipt(${o.id}, true);return false;" style="color:var(--saffron);">пробити зараз</a></div>` : '';
+  return `<div class="hint" style="margin-top:6px;">🧾 Чек Checkbox: ще не пробито · <a href="#" onclick="cbIssueReceipt(${o.id}, true);return false;" style="color:var(--saffron);">пробити зараз</a></div>`;
 }
 
 function smsTplVar(id){ return id === 'setTplShipped' ? smsTemplate : (id === 'setTplArrived' ? smsArrivedTemplate : smsBranchReminderTemplate); }
@@ -12746,9 +12760,9 @@ function orderExpandedHtml(o, num){
             <input type="checkbox" ${o.sendSms?'checked':''} onchange="updateOrderField(${o.id},'sendSms',this.checked)" style="width:auto;accent-color:var(--saffron);">
             Відправити SMS
           </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="Якщо позначено й увімкнено автоматичний режим в «Налаштування» — при створенні ТТН / декларації програма пробиє фіскальний чек у Checkbox">
-            <input type="checkbox" ${cbWantsReceipt(o)?'checked':''} onchange="updateOrderField(${o.id},'fiscalReceipt',this.checked)" style="width:auto;accent-color:var(--saffron);">
-            🧾 Чек Checkbox
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="Позначено — чек пробивається автоматично при створенні ТТН / декларації (якщо увімкнено в «Налаштування»). Якщо ТТН уже створена, а чека ще не було — галочка пробиє чек одразу.">
+            <input type="checkbox" ${cbWantsReceipt(o)?'checked':''} onchange="cbToggleReceipt(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
+            🧾 Чек Checkbox${(o.cbReceipt && o.cbReceipt.id) ? ' <span class="hint">(пробито)</span>' : ''}
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.fromSite?'checked':''} onchange="updateOrderField(${o.id},'fromSite',this.checked)" style="width:auto;accent-color:var(--saffron);">
