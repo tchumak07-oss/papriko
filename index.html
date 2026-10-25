@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.76.0 · 25.10.2026 23:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.76.1 · 25.10.2026 23:12</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6722,7 +6722,7 @@ async function buildTodayShipmentsExcel(shortMode){
     list.forEach(o => {
       const itemsTextS = o.items.map(it => { const k = kitById(it.kitId); return `${k ? k.name : '(товар)'} x${it.qty}`; }).join('; ');
       const code = ({'Нова Пошта':'НП', 'Укрпошта':'УП', 'Самовивіз':'СВ'})[o.deliveryMethod] || '';
-      const r = wsS.addRow({carrier: code, customer: o.customer || '', phone: o.phone || '', ttn: o.ttnNumber || o.ukrTtnNumber || '', items: itemsTextS, notes: o.notes || ''});
+      const r = wsS.addRow({carrier: code, customer: o.customer || '', phone: o.phone || '', ttn: o.ttnNumber || o.ukrTtnNumber || '', items: itemsTextS, notes: (o.packed ? 'ЗІБРАНО' + (o.notes ? '. ' + o.notes : '') : (o.notes || ''))});
       r.eachCell({includeEmpty:true}, c => { c.border = bd; });
       r.getCell('ttn').font = {size:13, bold:true};
       const cc = r.getCell('carrier');
@@ -6805,7 +6805,7 @@ async function buildTodayShipmentsExcel(shortMode){
       paid: o.paid ? 'так' : 'ні',
       shipped: o.shipped ? 'так' : 'ні',
       delivered: o.delivered ? 'так' : 'ні',
-      notes: o.notes || ''
+      notes: (o.packed ? 'ЗІБРАНО' + (o.notes ? '. ' + o.notes : '') : (o.notes || ''))
     });
     // Промальовуємо межі клітинок, щоб вийшла справжня таблиця
     row.eachCell({includeEmpty:true}, cell => { cell.border = THIN_BORDER; });
