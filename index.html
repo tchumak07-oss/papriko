@@ -224,6 +224,10 @@
   .order-notes{width:100%;font-family:'Inter',sans-serif;font-size:13px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;resize:vertical;}
   .order-total-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft);font-family:'JetBrains Mono',monospace;font-size:14px;}
   .order-total-row .stat-label{color:var(--text-faint);font-size:11px;text-transform:uppercase;}
+  .order-card.packed-card, .order-card-collapsed.packed-card{border-color:#2dd4bf;box-shadow:inset 4px 0 0 #2dd4bf;background:linear-gradient(90deg, rgba(45,212,191,0.10), rgba(45,212,191,0.02) 40%);}
+  .packed-badge{display:inline-flex;align-items:center;gap:3px;background:#2dd4bf;color:#06302b;font-weight:700;font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap;flex:0 0 auto;cursor:pointer;border:0;}
+  .packed-toggle{background:transparent;border:1px dashed var(--border-soft);color:var(--text-faint);font-size:11px;padding:2px 8px;border-radius:999px;cursor:pointer;white-space:nowrap;flex:0 0 auto;}
+  .packed-toggle:hover{border-color:#2dd4bf;color:#2dd4bf;}
   .order-card.shipped-card, .order-card-collapsed.shipped-card{border-color:var(--cardamom);background:linear-gradient(180deg, rgba(107,142,90,0.08), rgba(107,142,90,0.02));}
 
   .delivery-block{margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft);}
@@ -377,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.74.0 · 24.10.2026 22:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.75.0 · 25.10.2026 19:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -752,7 +756,7 @@
       <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
       <button class="btn btn-sm" onclick="document.getElementById('ukrPaymentsInput').click()">Завантажити реєстр оплат Укрпошти (Excel)</button>
       <button class="btn btn-sm" onclick="document.getElementById('monoPaymentsInput').click()">Завантажити виписку Monobank (Excel)</button>
-      <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + дата)</button>
+      <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + сума)</button>
       <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
       <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
       <button class="btn btn-sm" id="syncAllNpBtn" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button>
@@ -1140,6 +1144,14 @@
           <option value="all">Усі</option>
           <option value="yes">Так</option>
           <option value="no">Ні</option>
+        </select>
+      </div>
+      <div>
+        <label>Набрано</label>
+        <select id="shf-packed" onchange="renderOrders()">
+          <option value="all">Усі</option>
+          <option value="yes">Набрані</option>
+          <option value="no">Не набрані</option>
         </select>
       </div>
       <div>
@@ -6260,6 +6272,7 @@ function duplicateOrder(sourceId){
   copy.shipped = false;
   copy.delivered = false;
   copy.manualArchive = false;
+  copy.packed = false; copy.packedAt = '';
   copy.npReturned = false;
   copy.collapsed = false;
   copy.stockDeducted = false;
@@ -7067,38 +7080,59 @@ function fixFutureOrderDates(){
 }
 
 function removeDuplicateOrders(){
-  const groups = new Map();
+  // дублікат = те саме ім'я клієнта + та сама сума, дата збігається або відрізняється не більш ніж на 1 день.
+  // Замовлення з РІЗНИМИ ТТН дублікатами не вважаємо. Видаляємо за посиланням на об'єкт, а не за id,
+  // тож навіть при однакових id видаляється лише зайва копія.
+  const byKey = new Map();
   orders.forEach(o => {
-    const key = normKey(o.customer||'') + '|' + (o.date||'');
-    if(!key.replace('|','')) return; // без імені й дати не групуємо — надто ризиковано
-    if(!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(o);
+    const name = normKey(o.customer||'');
+    if(!name) return;
+    const key = name + '|' + Math.round(calcOrder(o).total);
+    if(!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(o);
   });
-
+  const ttnOf = o => normalizeTtnNumber(o.ttnNumber || o.ukrTtnNumber || '');
+  const dayVal = o => dateSortValue(o.date) / 86400000;
   const toRemove = new Set();
+  const examples = [];
   let groupsAffected = 0;
-  groups.forEach(group => {
-    if(group.length < 2) return;
-    groupsAffected++;
-    // лишаємо запис з найвищим "рахунком завершеності"; при рівності — найстаріший (менший id)
-    const sorted = [...group].sort((a,b) => {
-      const diff = orderCompletenessScore(b) - orderCompletenessScore(a);
-      return diff !== 0 ? diff : a.id - b.id;
+  byKey.forEach(list => {
+    if(list.length < 2) return;
+    const used = new Set();
+    list.forEach(base => {
+      if(used.has(base)) return;
+      // кластер збираємо жадібно: кожен новий елемент має бути сумісний (дата ±1 день, ТТН не різні) з УСІМА вже в кластері
+      const cluster = [base];
+      list.filter(x => x !== base && !used.has(x)).sort((a,b) => (ttnOf(b) ? 1 : 0) - (ttnOf(a) ? 1 : 0)).forEach(x => {
+        const ok = cluster.every(c => Math.abs(dayVal(x) - dayVal(c)) <= 1 && (!ttnOf(x) || !ttnOf(c) || ttnOf(x) === ttnOf(c)));
+        if(ok) cluster.push(x);
+      });
+      cluster.forEach(x => used.add(x));
+      if(cluster.length < 2) return;
+      groupsAffected++;
+      const sorted = [...cluster].sort((a,b) => {
+        const diff = orderCompletenessScore(b) - orderCompletenessScore(a);
+        return diff !== 0 ? diff : (Number(a.id)||0) - (Number(b.id)||0);
+      });
+      sorted.slice(1).forEach(o => { toRemove.add(o); examples.push(`${o.customer||'?'} · ${fmt(calcOrder(o).total)} грн · ${String(o.date||'').slice(0,10)}${ttnOf(o) ? ' · ТТН ' + ttnOf(o) : ''}`); });
     });
-    sorted.slice(1).forEach(o => toRemove.add(o.id));
   });
 
   if(toRemove.size === 0){
-    alert('Дублікатів (за іменем клієнта й датою) не знайдено.');
+    alert('Дублікатів не знайдено (шукаю замовлення з однаковим іменем клієнта й сумою, дата — той самий або сусідній день, ТТН не різні).');
     return;
   }
-  if(!confirm(`Знайдено ${toRemove.size} дублікат(ів) у ${groupsAffected} групах (однакове ім'я клієнта + дата). Видалити зайві копії, лишивши по одній найповнішій у кожній групі?`)) return;
+  const list = examples.slice(0, 8).join('\n') + (examples.length > 8 ? '\n…' : '');
+  if(!confirm(`Знайдено ${toRemove.size} дублікат(ів) у ${groupsAffected} групах. З кожної групи лишається найповніше замовлення (з ТТН, оплатою, товарами), видаляться:\n\n${list}\n\nВидалити?`)) return;
 
-  orders = orders.filter(o => !toRemove.has(o.id));
+  const removed = [...toRemove];
+  orders = orders.filter(o => !toRemove.has(o));
+  undoStack.push({label:'Видалення дублікатів', restoreFn: () => { removed.forEach(o => orders.push(o)); renderOrders(); renderOrdersSummary(); scheduleSave(); }});
+  if(undoStack.length > 10) undoStack.shift();
+  showUndoToast(`Видалено дублікатів: ${removed.length}`, true);
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
-  alert(`Видалено ${toRemove.size} дублікат(ів).`);
 }
 async function saveOrder(id){
   const o = orderById(id);
@@ -9821,6 +9855,20 @@ async function handleDeliveryReportFile(file){
   }
 }
 
+// «Набрано» — наборщик зібрав замовлення. Відмітка в списку клікабельна: клік вмикає/вимикає.
+function packedToggleHtml(o){
+  return o.packed
+    ? `<button class="packed-badge" type="button" onclick="event.stopPropagation();togglePacked(${o.id}, false)" title="Набрано${o.packedAt ? ' ' + escapeAttr(o.packedAt) : ''} — клік, щоб зняти відмітку">📦 Набрано</button>`
+    : `<button class="packed-toggle" type="button" onclick="event.stopPropagation();togglePacked(${o.id}, true)" title="Натисніть, коли замовлення набране (наборщик зібрав)">☐ Набр.</button>`;
+}
+function togglePacked(id, checked){
+  const o = orderById(id); if(!o) return;
+  o.packed = !!checked;
+  if(checked){ const d = new Date(), z = n => String(n).padStart(2,'0'); o.packedAt = `${z(d.getDate())}.${z(d.getMonth()+1)} ${z(d.getHours())}:${z(d.getMinutes())}`; }
+  else o.packedAt = '';
+  renderOrders(); renderOrdersSummary(); scheduleSave();
+}
+
 function carrierBadgeHtml(o){
   const map = {
     'Нова Пошта': {label:'НП', bg:'var(--saffron)', fg:'var(--saffron-text)'},
@@ -10245,6 +10293,7 @@ function applyOrderFilters(list){
   const paidVal = paidEl.value;
   const shippedVal = document.getElementById('shf-shipped').value;
   const deliveredVal = document.getElementById('shf-delivered').value;
+  const packedVal = (document.getElementById('shf-packed') || {}).value || 'all';
   const methodVal = document.getElementById('shf-method').value;
   const deductedVal = document.getElementById('shf-deducted').value;
   const sortVal = document.getElementById('shf-sort').value;
@@ -10256,6 +10305,8 @@ function applyOrderFilters(list){
     if(paidVal === 'no' && o.paid) return false;
     if(shippedVal === 'yes' && !o.shipped) return false;
     if(shippedVal === 'no' && o.shipped) return false;
+    if(packedVal === 'yes' && !o.packed) return false;
+    if(packedVal === 'no' && o.packed) return false;
     if(deliveredVal === 'yes' && !o.delivered) return false;
     if(deliveredVal === 'no' && o.delivered) return false;
     if(deductedVal === 'yes' && !o.stockDeducted) return false;
@@ -10295,6 +10346,7 @@ function resetOrderFilters(){
   document.getElementById('shf-paid').value = 'all';
   document.getElementById('shf-shipped').value = 'all';
   document.getElementById('shf-delivered').value = 'all';
+  document.getElementById('shf-packed').value = 'all';
   document.getElementById('shf-method').value = 'all';
   document.getElementById('shf-deducted').value = 'all';
   document.getElementById('shf-sort').value = 'id-desc';
@@ -10306,7 +10358,7 @@ function resetOrderFilters(){
 // бо коли людина явно щось шукає (статус, ТТН, ім'я), вона очікує знайти це незалежно від того,
 // що замовлення вже потрапило в архів.
 function hasActiveOrderFilter(){
-  const ids = ['of-status','shf-paid','shf-shipped','shf-delivered','shf-method','shf-deducted'];
+  const ids = ['of-status','shf-paid','shf-shipped','shf-delivered','shf-packed','shf-method','shf-deducted'];
   if(ids.some(id => { const el = document.getElementById(id); return el && el.value !== 'all'; })) return true;
   const searchEl = document.getElementById('shf-search');
   return !!(searchEl && searchEl.value.trim());
@@ -12549,7 +12601,7 @@ function renderReports(){
 function orderCollapsedHtml(o, num){
   const c = calcOrder(o);
   return `
-    <div class="order-card order-card-collapsed${o.shipped?' shipped-card':''}" data-order="${o.id}">
+    <div class="order-card order-card-collapsed${o.shipped?' shipped-card':''}${o.packed?' packed-card':''}" data-order="${o.id}">
       <div class="order-collapsed-row">
         ${num ? `<span class="hint order-num" style="font-family:'JetBrains Mono',monospace;flex:0 0 auto;min-width:22px;text-align:right;">${num}</span>` : ''}
         <label style="display:flex;align-items:center;padding:0 2px;cursor:pointer;flex:0 0 auto;" title="Вибрати для пакетної дії">
@@ -12557,6 +12609,7 @@ function orderCollapsedHtml(o, num){
         </label>
         <div class="order-collapsed-info">
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
+          ${packedToggleHtml(o)}
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? ((!o.delivered && !o.npReturned && isAtBranchAwaitingPickup(o)) ? `<span class="arrived-badge" title="Посилка вже на відділенні — чекає клієнта${o.atBranchSince ? ' (з ' + o.atBranchSince + ')' : ''}">📍 На місці${o.atBranchSince && daysBetween(o.atBranchSince, todayStr()) > 0 ? ' · ' + daysBetween(o.atBranchSince, todayStr()) + ' дн.' : ''}</span>` : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>') : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
@@ -12633,7 +12686,7 @@ function ensureClientForOrder(o){
 function orderExpandedHtml(o, num){
   const c = calcOrder(o);
   return `
-    <div class="order-card${o.shipped?' shipped-card':''}" data-order="${o.id}">
+    <div class="order-card${o.shipped?' shipped-card':''}${o.packed?' packed-card':''}" data-order="${o.id}">
       <div class="order-head">
         <div class="order-head-left">
           ${num ? `<span class="hint order-num" style="font-family:'JetBrains Mono',monospace;">${num}</span>` : ''}
@@ -12680,6 +12733,10 @@ function orderExpandedHtml(o, num){
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.manualArchive?'checked':''} onchange="toggleManualArchive(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
             В архів
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="Наборщик зібрав це замовлення">
+            <input type="checkbox" ${o.packed?'checked':''} onchange="togglePacked(${o.id}, this.checked)" style="width:auto;accent-color:#2dd4bf;">
+            ✓ Набрано${o.packed && o.packedAt ? ' <span class="hint">(' + escapeAttr(o.packedAt) + ')</span>' : ''}
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="Якщо позначено — при натисканні «Зберегти» надішле сповіщення про це замовлення в Telegram-групу">
             <input type="checkbox" ${o.sendToTelegram?'checked':''} onchange="updateOrderField(${o.id},'sendToTelegram',this.checked)" style="width:auto;accent-color:var(--saffron);">
