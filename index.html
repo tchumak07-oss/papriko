@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.75.1 · 25.10.2026 19:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.76.0 · 25.10.2026 23:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5161,7 +5161,7 @@ function cbToggleReceipt(id, checked){
   o.fiscalReceipt = !!checked;
   scheduleSave();
   const hasTtn = !!(o.ttnNumber || o.ukrTtnNumber);
-  const done = !!(o.cbReceipt && o.cbReceipt.id);
+  const done = !!(o.cbReceipt && o.cbReceipt.id && o.cbReceipt.state !== 'error');
   if(checked && hasTtn && !done){
     if(!cbCfg().license){ alert('Спочатку заповніть дані Checkbox: «Налаштування» → «Checkbox».'); renderOrders(); return; }
     const t = fmt(calcOrder(o).total);
@@ -5195,8 +5195,8 @@ function cbBuildSell(o){
 async function cbIssueReceipt(orderId, manual){
   const o = orderById(orderId); if(!o) return;
   if(cbInFlight.has(orderId)) return;
-  if(o.cbReceipt && (o.cbReceipt.id || o.cbReceipt.state === 'pending' || o.cbReceipt.state === 'unknown') && !manual) return;
-  if(o.cbReceipt && o.cbReceipt.id){ alert('Для цього замовлення чек уже пробито. Повторний чек автоматично не створюється.'); return; }
+  if(o.cbReceipt && ((o.cbReceipt.id && o.cbReceipt.state !== 'error') || o.cbReceipt.state === 'pending' || o.cbReceipt.state === 'unknown') && !manual) return;
+  if(o.cbReceipt && o.cbReceipt.id && o.cbReceipt.state !== 'error'){ alert('Для цього замовлення чек уже створено' + (o.cbReceipt.state === 'wait' ? ' (чекає підтвердження — натисніть «перевірити статус»)' : '') + '. Повторний чек не створюється.'); return; }
   if(o.cbReceipt && o.cbReceipt.state === 'unknown' && !confirm('Попередня спроба пробити чек закінчилась без відповіді — чек міг створитись. Перевірте кабінет Checkbox. Пробити ще раз?')) return;
   cbInFlight.add(orderId);
   try{
@@ -5212,11 +5212,13 @@ async function cbIssueReceipt(orderId, manual){
       throw e;
     }
     let fiscal = rc && rc.fiscal_code, status = rc && rc.status;
-    for(let i = 0; i < 10 && rc && rc.id && (!fiscal && status !== 'ERROR'); i++){
+    for(let i = 0; i < 20 && rc && rc.id && (!(fiscal && status === 'DONE') && status !== 'ERROR'); i++){
       await new Promise(r => setTimeout(r, 1000));
       rc = await cbApi('GET', '/receipts/' + rc.id); fiscal = rc.fiscal_code; status = rc.status;
     }
-    o.cbReceipt = {state: status === 'ERROR' ? 'error' : 'done', id: rc.id, fiscal: fiscal || '', status: status || '', total: totalKop / 100, at: new Date().toISOString(), error: status === 'ERROR' ? 'Checkbox відхилив чек (статус ERROR)' : ''};
+    // «пробито» лише коли Checkbox підтвердив фіскалізацію (статус DONE + фіскальний код); інакше — чек створено, але ще не підтверджено
+    const okFiscal = status === 'DONE' && !!fiscal;
+    o.cbReceipt = {state: status === 'ERROR' ? 'error' : (okFiscal ? 'done' : 'wait'), id: rc.id, fiscal: fiscal || '', status: status || '', total: totalKop / 100, at: new Date().toISOString(), error: status === 'ERROR' ? 'Checkbox відхилив чек (статус ERROR)' : ''};
     scheduleSave();
   }catch(e){
     if(!o.cbReceipt || o.cbReceipt.state === 'pending') o.cbReceipt = {state:'error', error: e.message, at: new Date().toISOString()};
@@ -5235,10 +5237,22 @@ function cbAutoAfterTtn(o){
   if(o.cbReceipt && o.cbReceipt.state && o.cbReceipt.state !== 'error') return;
   cbIssueReceipt(o.id, false);
 }
+async function cbCheckReceipt(orderId){
+  const o = orderById(orderId); if(!o || !o.cbReceipt || !o.cbReceipt.id) return;
+  try{
+    const rc = await cbApi('GET', '/receipts/' + o.cbReceipt.id);
+    o.cbReceipt.status = rc.status || ''; o.cbReceipt.fiscal = rc.fiscal_code || '';
+    o.cbReceipt.state = rc.status === 'ERROR' ? 'error' : (rc.status === 'DONE' && rc.fiscal_code ? 'done' : 'wait');
+    if(rc.status === 'ERROR') o.cbReceipt.error = 'Checkbox відхилив чек (статус ERROR)';
+    scheduleSave(); renderOrders();
+  }catch(e){ alert('Не вдалося перевірити чек: ' + e.message); }
+}
 function cbReceiptHtml(o){
   const r = o.cbReceipt;
   const wants = cbWantsReceipt(o);
-  if(r && r.id) return `<div class="hint" style="margin-top:6px;color:var(--cardamom);">🧾 Чек Checkbox пробито${r.fiscal ? ' · фіскальний № <strong>' + escapeAttr(r.fiscal) + '</strong>' : ''} · ${fmt(r.total||0)} грн · <a href="https://check.checkbox.ua/${encodeURIComponent(r.id)}" target="_blank" style="color:var(--saffron);">відкрити чек</a> · ${smsLogDateUa((r.at||'').slice(0,10))}</div>`;
+  if(r && r.id && r.state === 'wait') return `<div class="hint" style="margin-top:6px;color:var(--saffron);">🧾 Чек створено в Checkbox (id ${escapeAttr(String(r.id).slice(0,8))}…, статус <strong>${escapeAttr(r.status||'—')}</strong>), але фіскального номера ще немає — чек не підтверджено. <a href="#" onclick="cbCheckReceipt(${o.id});return false;" style="color:var(--saffron);">перевірити статус</a> · <a href="https://check.checkbox.ua/${encodeURIComponent(r.id)}" target="_blank" style="color:var(--saffron);">відкрити чек</a></div>`;
+  if(r && r.id && r.state === 'error') return `<div class="hint" style="margin-top:6px;color:var(--danger);">🧾 Checkbox відхилив чек (id ${escapeAttr(String(r.id).slice(0,8))}…): ${escapeAttr(r.error||'')} · <a href="#" onclick="cbCheckReceipt(${o.id});return false;" style="color:var(--saffron);">перевірити статус</a></div>`;
+  if(r && r.id) return `<div class="hint" style="margin-top:6px;color:var(--cardamom);">🧾 Чек Checkbox пробито${r.fiscal ? ' · фіскальний № <strong>' + escapeAttr(r.fiscal) + '</strong>' : ''} · ${fmt(r.total||0)} грн · <a href="https://check.checkbox.ua/${encodeURIComponent(r.id)}" target="_blank" style="color:var(--saffron);">відкрити чек</a> · ${smsLogDateUa((r.at||'').slice(0,10))} · <span title="${escapeAttr(r.id)}">id ${escapeAttr(String(r.id).slice(0,8))}…</span></div>`;
   if(r && r.state === 'pending') return `<div class="hint" style="margin-top:6px;">🧾 Пробиваю чек...</div>`;
   if(r && (r.state === 'error' || r.state === 'unknown')) return `<div class="hint" style="margin-top:6px;color:var(--danger);">🧾 Чек ${r.state === 'unknown' ? 'не підтверджено (можливо, створений — перевірте кабінет Checkbox)' : 'не пробито'}: ${escapeAttr(r.error||'')} · <a href="#" onclick="cbIssueReceipt(${o.id}, true);return false;" style="color:var(--saffron);">пробити ще раз</a></div>`;
   return `<div class="hint" style="margin-top:6px;">🧾 Чек Checkbox: ще не пробито · <a href="#" onclick="cbIssueReceipt(${o.id}, true);return false;" style="color:var(--saffron);">пробити зараз</a></div>`;
@@ -6488,8 +6502,9 @@ function renderTodayShipmentsModal(){
       const transitLabel = isAtBranchAwaitingPickup(o) ? 'на відділенні' : (isInTransitOnly(o) ? 'в дорозі' : '');
       const isRet = !!(o.npReturned || o.status === 'Повернено');
       const statusText = [o.paid?'Оплачено':'', isRet ? 'Повернення' : transitLabel, (!isRet && o.delivered)?'Доставлено':''].filter(Boolean).join(', ') || o.status;
+      const pk = !!o.packed;
       return `
-        <div class="wh-row" style="grid-template-columns:36px 90px 1fr 1fr 90px 100px 130px 1fr;">
+        <div class="wh-row" style="grid-template-columns:36px 90px 1fr 1fr 90px 100px 130px 1fr;${pk?'background:rgba(45,212,191,0.16);box-shadow:inset 3px 0 0 #2dd4bf;':''}">
           <div class="hint" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text-faint);">${idx+1}</div>
           <div class="hint">${o.date||''}</div>
           <div>${escapeAttr(o.customer||'Без імені')}</div>
@@ -6497,7 +6512,7 @@ function renderTodayShipmentsModal(){
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(c.total)} грн</div>
           <div>${carrierBadgeHtml(o)}</div>
           <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber||o.ukrTtnNumber||'—')}</div>
-          <div class="hint">${escapeAttr(statusText)}</div>
+          <div class="hint">${pk?'<span class="packed-badge">📦 Набрано</span> ':''}${escapeAttr(statusText)}</div>
         </div>
       `;
     }).join('');
@@ -6714,6 +6729,7 @@ async function buildTodayShipmentsExcel(shortMode){
       cc.font = {bold:true}; cc.alignment = {horizontal:'center'};
       const fillArgb = {'НП':'FFF5E3A8', 'УП':'FFF3C6C0', 'СВ':'FFC6E8C6'}[code];
       if(fillArgb) cc.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillArgb}};
+      if(o.packed){ ['customer','phone','ttn','items','notes'].forEach(k => { r.getCell(k).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFB6EFE6'}}; }); }
     });
     wsS.views = [{state:'frozen', ySplit:1}];
     xlsWrapAll(wsS, 1);
@@ -6807,6 +6823,7 @@ async function buildTodayShipmentsExcel(shortMode){
     }
     // доставка за наш рахунок — окремо підсвічуємо цю клітинку синім, незалежно від оплати (лише якщо колонка взагалі є)
     if(hasOurExpense && ourExpense) row.getCell('ourExpense').fill = BLUE;
+    if(o.packed && !o.paid) ['customer','items'].forEach(k => { row.getCell(k).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFB6EFE6'}}; });
     // ТТН/номер декларації — виділяємо для легкого пошуку в роздрукованій таблиці
     row.getCell('ttn').font = {size:13, bold:true};
   });
@@ -12762,7 +12779,7 @@ function orderExpandedHtml(o, num){
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="Позначено — чек пробивається автоматично при створенні ТТН / декларації (якщо увімкнено в «Налаштування»). Якщо ТТН уже створена, а чека ще не було — галочка пробиє чек одразу.">
             <input type="checkbox" ${cbWantsReceipt(o)?'checked':''} onchange="cbToggleReceipt(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);">
-            🧾 Чек Checkbox${(o.cbReceipt && o.cbReceipt.id) ? ' <span class="hint">(пробито)</span>' : ''}
+            🧾 Чек Checkbox${(o.cbReceipt && o.cbReceipt.state === 'done') ? ' <span class="hint">(пробито)</span>' : ((o.cbReceipt && o.cbReceipt.id) ? ' <span class="hint">(не підтверджено)</span>' : '')}
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" ${o.fromSite?'checked':''} onchange="updateOrderField(${o.id},'fromSite',this.checked)" style="width:auto;accent-color:var(--saffron);">
