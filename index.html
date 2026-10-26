@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.76.1 · 25.10.2026 23:12</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.76.2 · 26.10.2026 10:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -5436,19 +5436,27 @@ async function sendTestSms(){
   statusEl.textContent = res.ok ? 'Надіслано успішно ✓' : ('Помилка: ' + res.error);
 }
 
+// який саме SMS слати: відправка / прибула / нагадування (якщо про прибуття вже повідомляли)
+function smsKindFor(o){
+  if(!isAtBranchAwaitingPickup(o)) return 'shipped';
+  return (o.smsLog||[]).some(l => l.ok && (l.kind === 'arrived' || l.kind === 'reminder')) ? 'reminder' : 'arrived';
+}
+function branchDays(o){ return o.atBranchSince ? Math.max(1, daysBetween(o.atBranchSince, todayStr())) : 1; }
 function fillSmsTemplate(o){
   const ttn = o.ttnNumber || o.ukrTtnNumber || '';
   const sum = fmt(calcOrder(o).total);
-  // посилка вже у відділенні — шлемо «прибула», а не «відправлено»
-  const tpl = isAtBranchAwaitingPickup(o) ? smsArrivedTemplate : smsTemplate;
+  const kd = smsKindFor(o);
+  if(kd === 'reminder') return fillBranchReminderTemplate(o, branchDays(o));
+  const tpl = kd === 'arrived' ? smsArrivedTemplate : smsTemplate;
   return tpl.replace(/\{ttn\}/g, ttn).replace(/\{name\}/g, o.customer || '').replace(/\{sum\}/g, sum);
 }
 
 // відправка + запис у журнал замовлення (коли, який тип, чи вдалося) — звідси звіт «SMS клієнтам за день»
 async function notifyCustomerSms(o){
   if(!o.phone) return {ok:false, error:'У клієнта немає телефону'};
-  const kind = isAtBranchAwaitingPickup(o) ? 'arrived' : 'shipped';
+  const kind = smsKindFor(o);
   const res = await sendSms(o.phone, fillSmsTemplate(o));
+  if(kind === 'reminder' && res.ok) o.branchReminderSentDate = todayStr();
   const d = new Date(), z = n => String(n).padStart(2,'0');
   if(!Array.isArray(o.smsLog)) o.smsLog = [];
   o.smsLog.push({date: todayStr(), time: z(d.getHours())+':'+z(d.getMinutes()), kind, ok: !!res.ok, error: res.ok ? '' : String(res.error||'').slice(0,160)});
@@ -5647,7 +5655,7 @@ function renderPickupStats(){
 }
 
 function smsLogDateUa(d){ const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d||'—'); }
-function smsKindLabel(k){ return k === 'arrived' ? 'прибула у відділення' : (k === 'custom' ? 'своє повідомлення' : 'відправлено'); }
+function smsKindLabel(k){ return k === 'arrived' ? 'прибула у відділення' : (k === 'reminder' ? 'нагадування про відділення' : (k === 'custom' ? 'своє повідомлення' : 'відправлено')); }
 // короткий текст: «2 SMS: 20.10.2026 12:30 відправлено; 21.10.2026 09:10 прибула у відділення»
 function smsHistoryText(o){
   const log = (o.smsLog || []);
@@ -5682,7 +5690,7 @@ function smsDayRows(day, dayTo){
     // посилки, що зараз чекають у відділенні, показуємо в звіті за сьогодні — їм потрібне окреме SMS «прибула»
     const atBranch = isToday && !isArchived(o) && isAtBranchAwaitingPickup(o);
     let log = (o.smsLog||[]).filter(l => inR(l.date));
-    if(atBranch) log = log.filter(l => l.kind === 'arrived'); // раніше надіслане «відправлено» не рахується
+    if(atBranch) log = log.filter(l => l.kind === 'arrived' || l.kind === 'reminder'); // раніше надіслане «відправлено» не рахується
     const inScope = (!isArchived(o) && inR(o.date)) || log.length || atBranch;
     if(!inScope) return;
     const okEntry = [...log].reverse().find(l => l.ok);
@@ -5691,7 +5699,7 @@ function smsDayRows(day, dayTo){
     const bTag = atBranch ? '📦 у відділенні' + (o.atBranchSince ? ' ' + days + ' дн.' : '') + ' · ' : '';
     const lastArrived = atBranch ? [...(o.smsLog||[])].reverse().find(l => l.ok && l.kind==='arrived') : null;
     let state, note;
-    if(okEntry){ state = 'sent'; note = bTag + okEntry.time + (okEntry.kind==='arrived' ? ' · «прибула у відділення»' : ' · «відправлено»'); }
+    if(okEntry){ state = 'sent'; note = bTag + okEntry.time + (okEntry.kind==='arrived' ? ' · «прибула у відділення»' : okEntry.kind==='reminder' ? ' · «нагадування»' : ' · «відправлено»'); }
     else if(failEntry){ state = 'error'; note = bTag + (failEntry.error || 'помилка'); }
     else if(atBranch && lastArrived){ state = 'no'; note = bTag + 'про прибуття повідомляли ' + lastArrived.date; }
     else if(atBranch && !o.phone){ state = 'no'; note = bTag + 'немає телефону'; }
@@ -10254,9 +10262,11 @@ async function smsSendToOrders(chosen, opts){
     if(skipped.length) m += '\n\n'+skipped.slice(0,8).join('\n');
     alert(m); return;
   }
-  const sentBefore = opts.skipSent ? 0 : ready.filter(o => isAtBranchAwaitingPickup(o) ? (o.smsLog||[]).some(l => l.ok && l.kind==='arrived') : o.customerSmsSent).length;
+  const sentBefore = opts.skipSent ? 0 : ready.filter(o => smsKindFor(o) === 'shipped' && o.customerSmsSent).length;
+  const remindN = ready.filter(o => smsKindFor(o) === 'reminder').length;
   let q = `Надіслати SMS ${ready.length} клієнт(ам)?\n\nПриклад (${ready[0].customer||'?'}):\n${fillSmsTemplate(ready[0])}`;
   if(sentBefore) q += `\n\n⚠ ${sentBefore} з них уже отримували SMS про відправку раніше.`;
+  if(remindN) q += `\n\nℹ ${remindN} з них уже отримали SMS про прибуття — їм піде НАГАДУВАННЯ (шаблон 3).`;
   if(already) q += `\n\nПропущено ${already}, які вже отримали SMS.`;
   if(skipped.length) q += `\n\nБуде пропущено ${skipped.length}:\n${skipped.slice(0,6).join('\n')}${skipped.length>6?'\n…':''}`;
   if(!confirm(q)) return;
