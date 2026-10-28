@@ -55,6 +55,9 @@
   h2{font-size:17px;margin:18px 0 4px;}
   #login{max-width:360px;margin:60px auto;padding:0 16px;}
   #login input{display:block;width:100%;margin:8px 0;}
+  .newtag{display:inline-block;background:var(--chili);color:#fff;font-size:12px;font-weight:800;padding:2px 8px;border-radius:6px;margin-left:8px;}
+  .card.isnew{border-color:var(--chili);}
+  #newBanner{border-color:var(--chili);background:rgba(224,96,74,.15);font-weight:700;cursor:pointer;}
   .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;}
 </style>
 </head>
@@ -71,6 +74,7 @@
 <div id="app" style="display:none;">
   <header>
     <h1>📦 Наборщик</h1>
+    <button class="chip" id="soundBtn" onclick="toggleSound()">🔕 Звук вимкнено</button>
     <span class="sync" id="syncLbl">Підключення…</span>
   </header>
   <div class="tabs">
@@ -85,6 +89,7 @@
         <button class="chip" data-f="done" onclick="setFilter('done')">Зібрані</button>
         <input type="text" id="q" placeholder="Пошук: імʼя, телефон, ТТН" oninput="renderOrders()">
       </div>
+      <div id="newBanner" style="display:none;" class="card" onclick="markSeen()"></div>
       <div class="muted" id="counts"></div>
       <div id="list"></div>
     </section>
@@ -120,6 +125,52 @@ let orders = [], kits = [], catalog = [];
 let filter = 'all', tab = 'orders';
 let busyUid = null;
 let lastReport = {packed: [], shipped: []};
+let seen = null;           // Set uid-ів, які наборщик уже бачив
+let soundOn = false, actx = null, firstSnap = true;
+const baseTitle = document.title;
+function loadSeen(){
+  try{ const s = localStorage.getItem('packerSeen'); if(s) return new Set(JSON.parse(s)); }catch(e){}
+  return null;
+}
+function saveSeen(){ try{ localStorage.setItem('packerSeen', JSON.stringify([...seen])); }catch(e){} }
+function uidOf(o){ return o.uid || ('id' + o.id); }
+function newOrders(){ return seen ? orders.filter(o => isActiveUnshipped(o) && !seen.has(uidOf(o))) : []; }
+function markSeen(){
+  orders.filter(isActiveUnshipped).forEach(o => seen.add(uidOf(o)));
+  saveSeen(); renderOrders(); updateAlert(false);
+}
+function beep(){
+  if(!soundOn) return;
+  try{
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25].forEach((dt, i) => {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sine'; o.frequency.value = i ? 1100 : 800;
+      g.gain.setValueAtTime(0.0001, actx.currentTime + dt);
+      g.gain.exponentialRampToValueAtTime(0.4, actx.currentTime + dt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dt + 0.22);
+      o.connect(g); g.connect(actx.destination); o.start(actx.currentTime + dt); o.stop(actx.currentTime + dt + 0.25);
+    });
+  }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200]); }catch(e){}
+}
+function toggleSound(){
+  soundOn = !soundOn;
+  try{ localStorage.setItem('packerSound', soundOn ? '1' : '0'); }catch(e){}
+  if(soundOn){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === 'suspended') actx.resume(); }catch(e){} beep(); }
+  updateSoundBtn();
+}
+function updateSoundBtn(){ const b = $('soundBtn'); b.textContent = soundOn ? '🔔 Звук увімкнено' : '🔕 Звук вимкнено'; b.classList.toggle('on', soundOn); }
+function updateAlert(playSound){
+  const n = newOrders().length;
+  const bn = $('newBanner');
+  if(n){ bn.style.display = ''; bn.textContent = `🆕 Нових замовлень: ${n} — натисніть, щоб позначити переглянутими`; }
+  else bn.style.display = 'none';
+  document.title = n ? `(${n}) Нові · Наборщик` : baseTitle;
+  if(n && playSound) beep();
+}
+document.addEventListener('click', () => { if(soundOn && actx && actx.state === 'suspended') actx.resume(); });
+try{ soundOn = localStorage.getItem('packerSound') === '1'; }catch(e){}
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -189,7 +240,13 @@ function subscribe(){
     kits = Array.isArray(d.kits) ? d.kits : [];
     catalog = Array.isArray(d.catalog) ? d.catalog : [];
     setSync('ok', 'Синхронізовано ' + new Date().toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'}));
+    if(!seen) seen = loadSeen();
+    const before = seen ? newOrders().length : 0;
+    if(!seen){ seen = new Set(orders.filter(isActiveUnshipped).map(uidOf)); saveSeen(); } // перший запуск: наявні не вважаємо новими
     render();
+    updateAlert(!firstSnap && newOrders().length > before);
+    if(firstSnap && newOrders().length) updateAlert(true);
+    firstSnap = false;
   }, err => {
     setSync('err', 'Немає доступу: ' + (err && err.code ? err.code : err.message));
   });
@@ -262,7 +319,7 @@ function setFilter(f){
   document.querySelectorAll('.chip[data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === f));
   renderOrders();
 }
-function render(){ if(tab === 'orders') renderOrders(); else renderReports(); }
+function render(){ updateSoundBtn(); if(tab === 'orders') renderOrders(); else renderReports(); }
 
 function renderOrders(){
   const q = ($('q').value || '').trim().toLowerCase();
@@ -279,8 +336,9 @@ function renderOrders(){
   $('list').innerHTML = list.map(o => {
     const lines = itemLines(o);
     const uid = o.uid || ('id' + o.id);
-    return `<div class="card${o.packed ? ' packed' : ''}">
-      <div class="name">${esc(o.customer || 'Без імені')}</div>
+    const isNew = seen && !seen.has(uidOf(o));
+    return `<div class="card${o.packed ? ' packed' : ''}${isNew ? ' isnew' : ''}">
+      <div class="name">${esc(o.customer || 'Без імені')}${isNew ? '<span class="newtag">НОВЕ</span>' : ''}</div>
       <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a>` : 'немає телефону'} · ${esc(ukDate(o.date))}</div>
       <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
       ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
