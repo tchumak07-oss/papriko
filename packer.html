@@ -56,6 +56,7 @@
   #login{max-width:360px;margin:60px auto;padding:0 16px;}
   #login input{display:block;width:100%;margin:8px 0;}
   .num{display:inline-block;min-width:34px;text-align:center;background:var(--line);color:var(--saffron);border-radius:6px;padding:0 6px;margin-right:6px;font-size:15px;}
+  .note{margin:8px 0 2px;padding:8px 10px;border-radius:8px;background:rgba(232,169,58,.18);border:1px solid var(--saffron);color:#ffe3a8;font-weight:600;font-size:15px;white-space:pre-wrap;word-break:break-word;}
   .newtag{display:inline-block;background:var(--chili);color:#fff;font-size:12px;font-weight:800;padding:2px 8px;border-radius:6px;margin-left:8px;}
   .card.isnew{border-color:var(--chili);}
   #newBanner{border-color:var(--chili);background:rgba(224,96,74,.15);font-weight:700;cursor:pointer;}
@@ -240,6 +241,8 @@ function start(){
   firebase.initializeApp(FB_CONFIG);
   auth = firebase.auth();
   db = firebase.firestore();
+  // на мобільних мережах/в деяких Wi-Fi прямий канал блокується й сторінка «висить» на підключенні — дозволяємо автоматичний перехід на long polling
+  try{ db.settings({experimentalAutoDetectLongPolling: true, merge: true}); }catch(e){}
   docRef = db.collection('spice-app').doc('data');
   auth.onAuthStateChanged(user => {
     if(user){
@@ -253,11 +256,14 @@ function start(){
   });
 }
 
-let unsub = null;
+let unsub = null, connTimer = null, gotSnap = false;
 function subscribe(){
   if(unsub) return;
   setSync('', 'Підключення…');
+  clearTimeout(connTimer);
+  connTimer = setTimeout(() => { if(!gotSnap) setSync('err', 'Немає звʼязку з базою. Перевірте інтернет (Wi‑Fi / мобільні дані) й потягніть сторінку вниз, щоб оновити'); }, 12000);
   unsub = docRef.onSnapshot(snap => {
+    gotSnap = true; clearTimeout(connTimer);
     if(!snap.exists){ setSync('err', 'Дані не знайдено'); return; }
     const d = snap.data();
     orders = Array.isArray(d.orders) ? d.orders : [];
@@ -470,7 +476,7 @@ function renderOrders(){
       <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
       ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
       <ul class="items">${lines.map(l => `<li>${esc(l.name)}<span class="qty">× ${esc(l.qty)}</span>${l.comps.length ? `<div class="sub">${esc(l.comps.join(' · '))}</div>` : ''}</li>`).join('') || '<li class="muted">Склад не вказано</li>'}</ul>
-      ${o.notes ? `<div class="muted">Примітка: ${esc(o.notes)}</div>` : ''}
+      ${o.notes ? `<div class="note">⚠ ${esc(o.notes)}</div>` : ''}
       ${stickerBtn(o)}
       ${o.packed
         ? `<div class="muted" style="color:var(--teal);margin-top:6px;">✓ Зібрано ${esc(o.packedAt || '')}</div><button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', false)">Зняти позначку</button>`
