@@ -344,30 +344,41 @@ function npStickerUrl(ttns){
   const typ = stSize() === 'A4' ? 'pdf' : (stSize() === '85' ? 'pdf8' : 'pdf');
   return `https://my.novaposhta.ua/orders/${kind}/` + ttns.map(t => 'orders[]/' + encodeURIComponent(t)).join('/') + `/type/${typ}/apiKey/${encodeURIComponent(cfg.npApiKey)}`;
 }
-async function ukrStickerBlobUrl(o){
-  if(!cfg.ukrProxyUrl) throw new Error('У програмі не вказано проксі Укрпошти');
-  if(!o.ukrShipmentUuid) throw new Error('Для цього замовлення немає ідентифікатора відправлення Укрпошти');
-  const size = stSize() === 'A4' ? 'SIZE_A4' : 'SIZE_100x100';
+async function ukrStickerOnce(o, size){
   const res = await fetch(cfg.ukrProxyUrl, {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({app: 'ecom', method: 'GET', path: `/shipments/${o.ukrShipmentUuid}/sticker?size=${size}`, token: cfg.ukrToken, bearer: cfg.ukrBearer})});
   const buf = await res.arrayBuffer();
-  const head = new TextDecoder().decode(buf.slice(0, 5));
-  const u8 = new Uint8Array(buf);
-  let bad = 0; for(let i = 0; i + 2 < u8.length; i++){ if(u8[i] === 0xEF && u8[i+1] === 0xBF && u8[i+2] === 0xBD) bad++; }
-  if(res.ok && head.startsWith('%PDF') && bad > 20) throw new Error(`проксі пошкодив PDF (${u8.length} байт, ${bad} зіпсованих символів) — він віддає двійкові дані як текст`);
-  if(res.ok && head.startsWith('%PDF') && u8.length < 1500) throw new Error(`PDF підозріло малий (${u8.length} байт): ` + new TextDecoder().decode(buf.slice(0, 120)));
-  if(res.ok && head.startsWith('%PDF')) return URL.createObjectURL(new Blob([buf], {type: 'application/pdf'}));
-  // можливо, проксі повернув PDF як base64 (чистим текстом або в JSON)
-  const txt = new TextDecoder().decode(buf);
-  let b64 = '';
-  const m = txt.match(/JVBER[A-Za-z0-9+\/=]+/);
-  if(m) b64 = m[0];
-  if(res.ok && b64){
-    const bin = atob(b64), arr = new Uint8Array(bin.length);
-    for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    return URL.createObjectURL(new Blob([arr], {type: 'application/pdf'}));
+  return {res, buf};
+}
+async function ukrStickerBlobUrl(o){
+  if(!cfg.ukrProxyUrl) throw new Error('У програмі не вказано проксі Укрпошти');
+  if(!o.ukrShipmentUuid) throw new Error('Для цього замовлення немає ідентифікатора відправлення Укрпошти');
+  // Укрпошта приймає лише свої значення FormSize — пробуємо кілька, запамʼятовуємо те, що спрацювало
+  let cands = stSize() === 'A4' ? ['SIZE_A4'] : ['SIZE_100_100', 'SIZE_100x100', 'SIZE_A5', 'SIZE_A4'];
+  try{ const g = localStorage.getItem('packerUkrSize_' + stSize()); if(g) cands = [g].concat(cands.filter(c => c !== g)); }catch(e){}
+  let last = '';
+  for(const size of cands){
+    const {res, buf} = await ukrStickerOnce(o, size);
+    const txt = new TextDecoder().decode(buf);
+    if(!res.ok && /FormSize|size/i.test(txt)){ last = `${size}: ${txt.slice(0, 120)}`; continue; }
+    const u8 = new Uint8Array(buf);
+    const head = txt.slice(0, 5);
+    let bad = 0; for(let i = 0; i + 2 < u8.length; i++){ if(u8[i] === 0xEF && u8[i+1] === 0xBF && u8[i+2] === 0xBD) bad++; }
+    let blob = null;
+    if(res.ok && head.startsWith('%PDF')){
+      if(bad > 20) throw new Error(`проксі пошкодив PDF (${u8.length} байт, ${bad} зіпсованих символів) — він віддає двійкові дані як текст`);
+      if(u8.length < 1500) throw new Error(`PDF підозріло малий (${u8.length} байт): ` + txt.slice(0, 120));
+      blob = new Blob([buf], {type: 'application/pdf'});
+    } else if(res.ok){
+      const m = txt.match(/JVBER[A-Za-z0-9+\/=]+/);
+      if(m){ const bin = atob(m[0]), arr = new Uint8Array(bin.length); for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); blob = new Blob([arr], {type: 'application/pdf'}); }
+    }
+    if(!blob) throw new Error(res.ok ? 'Проксі повернув не PDF: ' + txt.slice(0, 160) : `Укрпошта: ${res.status} ${txt.slice(0, 160)}`);
+    try{ localStorage.setItem('packerUkrSize_' + stSize(), size); }catch(e){}
+    if(size === 'SIZE_A5' || (size === 'SIZE_A4' && stSize() !== 'A4')) toast('Формат 100×100 Укрпошта не прийняла — наклейка у ' + size.replace('SIZE_', ''));
+    return URL.createObjectURL(blob);
   }
-  throw new Error(res.ok ? 'Проксі повернув не PDF: ' + txt.slice(0, 160) : `Укрпошта: ${res.status} ${txt.slice(0, 160)}`);
+  throw new Error('Укрпошта не прийняла жодного розміру наклейки. Остання відповідь: ' + last);
 }
 async function printSticker(uid){
   const o = orders.find(x => uidOf(x) === uid); if(!o) return;
@@ -377,14 +388,23 @@ async function printSticker(uid){
     window.open(npStickerUrl([o.ttnNumber]), '_blank');
     return;
   }
-  const w = window.open('', '_blank'); // відкриваємо одразу (інакше браузер заблокує спливаюче вікно)
+  toast('Готую наклейку УП…');
   try{
     const url = await ukrStickerBlobUrl(o);
-    if(w) w.location.href = url; else window.open(url, '_blank');
+    showPdf(url, 'naklejka_UP_' + (o.ukrTtnNumber || o.id) + '.pdf');
   }catch(err){
-    if(w) w.close();
     showErr('Наклейка УП: ' + (err.message || err));
   }
+}
+function showPdf(url, fname){
+  const old = document.getElementById('pdfBox'); if(old) old.remove();
+  const d = document.createElement('div'); d.id = 'pdfBox';
+  d.style.cssText = 'position:fixed;inset:0;background:#000d;z-index:40;display:flex;flex-direction:column;padding:10px;gap:8px;';
+  d.innerHTML = `<div class="row" style="margin:0;"><a class="btn sm" href="${url}" download="${esc(fname)}" style="text-decoration:none;">⬇ Завантажити PDF</a>
+    <button class="btn sm ghost" onclick="document.getElementById('pdfFrame').contentWindow.print()">🖨 Друк</button>
+    <button class="btn sm ghost" onclick="document.getElementById('pdfBox').remove()">✕ Закрити</button></div>
+    <iframe id="pdfFrame" src="${url}" style="flex:1;border:0;background:#fff;border-radius:8px;"></iframe>`;
+  document.body.appendChild(d);
 }
 function printAll(kind){
   const q = ($('q').value || '').trim().toLowerCase();
