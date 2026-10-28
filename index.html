@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.77.1 · 28.10.2026 16:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.77.2 · 28.10.2026 23:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -969,151 +969,7 @@
     </div>
   </div>
 
-  <div class="catalog-panel" id="deliverySettingsPanel" style="margin-bottom:14px;">
-    <button class="catalog-toggle" onclick="toggleDeliverySettings()">
-      <span id="deliveryToggleLabel">Налаштування доставки (Нова Пошта / Укрпошта)</span>
-      <span id="deliveryToggleIcon">▸</span>
-    </button>
-    <div class="catalog-body" id="deliverySettingsBody">
-      <div class="catalog-group">
-        <div class="catalog-group-title">Нова Пошта</div>
-        <p class="hint" style="margin:0 0 8px;">API-ключ береться в кабінеті НП: my.novaposhta.ua → Налаштування → Робота з API → створити ключ. Дає змогу шукати міста й відділення прямо в замовленні.</p>
-        <div class="fb-row">
-          <input type="text" id="npApiKeyInput" placeholder="API-ключ Нової Пошти">
-          <button class="btn btn-sm" onclick="saveNpApiKey()">Зберегти ключ</button>
-        </div>
-        <div class="hint" id="npKeyStatus" style="margin-top:6px;"></div>
-      </div>
-
-      <div class="catalog-group">
-        <div class="catalog-group-title">Розпізнавання скріншотів (OCR.space)</div>
-        <p class="hint" style="margin:0 0 8px;">Безкоштовний ключ — реєстрація на <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener">ocr.space/ocrapi</a> (лист приходить одразу). Використовується для кнопки «📷 Зі скріншота» — розпізнає текст замовлення з фото переписки.</p>
-        <div class="fb-row">
-          <input type="text" id="ocrApiKeyInput" placeholder="API-ключ OCR.space">
-          <button class="btn btn-sm" onclick="saveOcrApiKey()">Зберегти ключ</button>
-        </div>
-        <div class="hint" id="ocrKeyStatus2" style="margin-top:6px;"></div>
-      </div>
-
-      <div class="catalog-group">
-        <div class="catalog-group-title">Дані відправника (для створення ТТН)</div>
-        <button class="btn btn-sm" onclick="loadSenderCounterparty()">Завантажити відправника з кабінету</button>
-        <select id="senderCounterpartySelect" onchange="selectSenderCounterparty(this.value)" style="display:none;margin-top:8px;"></select>
-        <div class="hint" id="senderCounterpartyStatus" style="margin-top:6px;"></div>
-        <div class="delivery-grid" style="margin-top:10px;">
-          <div class="np-city-wrap">
-            <label>Місто відправлення</label>
-            <input type="text" id="sender-city-input" placeholder="Почніть вводити назву міста"
-              oninput="npSender.citySenderName=this.value"
-              onkeydown="if(event.key==='Enter'){event.preventDefault();searchSenderCity();}">
-            <div class="np-suggestions" id="sender-city-suggestions" style="display:none;"></div>
-          </div>
-          <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchSenderCity()" type="button">Знайти місто</button></div>
-          <div>
-            <label>Відділення відправлення</label>
-            <select id="sender-warehouse-select" onchange="selectSenderWarehouse(this.value, this.options[this.selectedIndex].text)">
-              <option value="">Спершу оберіть місто</option>
-            </select>
-          </div>
-          <div style="grid-column:span 3;">
-            <label>Розрахунковий рахунок ФОП для зарахування (для вашої довідки)</label>
-            <input type="text" id="payout-card-input" value="" placeholder="напр. UA00 0000 0000 0000 0000 0000 0" oninput="npSender.payoutCard=this.value" onchange="scheduleSave()">
-          </div>
-        </div>
-        <p class="hint" style="margin-top:6px;">Це поле — лише для вашого запису. Куди саме зараховувати кошти за послугою «Контроль оплати» — прив'язується один раз у договорі з NovaPay, а не в цій програмі.</p>
-      </div>
-      <div class="catalog-group">
-        <div class="catalog-group-title">Уведомлення в Telegram</div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin:0 0 10px;padding:10px 12px;background:var(--surface-2);border-radius:8px;">
-          <input type="checkbox" id="telegramNotificationsToggle" checked onchange="toggleTelegramNotifications(this.checked)" style="width:auto;accent-color:var(--saffron);">
-          Автоматично надсилати сповіщення в Telegram про кожну відправку
-        </label>
-        <p class="hint" style="margin:0 0 8px;">Створіть бота через <strong>@BotFather</strong> (команда /newbot, скопіюйте токен), додайте бота у вашу групу, і напишіть у групі будь-яке повідомлення. Тоді натисніть кнопку нижче — вона сама визначить ID групи.</p>
-        <div class="delivery-grid">
-          <div style="grid-column:span 2;"><label>Токен бота</label><input type="text" id="tgBotTokenInput" placeholder="напр. 123456:ABC-DEF..."></div>
-          <div><label>ID групи/чату</label><input type="text" id="tgChatIdInput" placeholder="напр. -1001234567890"></div>
-        </div>
-        <div class="fb-row" style="margin-top:10px;">
-          <button class="btn btn-sm" onclick="saveTelegramSettings()">Зберегти</button>
-          <button class="btn btn-sm" onclick="detectTelegramChatId()">Визначити ID групи автоматично</button>
-          <button class="btn btn-sm" onclick="sendTestTelegramMessage()">Надіслати тестове повідомлення</button>
-        </div>
-        <div class="hint" id="tgStatus" style="margin-top:6px;"></div>
-        <p class="hint" style="margin-top:8px;">Кожне сповіщення про відправку матиме кнопку «📋 Список ТТН за сьогодні» — натискання в групі обробляється, <strong>тільки поки в браузері відкрита вкладка «Замовлення»</strong> цієї програми (без свого сервера бот не може «слухати» групу цілодобово). Це саме обмеження стосується й розпізнавання скріншотів: надішліть у групу фото переписки з підписом «замовлення» (або будь-якою командою через «/») — бот сам створить чернетку замовлення, поки вкладка відкрита.</p>
-      </div>
-      <div class="catalog-group">
-        <div class="catalog-group-title">Ключ для розпізнавання (Anthropic API)</div>
-        <p class="hint" style="margin:0 0 8px;">Потрібен, щоб працювало розпізнавання накладних і скріншотів переписки поза чатом Claude — на вашому реальному сайті. Отримати: зайдіть на <strong>console.anthropic.com</strong> → зареєструйтесь → «API Keys» → «Create Key». Це окремий, платний за використанням сервіс (не пов'язаний із підпискою на Claude.ai) — розпізнавання одного фото коштує частки копійки.</p>
-        <div class="delivery-grid">
-          <div style="grid-column:span 3;"><label>API-ключ Anthropic</label><input type="text" id="anthropicKeyInput" placeholder="sk-ant-api03-..."></div>
-        </div>
-        <div class="fb-row" style="margin-top:10px;">
-          <button class="btn btn-sm" onclick="saveAnthropicKey()">Зберегти</button>
-        </div>
-        <div class="hint" id="anthropicKeyStatus" style="margin-top:6px;"></div>
-      </div>
-      <div class="catalog-group">
-        <div class="catalog-group-title">SMS клієнту (SMS Fly)</div>
-        <p class="hint" style="margin:0 0 8px;">На відміну від Telegram/Viber, SMS доходить на <strong>будь-який</strong> номер без попередньої підписки клієнта. У кабінеті sms-fly.ua: розділ «API» → скопіюйте ключ (auth key). Ім'я відправника (Sender ID/Альфаімя) підтверджується окремо в кабінеті SMS Fly.</p>
-        <div class="delivery-grid">
-          <div style="grid-column:span 2;"><label>API-ключ SMS Fly</label><input type="text" id="smsTokenInput" placeholder="ключ з розділу «API» кабінету sms-fly.ua"></div>
-          <div><label>Ім'я відправника</label><input type="text" id="smsSenderInput" placeholder="напр. Papriko"></div>
-        </div>
-        <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!</textarea>
-        <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН), <code>{name}</code> (ім'я клієнта) та <code>{sum}</code> (сума замовлення). Текст латиницею навмисно — кирилична SMS вкладається лише в 70 символів на сегмент, латиниця/цифри — 160, тож так виходить дешевше (1 SMS замість 2).</p>
-        <textarea class="order-notes" id="smsArrivedTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон, коли посилка вже у відділенні">Vasha posylka pributla u viddilennya. TTN: {ttn}. Suma zamovlennya: {sum} grn. Zaberit, bud laska!</textarea>
-        <p class="hint" style="margin:4px 0 0;">Шаблон для галочки «Відправити SMS», якщо посилка вже прибула у відділення (замість «відправлено»). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{sum}</code>.</p>
-        <textarea class="order-notes" id="smsBranchReminderTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон нагадування про відділення">Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}</textarea>
-        <p class="hint" style="margin:4px 0 0;">Шаблон нагадування «довго у відділенні» (вкладка Звіти). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{days}</code> (днів очікування).</p>
-        <div class="fb-row" style="margin-top:10px;">
-          <input type="text" id="smsTestPhoneInput" placeholder="Ваш номер для тесту, напр. 0671231234" style="max-width:220px;">
-          <button class="btn btn-sm" onclick="saveSmsSettings()">Зберегти</button>
-          <button class="btn btn-sm" onclick="sendTestSms()">Надіслати собі тестове SMS</button>
-          <button class="btn btn-sm" onclick="checkSmsSources()">Перевірити підтверджені імена відправника</button>
-        </div>
-        <div class="hint" id="smsStatus" style="margin-top:6px;"></div>
-      </div>
-      <div class="catalog-group">
-        <div class="catalog-group-title">Укрпошта — API (для створення декларацій)</div>
-        <p class="hint" style="margin:0 0 8px;">Дані видає ваш менеджер Укрпошти після підписання договору: PRODUCTION BEARER eCom і PROD_COUNTERPARTY TOKEN. Сервер Укрпошти блокує прямі запити з браузера, тому потрібна проміжна Firebase Cloud Function (проксі) — адресу вставте нижче після деплою.</p>
-        <div class="delivery-grid">
-          <div><label>Bearer eCom</label><input type="text" id="ukrBearerInput" placeholder="11111111-2222-3333-aaaa-bcdef1234567"></div>
-          <div><label>Counterparty token</label><input type="text" id="ukrTokenInput" placeholder="токен контрагента"></div>
-          <div><label>Адреса проксі-функції</label><input type="text" id="ukrProxyUrlInput" placeholder="https://ukrposhtaproxy-....run.app"></div>
-          <div><label>Bearer для статус-трекінгу</label><input type="text" id="ukrTrackingBearerInput" placeholder="окремий ключ, видає менеджер"></div>
-        </div>
-        <p class="hint" style="margin:4px 0 0;">⚠️ Сервіс перевірки статусу — це <strong>окрема послуга</strong> зі своїм окремим ключем (за офіційним FAQ Укрпошти), відмінним від ключа для створення декларацій. Якщо синхронізація статусів видає помилку 404 — попросіть менеджера видати саме цей окремий Bearer.</p>
-        <div class="fb-row" style="margin-top:8px;"><button class="btn btn-sm" onclick="saveUkrApiSettings()">Зберегти</button></div>
-        <div class="hint" id="ukrApiStatus" style="margin-top:6px;"></div>
-
-        <div class="catalog-group-title" style="margin-top:14px;">Дані відправника (Укрпошта)</div>
-        <div class="delivery-grid">
-          <div><label>Тип</label>
-            <select id="ukrSenderType">
-              <option value="PRIVATE_ENTREPRENEUR">ФОП</option>
-              <option value="COMPANY">Юридична особа</option>
-              <option value="INDIVIDUAL">Фізична особа</option>
-            </select>
-          </div>
-          <div style="grid-column:span 2;"><label>ПІБ / назва</label><input type="text" id="ukrSenderName" placeholder="Прізвище Ім'я По батькові або назва ФОП"></div>
-          <div><label>ІПН / ЄДРПОУ</label><input type="text" id="ukrSenderTin" placeholder="тільки цифри"></div>
-          <div><label>Телефон</label><input type="text" id="ukrSenderPhone" placeholder="0671231234"></div>
-          <div><label>Банківський рахунок (IBAN)</label><input type="text" id="ukrSenderIban" placeholder="UA0000000000000000000000000"></div>
-        </div>
-        <div class="delivery-grid" style="margin-top:8px;">
-          <div><label>Індекс відправника</label><input type="text" id="ukrSenderPostcode" placeholder="напр. 79000"></div>
-          <div><label>Область</label><input type="text" id="ukrSenderRegion"></div>
-          <div><label>Місто</label><input type="text" id="ukrSenderCity"></div>
-          <div><label>Вулиця</label><input type="text" id="ukrSenderStreet"></div>
-          <div><label>Будинок</label><input type="text" id="ukrSenderHouse"></div>
-        </div>
-        <div class="fb-row" style="margin-top:10px;">
-          <button class="btn btn-sm" onclick="createUkrSender()">Створити/оновити відправника в Укрпошті</button>
-        </div>
-        <div class="hint" id="ukrSenderStatus" style="margin-top:6px;"></div>
-      </div>
-    </div>
-  </div>
+  
 
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
     <div class="catalog-group-title">Фільтр і сортування</div>
@@ -1635,6 +1491,151 @@
 
   <div id="section-settings" class="app-section">
     <div class="section-title" style="margin-top:0;">Налаштування</div>
+    <div class="catalog-panel" id="deliverySettingsPanel" style="margin-bottom:14px;">
+    <button class="catalog-toggle" onclick="toggleDeliverySettings()">
+      <span id="deliveryToggleLabel">Налаштування доставки (Нова Пошта / Укрпошта)</span>
+      <span id="deliveryToggleIcon">▸</span>
+    </button>
+    <div class="catalog-body" id="deliverySettingsBody">
+      <div class="catalog-group">
+        <div class="catalog-group-title">Нова Пошта</div>
+        <p class="hint" style="margin:0 0 8px;">API-ключ береться в кабінеті НП: my.novaposhta.ua → Налаштування → Робота з API → створити ключ. Дає змогу шукати міста й відділення прямо в замовленні.</p>
+        <div class="fb-row">
+          <input type="text" id="npApiKeyInput" placeholder="API-ключ Нової Пошти">
+          <button class="btn btn-sm" onclick="saveNpApiKey()">Зберегти ключ</button>
+        </div>
+        <div class="hint" id="npKeyStatus" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Розпізнавання скріншотів (OCR.space)</div>
+        <p class="hint" style="margin:0 0 8px;">Безкоштовний ключ — реєстрація на <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener">ocr.space/ocrapi</a> (лист приходить одразу). Використовується для кнопки «📷 Зі скріншота» — розпізнає текст замовлення з фото переписки.</p>
+        <div class="fb-row">
+          <input type="text" id="ocrApiKeyInput" placeholder="API-ключ OCR.space">
+          <button class="btn btn-sm" onclick="saveOcrApiKey()">Зберегти ключ</button>
+        </div>
+        <div class="hint" id="ocrKeyStatus2" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="catalog-group">
+        <div class="catalog-group-title">Дані відправника (для створення ТТН)</div>
+        <button class="btn btn-sm" onclick="loadSenderCounterparty()">Завантажити відправника з кабінету</button>
+        <select id="senderCounterpartySelect" onchange="selectSenderCounterparty(this.value)" style="display:none;margin-top:8px;"></select>
+        <div class="hint" id="senderCounterpartyStatus" style="margin-top:6px;"></div>
+        <div class="delivery-grid" style="margin-top:10px;">
+          <div class="np-city-wrap">
+            <label>Місто відправлення</label>
+            <input type="text" id="sender-city-input" placeholder="Почніть вводити назву міста"
+              oninput="npSender.citySenderName=this.value"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();searchSenderCity();}">
+            <div class="np-suggestions" id="sender-city-suggestions" style="display:none;"></div>
+          </div>
+          <div><label>&nbsp;</label><button class="btn btn-sm" onclick="searchSenderCity()" type="button">Знайти місто</button></div>
+          <div>
+            <label>Відділення відправлення</label>
+            <select id="sender-warehouse-select" onchange="selectSenderWarehouse(this.value, this.options[this.selectedIndex].text)">
+              <option value="">Спершу оберіть місто</option>
+            </select>
+          </div>
+          <div style="grid-column:span 3;">
+            <label>Розрахунковий рахунок ФОП для зарахування (для вашої довідки)</label>
+            <input type="text" id="payout-card-input" value="" placeholder="напр. UA00 0000 0000 0000 0000 0000 0" oninput="npSender.payoutCard=this.value" onchange="scheduleSave()">
+          </div>
+        </div>
+        <p class="hint" style="margin-top:6px;">Це поле — лише для вашого запису. Куди саме зараховувати кошти за послугою «Контроль оплати» — прив'язується один раз у договорі з NovaPay, а не в цій програмі.</p>
+      </div>
+      <div class="catalog-group">
+        <div class="catalog-group-title">Уведомлення в Telegram</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin:0 0 10px;padding:10px 12px;background:var(--surface-2);border-radius:8px;">
+          <input type="checkbox" id="telegramNotificationsToggle" checked onchange="toggleTelegramNotifications(this.checked)" style="width:auto;accent-color:var(--saffron);">
+          Автоматично надсилати сповіщення в Telegram про кожну відправку
+        </label>
+        <p class="hint" style="margin:0 0 8px;">Створіть бота через <strong>@BotFather</strong> (команда /newbot, скопіюйте токен), додайте бота у вашу групу, і напишіть у групі будь-яке повідомлення. Тоді натисніть кнопку нижче — вона сама визначить ID групи.</p>
+        <div class="delivery-grid">
+          <div style="grid-column:span 2;"><label>Токен бота</label><input type="text" id="tgBotTokenInput" placeholder="напр. 123456:ABC-DEF..."></div>
+          <div><label>ID групи/чату</label><input type="text" id="tgChatIdInput" placeholder="напр. -1001234567890"></div>
+        </div>
+        <div class="fb-row" style="margin-top:10px;">
+          <button class="btn btn-sm" onclick="saveTelegramSettings()">Зберегти</button>
+          <button class="btn btn-sm" onclick="detectTelegramChatId()">Визначити ID групи автоматично</button>
+          <button class="btn btn-sm" onclick="sendTestTelegramMessage()">Надіслати тестове повідомлення</button>
+        </div>
+        <div class="hint" id="tgStatus" style="margin-top:6px;"></div>
+        <p class="hint" style="margin-top:8px;">Кожне сповіщення про відправку матиме кнопку «📋 Список ТТН за сьогодні» — натискання в групі обробляється, <strong>тільки поки в браузері відкрита вкладка «Замовлення»</strong> цієї програми (без свого сервера бот не може «слухати» групу цілодобово). Це саме обмеження стосується й розпізнавання скріншотів: надішліть у групу фото переписки з підписом «замовлення» (або будь-якою командою через «/») — бот сам створить чернетку замовлення, поки вкладка відкрита.</p>
+      </div>
+      <div class="catalog-group">
+        <div class="catalog-group-title">Ключ для розпізнавання (Anthropic API)</div>
+        <p class="hint" style="margin:0 0 8px;">Потрібен, щоб працювало розпізнавання накладних і скріншотів переписки поза чатом Claude — на вашому реальному сайті. Отримати: зайдіть на <strong>console.anthropic.com</strong> → зареєструйтесь → «API Keys» → «Create Key». Це окремий, платний за використанням сервіс (не пов'язаний із підпискою на Claude.ai) — розпізнавання одного фото коштує частки копійки.</p>
+        <div class="delivery-grid">
+          <div style="grid-column:span 3;"><label>API-ключ Anthropic</label><input type="text" id="anthropicKeyInput" placeholder="sk-ant-api03-..."></div>
+        </div>
+        <div class="fb-row" style="margin-top:10px;">
+          <button class="btn btn-sm" onclick="saveAnthropicKey()">Зберегти</button>
+        </div>
+        <div class="hint" id="anthropicKeyStatus" style="margin-top:6px;"></div>
+      </div>
+      <div class="catalog-group">
+        <div class="catalog-group-title">SMS клієнту (SMS Fly)</div>
+        <p class="hint" style="margin:0 0 8px;">На відміну від Telegram/Viber, SMS доходить на <strong>будь-який</strong> номер без попередньої підписки клієнта. У кабінеті sms-fly.ua: розділ «API» → скопіюйте ключ (auth key). Ім'я відправника (Sender ID/Альфаімя) підтверджується окремо в кабінеті SMS Fly.</p>
+        <div class="delivery-grid">
+          <div style="grid-column:span 2;"><label>API-ключ SMS Fly</label><input type="text" id="smsTokenInput" placeholder="ключ з розділу «API» кабінету sms-fly.ua"></div>
+          <div><label>Ім'я відправника</label><input type="text" id="smsSenderInput" placeholder="напр. Papriko"></div>
+        </div>
+        <textarea class="order-notes" id="smsTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон повідомлення">Vitayemo! Vashe zamovlennya vidpravleno. TTN: {ttn}. Suma zamovlennya: {sum} grn. Dyakuyemo za pokupku!</textarea>
+        <p class="hint" style="margin:4px 0 0;">У шаблоні можна використати <code>{ttn}</code> (номер ТТН), <code>{name}</code> (ім'я клієнта) та <code>{sum}</code> (сума замовлення). Текст латиницею навмисно — кирилична SMS вкладається лише в 70 символів на сегмент, латиниця/цифри — 160, тож так виходить дешевше (1 SMS замість 2).</p>
+        <textarea class="order-notes" id="smsArrivedTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон, коли посилка вже у відділенні">Vasha posylka pributla u viddilennya. TTN: {ttn}. Suma zamovlennya: {sum} grn. Zaberit, bud laska!</textarea>
+        <p class="hint" style="margin:4px 0 0;">Шаблон для галочки «Відправити SMS», якщо посилка вже прибула у відділення (замість «відправлено»). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{sum}</code>.</p>
+        <textarea class="order-notes" id="smsBranchReminderTemplateInput" rows="2" style="margin-top:8px;" placeholder="Шаблон нагадування про відділення">Вітаємо! Ваша посилка вже {days} дн. чекає у відділенні. Заберіть, будь ласка, найближчим часом. ТТН: {ttn}</textarea>
+        <p class="hint" style="margin:4px 0 0;">Шаблон нагадування «довго у відділенні» (вкладка Звіти). Можна використати <code>{ttn}</code>, <code>{name}</code> і <code>{days}</code> (днів очікування).</p>
+        <div class="fb-row" style="margin-top:10px;">
+          <input type="text" id="smsTestPhoneInput" placeholder="Ваш номер для тесту, напр. 0671231234" style="max-width:220px;">
+          <button class="btn btn-sm" onclick="saveSmsSettings()">Зберегти</button>
+          <button class="btn btn-sm" onclick="sendTestSms()">Надіслати собі тестове SMS</button>
+          <button class="btn btn-sm" onclick="checkSmsSources()">Перевірити підтверджені імена відправника</button>
+        </div>
+        <div class="hint" id="smsStatus" style="margin-top:6px;"></div>
+      </div>
+      <div class="catalog-group">
+        <div class="catalog-group-title">Укрпошта — API (для створення декларацій)</div>
+        <p class="hint" style="margin:0 0 8px;">Дані видає ваш менеджер Укрпошти після підписання договору: PRODUCTION BEARER eCom і PROD_COUNTERPARTY TOKEN. Сервер Укрпошти блокує прямі запити з браузера, тому потрібна проміжна Firebase Cloud Function (проксі) — адресу вставте нижче після деплою.</p>
+        <div class="delivery-grid">
+          <div><label>Bearer eCom</label><input type="text" id="ukrBearerInput" placeholder="11111111-2222-3333-aaaa-bcdef1234567"></div>
+          <div><label>Counterparty token</label><input type="text" id="ukrTokenInput" placeholder="токен контрагента"></div>
+          <div><label>Адреса проксі-функції</label><input type="text" id="ukrProxyUrlInput" placeholder="https://ukrposhtaproxy-....run.app"></div>
+          <div><label>Bearer для статус-трекінгу</label><input type="text" id="ukrTrackingBearerInput" placeholder="окремий ключ, видає менеджер"></div>
+        </div>
+        <p class="hint" style="margin:4px 0 0;">⚠️ Сервіс перевірки статусу — це <strong>окрема послуга</strong> зі своїм окремим ключем (за офіційним FAQ Укрпошти), відмінним від ключа для створення декларацій. Якщо синхронізація статусів видає помилку 404 — попросіть менеджера видати саме цей окремий Bearer.</p>
+        <div class="fb-row" style="margin-top:8px;"><button class="btn btn-sm" onclick="saveUkrApiSettings()">Зберегти</button></div>
+        <div class="hint" id="ukrApiStatus" style="margin-top:6px;"></div>
+
+        <div class="catalog-group-title" style="margin-top:14px;">Дані відправника (Укрпошта)</div>
+        <div class="delivery-grid">
+          <div><label>Тип</label>
+            <select id="ukrSenderType">
+              <option value="PRIVATE_ENTREPRENEUR">ФОП</option>
+              <option value="COMPANY">Юридична особа</option>
+              <option value="INDIVIDUAL">Фізична особа</option>
+            </select>
+          </div>
+          <div style="grid-column:span 2;"><label>ПІБ / назва</label><input type="text" id="ukrSenderName" placeholder="Прізвище Ім'я По батькові або назва ФОП"></div>
+          <div><label>ІПН / ЄДРПОУ</label><input type="text" id="ukrSenderTin" placeholder="тільки цифри"></div>
+          <div><label>Телефон</label><input type="text" id="ukrSenderPhone" placeholder="0671231234"></div>
+          <div><label>Банківський рахунок (IBAN)</label><input type="text" id="ukrSenderIban" placeholder="UA0000000000000000000000000"></div>
+        </div>
+        <div class="delivery-grid" style="margin-top:8px;">
+          <div><label>Індекс відправника</label><input type="text" id="ukrSenderPostcode" placeholder="напр. 79000"></div>
+          <div><label>Область</label><input type="text" id="ukrSenderRegion"></div>
+          <div><label>Місто</label><input type="text" id="ukrSenderCity"></div>
+          <div><label>Вулиця</label><input type="text" id="ukrSenderStreet"></div>
+          <div><label>Будинок</label><input type="text" id="ukrSenderHouse"></div>
+        </div>
+        <div class="fb-row" style="margin-top:10px;">
+          <button class="btn btn-sm" onclick="createUkrSender()">Створити/оновити відправника в Укрпошті</button>
+        </div>
+        <div class="hint" id="ukrSenderStatus" style="margin-top:6px;"></div>
+      </div>
+    </div>
+  </div>
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">SMS клієнтам</div>
       <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;cursor:pointer;margin-top:6px;">
@@ -1673,7 +1674,7 @@
         <button class="btn btn-sm" onclick="testSmsTemplate('setTplReminder')">Тест: нагадування</button>
       </div>
       <div class="hint" id="setTplStatus" style="margin-top:6px;"></div>
-      <p class="hint" style="margin-top:12px;">Ключ SMS Fly та ім'я відправника лишаються в «Налаштування доставки» (вкладка «Замовлення»).</p>
+      <p class="hint" style="margin-top:12px;">Ключ SMS Fly та ім'я відправника — у блоці «Налаштування доставки (Нова Пошта / Укрпошта)» вище.</p>
     </div></div>
 
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
