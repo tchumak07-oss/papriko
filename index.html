@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.76.2 · 26.10.2026 10:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.77.0 · 28.10.2026 15:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1705,6 +1705,18 @@
       </div>
       <div class="hint" id="cbStatus" style="margin-top:6px;"></div>
     </div></div>
+
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">📦 Посилання для наборщика</div>
+      <div class="hint" style="margin-bottom:8px;">Окрема сторінка (файл packer.html має лежати поруч з цим файлом): лише створені й не відправлені замовлення — склад, куди, контакти; відмітка «набрано»; звіти зібраних і відправлених. Спершу створіть у Firebase (Authentication → Users → Add user) окремого користувача для наборщика й впишіть його пошту та пароль нижче. Пароль у програмі не зберігається, він лише вшивається в посилання.</div>
+      <div class="delivery-grid" style="margin-top:10px;">
+        <div><label>Пошта наборщика (Firebase)</label><input type="text" id="pkEmail" placeholder="packer@..."></div>
+        <div><label>Пароль наборщика</label><input type="text" id="pkPass" placeholder="пароль"></div>
+      </div>
+      <div class="fb-row" style="margin-top:10px;"><button class="btn btn-sm btn-primary" onclick="packerLinkBuild()">Створити посилання</button></div>
+      <textarea class="order-notes" id="pkLink" rows="3" readonly style="margin-top:8px;display:none;" onclick="this.select()"></textarea>
+      <div class="hint" id="pkStatus" style="margin-top:6px;"></div>
+    </div></div>
   </div><!-- /section-settings -->
 
   <div id="section-reports" class="app-section">
@@ -2300,7 +2312,7 @@ function scheduleSave(){
             // вкладка/пристрій рахує окремо й незалежно); на uid-позбавлені старі записи — за id.
             const lo = orders.find(o => (o.uid && ro.uid) ? o.uid === ro.uid : o.id === ro.id);
             if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
-            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate']
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
@@ -6510,7 +6522,7 @@ function renderTodayShipmentsModal(){
       const transitLabel = isAtBranchAwaitingPickup(o) ? 'на відділенні' : (isInTransitOnly(o) ? 'в дорозі' : '');
       const isRet = !!(o.npReturned || o.status === 'Повернено');
       const statusText = [o.paid?'Оплачено':'', isRet ? 'Повернення' : transitLabel, (!isRet && o.delivered)?'Доставлено':''].filter(Boolean).join(', ') || o.status;
-      const pk = !!o.packed;
+      const pk = !!o.packed && !o.shipped;
       return `
         <div class="wh-row" style="grid-template-columns:36px 90px 1fr 1fr 90px 100px 130px 1fr;${pk?'background:rgba(45,212,191,0.16);box-shadow:inset 3px 0 0 #2dd4bf;':''}">
           <div class="hint" style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text-faint);">${idx+1}</div>
@@ -6730,14 +6742,14 @@ async function buildTodayShipmentsExcel(shortMode){
     list.forEach(o => {
       const itemsTextS = o.items.map(it => { const k = kitById(it.kitId); return `${k ? k.name : '(товар)'} x${it.qty}`; }).join('; ');
       const code = ({'Нова Пошта':'НП', 'Укрпошта':'УП', 'Самовивіз':'СВ'})[o.deliveryMethod] || '';
-      const r = wsS.addRow({carrier: code, customer: o.customer || '', phone: o.phone || '', ttn: o.ttnNumber || o.ukrTtnNumber || '', items: itemsTextS, notes: (o.packed ? 'ЗІБРАНО' + (o.notes ? '. ' + o.notes : '') : (o.notes || ''))});
+      const r = wsS.addRow({carrier: code, customer: o.customer || '', phone: o.phone || '', ttn: o.ttnNumber || o.ukrTtnNumber || '', items: itemsTextS, notes: (o.packed && !o.shipped ? 'ЗІБРАНО' + (o.notes ? '. ' + o.notes : '') : (o.notes || ''))});
       r.eachCell({includeEmpty:true}, c => { c.border = bd; });
       r.getCell('ttn').font = {size:13, bold:true};
       const cc = r.getCell('carrier');
       cc.font = {bold:true}; cc.alignment = {horizontal:'center'};
       const fillArgb = {'НП':'FFF5E3A8', 'УП':'FFF3C6C0', 'СВ':'FFC6E8C6'}[code];
       if(fillArgb) cc.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillArgb}};
-      if(o.packed){ ['customer','phone','ttn','items','notes'].forEach(k => { r.getCell(k).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFB6EFE6'}}; }); }
+      if(o.packed && !o.shipped){ ['customer','phone','ttn','items','notes'].forEach(k => { r.getCell(k).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFB6EFE6'}}; }); }
     });
     wsS.views = [{state:'frozen', ySplit:1}];
     xlsWrapAll(wsS, 1);
@@ -6813,7 +6825,7 @@ async function buildTodayShipmentsExcel(shortMode){
       paid: o.paid ? 'так' : 'ні',
       shipped: o.shipped ? 'так' : 'ні',
       delivered: o.delivered ? 'так' : 'ні',
-      notes: (o.packed ? 'ЗІБРАНО' + (o.notes ? '. ' + o.notes : '') : (o.notes || ''))
+      notes: (o.packed && !o.shipped ? 'ЗІБРАНО' + (o.notes ? '. ' + o.notes : '') : (o.notes || ''))
     });
     // Промальовуємо межі клітинок, щоб вийшла справжня таблиця
     row.eachCell({includeEmpty:true}, cell => { cell.border = THIN_BORDER; });
@@ -6831,7 +6843,7 @@ async function buildTodayShipmentsExcel(shortMode){
     }
     // доставка за наш рахунок — окремо підсвічуємо цю клітинку синім, незалежно від оплати (лише якщо колонка взагалі є)
     if(hasOurExpense && ourExpense) row.getCell('ourExpense').fill = BLUE;
-    if(o.packed && !o.paid) ['customer','items'].forEach(k => { row.getCell(k).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFB6EFE6'}}; });
+    if(o.packed && !o.shipped && !o.paid) ['customer','items'].forEach(k => { row.getCell(k).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFB6EFE6'}}; });
     // ТТН/номер декларації — виділяємо для легкого пошуку в роздрукованій таблиці
     row.getCell('ttn').font = {size:13, bold:true};
   });
@@ -9900,11 +9912,20 @@ function packedToggleHtml(o){
     ? `<button class="packed-badge" type="button" onclick="event.stopPropagation();togglePacked(${o.id}, false)" title="Набрано${o.packedAt ? ' ' + escapeAttr(o.packedAt) : ''} — клік, щоб зняти відмітку">📦 Набрано</button>`
     : `<button class="packed-toggle" type="button" onclick="event.stopPropagation();togglePacked(${o.id}, true)" title="Натисніть, коли замовлення набране (наборщик зібрав)">☐ Набр.</button>`;
 }
+function packerLinkBuild(){
+  const e = document.getElementById('pkEmail').value.trim(), p = document.getElementById('pkPass').value;
+  const st = document.getElementById('pkStatus'), ta = document.getElementById('pkLink');
+  if(!e || !p){ st.textContent = 'Впишіть пошту й пароль наборщика.'; return; }
+  const k = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify({e, p})))));
+  const base = location.href.split('#')[0].split('?')[0].replace(/[^\/]*$/, '') + 'packer.html';
+  ta.value = base + '#k=' + k; ta.style.display = 'block'; ta.select();
+  st.textContent = 'Скопіюйте це посилання й надішліть наборщику. Кожен, хто його отримає, зможе зайти. Щоб закрити доступ — видаліть цього користувача у Firebase.';
+}
 function togglePacked(id, checked){
   const o = orderById(id); if(!o) return;
   o.packed = !!checked;
-  if(checked){ const d = new Date(), z = n => String(n).padStart(2,'0'); o.packedAt = `${z(d.getDate())}.${z(d.getMonth()+1)} ${z(d.getHours())}:${z(d.getMinutes())}`; }
-  else o.packedAt = '';
+  if(checked){ const d = new Date(), z = n => String(n).padStart(2,'0'); o.packedAt = `${z(d.getDate())}.${z(d.getMonth()+1)} ${z(d.getHours())}:${z(d.getMinutes())}`; o.packedTs = d.toISOString(); }
+  else { o.packedAt = ''; o.packedTs = ''; }
   renderOrders(); renderOrdersSummary(); scheduleSave();
 }
 
@@ -12642,7 +12663,7 @@ function renderReports(){
 function orderCollapsedHtml(o, num){
   const c = calcOrder(o);
   return `
-    <div class="order-card order-card-collapsed${o.shipped?' shipped-card':''}${o.packed?' packed-card':''}" data-order="${o.id}">
+    <div class="order-card order-card-collapsed${o.shipped?' shipped-card':''}${o.packed && !o.shipped?' packed-card':''}" data-order="${o.id}">
       <div class="order-collapsed-row">
         ${num ? `<span class="hint order-num" style="font-family:'JetBrains Mono',monospace;flex:0 0 auto;min-width:22px;text-align:right;">${num}</span>` : ''}
         <label style="display:flex;align-items:center;padding:0 2px;cursor:pointer;flex:0 0 auto;" title="Вибрати для пакетної дії">
@@ -12727,7 +12748,7 @@ function ensureClientForOrder(o){
 function orderExpandedHtml(o, num){
   const c = calcOrder(o);
   return `
-    <div class="order-card${o.shipped?' shipped-card':''}${o.packed?' packed-card':''}" data-order="${o.id}">
+    <div class="order-card${o.shipped?' shipped-card':''}${o.packed && !o.shipped?' packed-card':''}" data-order="${o.id}">
       <div class="order-head">
         <div class="order-head-left">
           ${num ? `<span class="hint order-num" style="font-family:'JetBrains Mono',monospace;">${num}</span>` : ''}

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Папріко · Наборщик</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-app-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+  :root{
+    --bg:#1a1410; --card:#251d16; --line:#3a2e24; --text:#f1e7da; --muted:#a8998a;
+    --teal:#2dd4bf; --teal-text:#06302b; --saffron:#e8a93a; --chili:#e0604a; --green:#6fae6a; --danger:#e0604a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.35;}
+  header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  header h1{font-size:18px;margin:0;flex:1;}
+  .sync{font-size:12px;color:var(--muted);}
+  .sync.ok{color:var(--green);} .sync.err{color:var(--danger);}
+  .tabs{display:flex;gap:8px;padding:10px 16px 0;}
+  .tab{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;font-size:15px;cursor:pointer;}
+  .tab.on{background:var(--saffron);color:#2a1d05;border-color:var(--saffron);font-weight:700;}
+  main{padding:12px 16px 40px;max-width:900px;margin:0 auto;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0;}
+  .chip{padding:7px 12px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;font-size:14px;cursor:pointer;}
+  .chip.on{background:var(--teal);color:var(--teal-text);border-color:var(--teal);font-weight:700;}
+  input[type=text],input[type=email],input[type=password],input[type=date]{background:var(--card);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:8px;font-size:15px;max-width:100%;}
+  input[type=text]{flex:1;min-width:150px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;}
+  .card.packed{border-color:var(--teal);background:linear-gradient(90deg,rgba(45,212,191,.14),rgba(45,212,191,.03) 45%);box-shadow:inset 4px 0 0 var(--teal);}
+  .name{font-size:18px;font-weight:700;}
+  .muted{color:var(--muted);font-size:14px;}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:800;margin-right:6px;}
+  .b-np{background:var(--saffron);color:#2a1d05;} .b-up{background:var(--chili);color:#fff;} .b-sv{background:var(--green);color:#10260f;}
+  .items{margin:8px 0 4px;padding:0;list-style:none;}
+  .items li{padding:5px 0;border-top:1px dashed var(--line);font-size:16px;}
+  .items li:first-child{border-top:0;}
+  .qty{font-weight:800;color:var(--saffron);margin-left:6px;}
+  .sub{font-size:13px;color:var(--muted);margin-left:14px;}
+  .btn{padding:12px 16px;border:0;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;background:var(--saffron);color:#2a1d05;}
+  .btn.pack{width:100%;margin-top:8px;background:var(--teal);color:var(--teal-text);}
+  .btn.unpack{width:100%;margin-top:8px;background:transparent;color:var(--teal);border:1px solid var(--teal);}
+  .btn.sm{padding:8px 12px;font-size:14px;}
+  .btn.ghost{background:var(--card);color:var(--text);border:1px solid var(--line);}
+  .btn:disabled{opacity:.5;}
+  .empty{padding:30px 10px;text-align:center;color:var(--muted);}
+  a{color:var(--saffron);}
+  .rep-row{display:grid;grid-template-columns:28px 1.2fr 1fr 1fr 1.6fr;gap:8px;padding:8px 4px;border-top:1px solid var(--line);font-size:14px;}
+  .rep-row.h{color:var(--muted);font-size:12px;border-top:0;}
+  @media(max-width:620px){ .rep-row{grid-template-columns:24px 1fr 1fr;} .rep-row .hide-m{display:none;} }
+  h2{font-size:17px;margin:18px 0 4px;}
+  #login{max-width:360px;margin:60px auto;padding:0 16px;}
+  #login input{display:block;width:100%;margin:8px 0;}
+  .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;}
+</style>
+</head>
+<body>
+<div id="login" style="display:none;">
+  <h1>Папріко · Наборщик</h1>
+  <p class="muted">Відкрийте особисте посилання, яке вам дали, або введіть пошту й пароль.</p>
+  <input type="email" id="lgEmail" placeholder="Пошта" autocomplete="username">
+  <input type="password" id="lgPass" placeholder="Пароль" autocomplete="current-password">
+  <button class="btn" onclick="manualLogin()">Увійти</button>
+  <div id="lgErr" class="muted" style="color:var(--danger);margin-top:8px;"></div>
+</div>
+
+<div id="app" style="display:none;">
+  <header>
+    <h1>📦 Наборщик</h1>
+    <span class="sync" id="syncLbl">Підключення…</span>
+  </header>
+  <div class="tabs">
+    <button class="tab on" id="tabOrders" onclick="setTab('orders')">Замовлення</button>
+    <button class="tab" id="tabReports" onclick="setTab('reports')">Звіти</button>
+  </div>
+  <main>
+    <section id="viewOrders">
+      <div class="row">
+        <button class="chip on" data-f="all" onclick="setFilter('all')">Усі</button>
+        <button class="chip" data-f="todo" onclick="setFilter('todo')">Не зібрані</button>
+        <button class="chip" data-f="done" onclick="setFilter('done')">Зібрані</button>
+        <input type="text" id="q" placeholder="Пошук: імʼя, телефон, ТТН" oninput="renderOrders()">
+      </div>
+      <div class="muted" id="counts"></div>
+      <div id="list"></div>
+    </section>
+
+    <section id="viewReports" style="display:none;">
+      <div class="row">
+        <input type="date" id="rFrom" onchange="renderReports()"> — <input type="date" id="rTo" onchange="renderReports()">
+        <button class="chip" onclick="repPeriod('today')">Сьогодні</button>
+        <button class="chip" onclick="repPeriod('week')">7 днів</button>
+      </div>
+      <h2 id="repPackedTitle">Зібрано</h2>
+      <div class="row"><button class="btn sm ghost" onclick="copyReport('packed')">Скопіювати</button><button class="btn sm ghost" onclick="excelReport('packed')">Excel</button></div>
+      <div id="repPacked"></div>
+      <h2 id="repShippedTitle">Відправлено</h2>
+      <div class="row"><button class="btn sm ghost" onclick="copyReport('shipped')">Скопіювати</button><button class="btn sm ghost" onclick="excelReport('shipped')">Excel</button></div>
+      <div id="repShipped"></div>
+      <p class="muted">«Відправлено» — замовлення, позначені як відправлені, за датою замовлення. «Зібрано» — за датою, коли натиснули «Набрано».</p>
+    </section>
+  </main>
+</div>
+
+<script>
+const FB_CONFIG = {
+  apiKey: "AIzaSyCa1vo8VkzNBuIGNrJ7h4NXqT4VAKhWPDc",
+  authDomain: "papriko.firebaseapp.com",
+  projectId: "papriko",
+  storageBucket: "papriko.firebasestorage.app",
+  messagingSenderId: "17346760392",
+  appId: "1:17346760392:web:b8260e6b55de4881bcdffd"
+};
+let db, auth, docRef;
+let orders = [], kits = [], catalog = [];
+let filter = 'all', tab = 'orders';
+let busyUid = null;
+let lastReport = {packed: [], shipped: []};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const z2 = n => String(n).padStart(2, '0');
+function todayStr(){ const d = new Date(); return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`; }
+function toast(t){ const e = document.createElement('div'); e.className = 'toast'; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 2200); }
+function setSync(cls, t){ const e = $('syncLbl'); e.className = 'sync ' + cls; e.textContent = t; }
+
+/* ---------- вхід ---------- */
+function readLinkCreds(){
+  try{
+    const m = location.hash.match(/[#&]k=([^&]+)/);
+    if(m){
+      const j = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))));
+      if(j && j.e && j.p){
+        try{ localStorage.setItem('packerCred', JSON.stringify(j)); }catch(e){}
+        history.replaceState(null, '', location.pathname + location.search); // прибираємо секрет із адресного рядка
+        return j;
+      }
+    }
+  }catch(e){}
+  try{ const s = localStorage.getItem('packerCred'); if(s) return JSON.parse(s); }catch(e){}
+  return null;
+}
+function manualLogin(){
+  const e = $('lgEmail').value.trim(), p = $('lgPass').value;
+  if(!e || !p){ $('lgErr').textContent = 'Введіть пошту й пароль.'; return; }
+  signIn({e, p}, true);
+}
+function signIn(cred, remember){
+  $('lgErr').textContent = '';
+  auth.signInWithEmailAndPassword(cred.e, cred.p).then(() => {
+    if(remember){ try{ localStorage.setItem('packerCred', JSON.stringify(cred)); }catch(e){} }
+  }).catch(err => {
+    try{ localStorage.removeItem('packerCred'); }catch(e){}
+    $('login').style.display = 'block'; $('app').style.display = 'none';
+    const c = err && err.code;
+    $('lgErr').textContent = (c === 'auth/network-request-failed') ? 'Немає інтернету.' : 'Не вдалось увійти. Перевірте посилання або пароль.';
+  });
+}
+
+function start(){
+  firebase.initializeApp(FB_CONFIG);
+  auth = firebase.auth();
+  db = firebase.firestore();
+  docRef = db.collection('spice-app').doc('data');
+  auth.onAuthStateChanged(user => {
+    if(user){
+      $('login').style.display = 'none'; $('app').style.display = 'block';
+      subscribe();
+    } else {
+      const c = readLinkCreds();
+      if(c) signIn(c, false);
+      else { $('login').style.display = 'block'; $('app').style.display = 'none'; }
+    }
+  });
+}
+
+let unsub = null;
+function subscribe(){
+  if(unsub) return;
+  setSync('', 'Підключення…');
+  unsub = docRef.onSnapshot(snap => {
+    if(!snap.exists){ setSync('err', 'Дані не знайдено'); return; }
+    const d = snap.data();
+    orders = Array.isArray(d.orders) ? d.orders : [];
+    kits = Array.isArray(d.kits) ? d.kits : [];
+    catalog = Array.isArray(d.catalog) ? d.catalog : [];
+    setSync('ok', 'Синхронізовано ' + new Date().toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'}));
+    render();
+  }, err => {
+    setSync('err', 'Немає доступу: ' + (err && err.code ? err.code : err.message));
+  });
+}
+
+/* ---------- допоміжне ---------- */
+function isArchived(o){ return !o.keepActive && (!!o.manualArchive || (!!o.paid && !!o.delivered)); }
+function isActiveUnshipped(o){ return !o.shipped && !o.delivered && !isArchived(o) && !(o.npReturned || o.status === 'Повернено'); }
+function carrierBadge(o){
+  if(o.deliveryMethod === 'Нова Пошта') return '<span class="badge b-np">НП</span>';
+  if(o.deliveryMethod === 'Укрпошта') return '<span class="badge b-up">УП</span>';
+  if(o.deliveryMethod === 'Самовивіз') return '<span class="badge b-sv">Самовивіз</span>';
+  return '';
+}
+function destination(o){
+  if(o.deliveryMethod === 'Самовивіз') return 'Самовивіз';
+  if(o.deliveryMethod === 'Укрпошта'){
+    return [o.ukrIndex, o.ukrCity, o.ukrOfficeDesc || [o.ukrStreet, o.ukrHouse && ('буд. ' + o.ukrHouse), o.ukrApartment && ('кв. ' + o.ukrApartment)].filter(Boolean).join(' ') || o.address].filter(Boolean).join(', ');
+  }
+  if(o.npDeliveryType === 'address' || (!o.warehouseDesc && o.npStreet)){
+    return [o.city, o.npStreet, o.npHouse && ('буд. ' + o.npHouse), o.npFlat && ('кв. ' + o.npFlat)].filter(Boolean).join(', ');
+  }
+  return [o.city, o.warehouseDesc].filter(Boolean).join(', ');
+}
+function ttnOf(o){ return o.ttnNumber || o.ukrTtnNumber || ''; }
+function kitById(id){ return kits.find(k => k.id === id); }
+function catName(id){ const c = catalog.find(x => x.id === id); return c ? c.name : null; }
+function itemLines(o){
+  return (o.items || []).map(it => {
+    const k = kitById(it.kitId);
+    const comps = [];
+    if(k && Array.isArray(k.components)){
+      k.components.forEach(c => {
+        if(c.refType === 'catalog' || c.catalogId != null){
+          const n = catName(c.catalogId);
+          if(n) comps.push(n + (c.amount ? ' — ' + c.amount : ''));
+        }
+      });
+    }
+    return {name: k ? k.name : '(товар видалено)', qty: it.qty, comps};
+  });
+}
+function itemsText(o){ return itemLines(o).map(l => `${l.name} ×${l.qty}`).join('; '); }
+
+function packedDate(o){ // → 'YYYY-MM-DD' або ''
+  if(o.packedTs) return String(o.packedTs).slice(0, 10);
+  const m = String(o.packedAt || '').match(/^(\d{1,2})\.(\d{1,2})/);
+  if(m){
+    const y = (String(o.date || '').match(/^(\d{4})/) || [])[1] || String(new Date().getFullYear());
+    return `${y}-${z2(m[2])}-${z2(m[1])}`;
+  }
+  return '';
+}
+function ukDate(s){ const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ''); }
+
+/* ---------- відмальовування ---------- */
+function setTab(t){
+  tab = t;
+  $('tabOrders').classList.toggle('on', t === 'orders');
+  $('tabReports').classList.toggle('on', t === 'reports');
+  $('viewOrders').style.display = t === 'orders' ? '' : 'none';
+  $('viewReports').style.display = t === 'reports' ? '' : 'none';
+  if(t === 'reports'){
+    if(!$('rFrom').value){ $('rFrom').value = todayStr(); $('rTo').value = todayStr(); }
+  }
+  render();
+}
+function setFilter(f){
+  filter = f;
+  document.querySelectorAll('.chip[data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+  renderOrders();
+}
+function render(){ if(tab === 'orders') renderOrders(); else renderReports(); }
+
+function renderOrders(){
+  const q = ($('q').value || '').trim().toLowerCase();
+  const base = orders.filter(isActiveUnshipped);
+  const nDone = base.filter(o => o.packed).length;
+  $('counts').textContent = `Не відправлено: ${base.length} · зібрано: ${nDone} · лишилось зібрати: ${base.length - nDone}`;
+  let list = base.filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed));
+  if(q){
+    list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  }
+  // не зібрані зверху, потім за датою (старіші першими)
+  list.sort((a, b) => (!!a.packed - !!b.packed) || String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
+  if(!list.length){ $('list').innerHTML = '<div class="empty">Немає замовлень.</div>'; return; }
+  $('list').innerHTML = list.map(o => {
+    const lines = itemLines(o);
+    const uid = o.uid || ('id' + o.id);
+    return `<div class="card${o.packed ? ' packed' : ''}">
+      <div class="name">${esc(o.customer || 'Без імені')}</div>
+      <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a>` : 'немає телефону'} · ${esc(ukDate(o.date))}</div>
+      <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
+      ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
+      <ul class="items">${lines.map(l => `<li>${esc(l.name)}<span class="qty">× ${esc(l.qty)}</span>${l.comps.length ? `<div class="sub">${esc(l.comps.join(' · '))}</div>` : ''}</li>`).join('') || '<li class="muted">Склад не вказано</li>'}</ul>
+      ${o.notes ? `<div class="muted">Примітка: ${esc(o.notes)}</div>` : ''}
+      ${o.packed
+        ? `<div class="muted" style="color:var(--teal);margin-top:6px;">✓ Зібрано ${esc(o.packedAt || '')}</div><button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', false)">Зняти позначку</button>`
+        : `<button class="btn pack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', true)">✓ Набрано</button>`}
+    </div>`;
+  }).join('');
+}
+
+/* ---------- позначка «набрано» (атомарно, чіпаємо лише замовлення й updatedAt) ---------- */
+function setPacked(uid, checked){
+  if(busyUid) return;
+  busyUid = uid; renderOrders();
+  db.runTransaction(t => t.get(docRef).then(snap => {
+    if(!snap.exists) throw new Error('Дані не знайдено');
+    const arr = (snap.data().orders || []).slice();
+    const i = arr.findIndex(o => (o.uid || ('id' + o.id)) === uid);
+    if(i < 0) throw new Error('Замовлення не знайдено (його могли видалити)');
+    const o = Object.assign({}, arr[i]);
+    if(o.shipped) throw new Error('Це замовлення вже відправлено');
+    o.packed = !!checked;
+    if(checked){
+      const d = new Date();
+      o.packedAt = `${z2(d.getDate())}.${z2(d.getMonth()+1)} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+      o.packedTs = d.toISOString();
+      o.packedBy = 'наборщик';
+    } else { o.packedAt = ''; o.packedTs = ''; o.packedBy = ''; }
+    arr[i] = o;
+    t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+  })).then(() => toast(checked ? 'Позначено: набрано' : 'Позначку знято'))
+    .catch(err => { toast('Помилка: ' + (err && err.message ? err.message : err)); })
+    .finally(() => { busyUid = null; renderOrders(); });
+}
+
+/* ---------- звіти ---------- */
+function repPeriod(kind){
+  const to = todayStr();
+  let from = to;
+  if(kind === 'week'){ const d = new Date(); d.setDate(d.getDate() - 6); from = `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`; }
+  $('rFrom').value = from; $('rTo').value = to;
+  renderReports();
+}
+function repRows(list){
+  if(!list.length) return '<div class="empty">Нічого немає за цей період.</div>';
+  return `<div class="rep-row h"><div>№</div><div>Клієнт</div><div class="hide-m">Телефон</div><div class="hide-m">ТТН</div><div>Товари / куди</div></div>` +
+    list.map((o, i) => `<div class="rep-row"><div>${i+1}</div><div>${esc(o.customer || '—')}<div class="muted">${esc(o.packedAt || ukDate(o.date))}</div></div><div class="hide-m mono">${esc(o.phone || '')}</div><div class="hide-m mono">${esc(ttnOf(o))}</div><div>${esc(itemsText(o))}<div class="muted">${esc(destination(o))}</div></div></div>`).join('');
+}
+function renderReports(){
+  const from = $('rFrom').value || todayStr(), to = $('rTo').value || todayStr();
+  const inRange = d => d && d >= from && d <= to;
+  const packed = orders.filter(o => o.packed && inRange(packedDate(o)))
+    .sort((a, b) => String(a.packedTs || a.packedAt || '').localeCompare(String(b.packedTs || b.packedAt || '')));
+  const shipped = orders.filter(o => o.shipped && inRange(String(o.date || '').slice(0, 10)))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
+  lastReport = {packed, shipped};
+  $('repPackedTitle').textContent = `Зібрано: ${packed.length}`;
+  $('repShippedTitle').textContent = `Відправлено: ${shipped.length}`;
+  $('repPacked').innerHTML = repRows(packed);
+  $('repShipped').innerHTML = repRows(shipped);
+}
+function reportText(kind){
+  const from = $('rFrom').value, to = $('rTo').value;
+  const title = (kind === 'packed' ? 'Зібрано' : 'Відправлено') + ` (${ukDate(from)}${to !== from ? ' – ' + ukDate(to) : ''}): ${lastReport[kind].length}`;
+  return title + '\n' + lastReport[kind].map((o, i) => `${i+1}. ${o.customer || '—'} ${o.phone || ''} | ${destination(o)}${ttnOf(o) ? ' | ТТН ' + ttnOf(o) : ''} | ${itemsText(o)}`).join('\n');
+}
+function copyReport(kind){
+  const t = reportText(kind);
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(() => toast('Скопійовано'), () => toast('Не вдалось скопіювати'));
+  } else { toast('Копіювання недоступне в цьому браузері'); }
+}
+async function excelReport(kind){
+  const list = lastReport[kind];
+  if(!list.length){ toast('Нічого вивантажувати'); return; }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(kind === 'packed' ? 'Зібрано' : 'Відправлено');
+  ws.columns = [{header:'№', key:'n', width:5}, {header:'Дата', key:'d', width:12}, {header:'Клієнт', key:'c', width:26}, {header:'Телефон', key:'p', width:16},
+    {header:'Доставка', key:'m', width:12}, {header:'Куди', key:'w', width:40}, {header:'ТТН', key:'t', width:22}, {header:'Товари', key:'i', width:50}, {header:'Зібрано', key:'k', width:14}];
+  ws.getRow(1).font = {bold: true};
+  list.forEach((o, i) => ws.addRow({n: i+1, d: ukDate(o.date), c: o.customer || '', p: o.phone || '', m: o.deliveryMethod || '', w: destination(o), t: ttnOf(o), i: itemsText(o), k: o.packedAt || ''}));
+  ws.eachRow(r => r.eachCell(c => { c.alignment = {wrapText: true, vertical: 'top'}; c.border = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}}; }));
+  ws.views = [{state: 'frozen', ySplit: 1}];
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  a.download = `${kind === 'packed' ? 'zibrano' : 'vidpravleno'}_${$('rFrom').value}_${$('rTo').value}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+start();
+</script>
+</body>
+</html>
