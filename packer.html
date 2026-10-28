@@ -88,6 +88,14 @@
         <button class="chip on" data-f="all" onclick="setFilter('all')">Усі</button>
         <button class="chip" data-f="todo" onclick="setFilter('todo')">Не зібрані</button>
         <button class="chip" data-f="done" onclick="setFilter('done')">Зібрані</button>
+        <select id="sortSel" onchange="try{localStorage.setItem('packerSort',this.value)}catch(e){};renderOrders()">
+          <option value="num">Сортування: за номером</option>
+          <option value="carrier">За доставкою (УП, НП, самовивіз)</option>
+          <option value="carrierNp">За доставкою (НП, УП, самовивіз)</option>
+          <option value="todo">Спершу не зібрані</option>
+          <option value="name">За імʼям клієнта</option>
+          <option value="city">За містом</option>
+        </select>
         <input type="text" id="q" placeholder="Пошук: імʼя, телефон, ТТН" oninput="renderOrders()">
       </div>
       <div class="row">
@@ -380,6 +388,7 @@ function printAll(kind){
   if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
   window.open(npStickerUrl(list.map(o => o.ttnNumber)), '_blank');
 }
+try{ const sv = localStorage.getItem('packerSort'); if(sv) setTimeout(() => { if($('sortSel')) $('sortSel').value = sv; renderOrders(); }, 0); }catch(e){}
 try{ const v = localStorage.getItem('packerStSize'); if(v) setTimeout(() => { if($('stSize')) $('stSize').value = v; }, 0); }catch(e){}
 
 /* ---------- відмальовування ---------- */
@@ -413,6 +422,16 @@ function renderOrders(){
   if(q){
     list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
   }
+  const srt = ($('sortSel') && $('sortSel').value) || 'num';
+  const byNum = (a, b) => numOf.get(a) - numOf.get(b);
+  const rankUp = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2}, rankNp = {'Нова Пошта': 0, 'Укрпошта': 1, 'Самовивіз': 2};
+  const cityOf = o => String(o.deliveryMethod === 'Укрпошта' ? o.ukrCity : o.city || '').toLowerCase();
+  if(srt === 'carrier') list.sort((a, b) => ((rankUp[a.deliveryMethod] ?? 9) - (rankUp[b.deliveryMethod] ?? 9)) || byNum(a, b));
+  else if(srt === 'carrierNp') list.sort((a, b) => ((rankNp[a.deliveryMethod] ?? 9) - (rankNp[b.deliveryMethod] ?? 9)) || byNum(a, b));
+  else if(srt === 'todo') list.sort((a, b) => (!!a.packed - !!b.packed) || byNum(a, b));
+  else if(srt === 'name') list.sort((a, b) => String(a.customer || '').localeCompare(String(b.customer || ''), 'uk') || byNum(a, b));
+  else if(srt === 'city') list.sort((a, b) => cityOf(a).localeCompare(cityOf(b), 'uk') || byNum(a, b));
+  else list.sort(byNum);
   if(!list.length){ $('list').innerHTML = '<div class="empty">Немає замовлень.</div>'; return; }
   $('list').innerHTML = list.map(o => {
     const lines = itemLines(o);
