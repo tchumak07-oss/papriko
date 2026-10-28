@@ -337,6 +337,10 @@ async function ukrStickerBlobUrl(o){
     body: JSON.stringify({app: 'ecom', method: 'GET', path: `/shipments/${o.ukrShipmentUuid}/sticker?size=${size}`, token: cfg.ukrToken, bearer: cfg.ukrBearer})});
   const buf = await res.arrayBuffer();
   const head = new TextDecoder().decode(buf.slice(0, 5));
+  const u8 = new Uint8Array(buf);
+  let bad = 0; for(let i = 0; i + 2 < u8.length; i++){ if(u8[i] === 0xEF && u8[i+1] === 0xBF && u8[i+2] === 0xBD) bad++; }
+  if(res.ok && head.startsWith('%PDF') && bad > 20) throw new Error(`проксі пошкодив PDF (${u8.length} байт, ${bad} зіпсованих символів) — він віддає двійкові дані як текст`);
+  if(res.ok && head.startsWith('%PDF') && u8.length < 1500) throw new Error(`PDF підозріло малий (${u8.length} байт): ` + new TextDecoder().decode(buf.slice(0, 120)));
   if(res.ok && head.startsWith('%PDF')) return URL.createObjectURL(new Blob([buf], {type: 'application/pdf'}));
   // можливо, проксі повернув PDF як base64 (чистим текстом або в JSON)
   const txt = new TextDecoder().decode(buf);
