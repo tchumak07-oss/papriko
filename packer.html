@@ -90,6 +90,13 @@
         <button class="chip" data-f="done" onclick="setFilter('done')">Зібрані</button>
         <input type="text" id="q" placeholder="Пошук: імʼя, телефон, ТТН" oninput="renderOrders()">
       </div>
+      <div class="row">
+        <span class="muted">🖨 Наклейка:</span>
+        <select id="stSize" onchange="try{localStorage.setItem('packerStSize',this.value)}catch(e){}">
+          <option value="100">100×100 (термо)</option><option value="85">85×85</option><option value="A4">A4</option>
+        </select>
+        <button class="btn sm ghost" onclick="printAll('np')" id="btnAllNp">НП — усі показані</button>
+      </div>
       <div id="newBanner" style="display:none;" class="card" onclick="markSeen()"></div>
       <div class="muted" id="counts"></div>
       <div id="list"></div>
@@ -123,6 +130,7 @@ const FB_CONFIG = {
 };
 let db, auth, docRef;
 let orders = [], kits = [], catalog = [];
+let cfg = {npApiKey:'', ukrProxyUrl:'', ukrToken:'', ukrBearer:''};
 let filter = 'all', tab = 'orders';
 let busyUid = null;
 let lastReport = {packed: [], shipped: []};
@@ -240,6 +248,7 @@ function subscribe(){
     orders = Array.isArray(d.orders) ? d.orders : [];
     kits = Array.isArray(d.kits) ? d.kits : [];
     catalog = Array.isArray(d.catalog) ? d.catalog : [];
+    cfg = {npApiKey: d.npApiKey || '', ukrProxyUrl: d.ukrProxyUrl || '', ukrToken: d.ukrToken || '', ukrBearer: d.ukrBearer || ''};
     setSync('ok', 'Синхронізовано ' + new Date().toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'}));
     if(!seen) seen = loadSeen();
     const before = seen ? newOrders().length : 0;
@@ -303,6 +312,72 @@ function packedDate(o){ // → 'YYYY-MM-DD' або ''
 }
 function ukDate(s){ const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ''); }
 
+/* ---------- друк наклейок ---------- */
+function stickerKind(o){
+  if(o.deliveryMethod === 'Нова Пошта' && o.ttnNumber) return 'np';
+  if(o.deliveryMethod === 'Укрпошта' && (o.ukrShipmentUuid || o.ukrTtnNumber)) return 'up';
+  return '';
+}
+function stickerBtn(o){
+  const k = stickerKind(o);
+  if(!k) return (o.deliveryMethod === 'Самовивіз') ? '' : '<div class="muted" style="margin-top:6px;">Наклейка буде доступна після створення ТТН.</div>';
+  return `<button class="btn sm ghost" style="margin-top:8px;" onclick="printSticker('${esc(uidOf(o))}')">🖨 Наклейка ${k === 'np' ? 'НП' : 'УП'}</button>`;
+}
+function stSize(){ return ($('stSize') && $('stSize').value) || '100'; }
+function npStickerUrl(ttns){
+  const kind = stSize() === 'A4' ? 'printDocument' : (stSize() === '85' ? 'printMarking85x85' : 'printMarking100x100');
+  const typ = stSize() === 'A4' ? 'pdf' : (stSize() === '85' ? 'pdf8' : 'pdf');
+  return `https://my.novaposhta.ua/orders/${kind}/` + ttns.map(t => 'orders[]/' + encodeURIComponent(t)).join('/') + `/type/${typ}/apiKey/${encodeURIComponent(cfg.npApiKey)}`;
+}
+async function ukrStickerBlobUrl(o){
+  if(!cfg.ukrProxyUrl) throw new Error('У програмі не вказано проксі Укрпошти');
+  if(!o.ukrShipmentUuid) throw new Error('Для цього замовлення немає ідентифікатора відправлення Укрпошти');
+  const size = stSize() === 'A4' ? 'SIZE_A4' : 'SIZE_100x100';
+  const res = await fetch(cfg.ukrProxyUrl, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({app: 'ecom', method: 'GET', path: `/shipments/${o.ukrShipmentUuid}/sticker?size=${size}`, token: cfg.ukrToken, bearer: cfg.ukrBearer})});
+  const buf = await res.arrayBuffer();
+  const head = new TextDecoder().decode(buf.slice(0, 5));
+  if(res.ok && head.startsWith('%PDF')) return URL.createObjectURL(new Blob([buf], {type: 'application/pdf'}));
+  // можливо, проксі повернув PDF як base64 (чистим текстом або в JSON)
+  const txt = new TextDecoder().decode(buf);
+  let b64 = '';
+  const m = txt.match(/JVBER[A-Za-z0-9+\/=]+/);
+  if(m) b64 = m[0];
+  if(res.ok && b64){
+    const bin = atob(b64), arr = new Uint8Array(bin.length);
+    for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([arr], {type: 'application/pdf'}));
+  }
+  throw new Error(res.ok ? 'Проксі повернув не PDF: ' + txt.slice(0, 160) : `Укрпошта: ${res.status} ${txt.slice(0, 160)}`);
+}
+async function printSticker(uid){
+  const o = orders.find(x => uidOf(x) === uid); if(!o) return;
+  const k = stickerKind(o); if(!k) return;
+  if(k === 'np'){
+    if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
+    window.open(npStickerUrl([o.ttnNumber]), '_blank');
+    return;
+  }
+  const w = window.open('', '_blank'); // відкриваємо одразу (інакше браузер заблокує спливаюче вікно)
+  try{
+    const url = await ukrStickerBlobUrl(o);
+    if(w) w.location.href = url; else window.open(url, '_blank');
+  }catch(err){
+    if(w) w.close();
+    toast('Наклейка УП: ' + (err.message || err));
+  }
+}
+function printAll(kind){
+  const q = ($('q').value || '').trim().toLowerCase();
+  const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'np')
+    .filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
+    .filter(o => !q || [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  if(!list.length){ toast('Немає накладних НП для друку'); return; }
+  if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
+  window.open(npStickerUrl(list.map(o => o.ttnNumber)), '_blank');
+}
+try{ const v = localStorage.getItem('packerStSize'); if(v) setTimeout(() => { if($('stSize')) $('stSize').value = v; }, 0); }catch(e){}
+
 /* ---------- відмальовування ---------- */
 function setTab(t){
   tab = t;
@@ -346,6 +421,7 @@ function renderOrders(){
       ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
       <ul class="items">${lines.map(l => `<li>${esc(l.name)}<span class="qty">× ${esc(l.qty)}</span>${l.comps.length ? `<div class="sub">${esc(l.comps.join(' · '))}</div>` : ''}</li>`).join('') || '<li class="muted">Склад не вказано</li>'}</ul>
       ${o.notes ? `<div class="muted">Примітка: ${esc(o.notes)}</div>` : ''}
+      ${stickerBtn(o)}
       ${o.packed
         ? `<div class="muted" style="color:var(--teal);margin-top:6px;">✓ Зібрано ${esc(o.packedAt || '')}</div><button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', false)">Зняти позначку</button>`
         : `<button class="btn pack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', true)">✓ Набрано</button>`}
