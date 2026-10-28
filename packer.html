@@ -55,6 +55,7 @@
   h2{font-size:17px;margin:18px 0 4px;}
   #login{max-width:360px;margin:60px auto;padding:0 16px;}
   #login input{display:block;width:100%;margin:8px 0;}
+  .num{display:inline-block;min-width:34px;text-align:center;background:var(--line);color:var(--saffron);border-radius:6px;padding:0 6px;margin-right:6px;font-size:15px;}
   .newtag{display:inline-block;background:var(--chili);color:#fff;font-size:12px;font-weight:800;padding:2px 8px;border-radius:6px;margin-left:8px;}
   .card.isnew{border-color:var(--chili);}
   #newBanner{border-color:var(--chili);background:rgba(224,96,74,.15);font-weight:700;cursor:pointer;}
@@ -326,19 +327,20 @@ function renderOrders(){
   const base = orders.filter(isActiveUnshipped);
   const nDone = base.filter(o => o.packed).length;
   $('counts').textContent = `Не відправлено: ${base.length} · зібрано: ${nDone} · лишилось зібрати: ${base.length - nDone}`;
+  // стабільна нумерація: за датою й номером замовлення серед усіх не відправлених (фільтр її не змінює)
+  base.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
+  const numOf = new Map(base.map((o, i) => [o, i + 1]));
   let list = base.filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed));
   if(q){
     list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
   }
-  // не зібрані зверху, потім за датою (старіші першими)
-  list.sort((a, b) => (!!a.packed - !!b.packed) || String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
   if(!list.length){ $('list').innerHTML = '<div class="empty">Немає замовлень.</div>'; return; }
   $('list').innerHTML = list.map(o => {
     const lines = itemLines(o);
     const uid = o.uid || ('id' + o.id);
     const isNew = seen && !seen.has(uidOf(o));
     return `<div class="card${o.packed ? ' packed' : ''}${isNew ? ' isnew' : ''}">
-      <div class="name">${esc(o.customer || 'Без імені')}${isNew ? '<span class="newtag">НОВЕ</span>' : ''}</div>
+      <div class="name"><span class="num">№${numOf.get(o)}</span> ${esc(o.customer || 'Без імені')}${isNew ? '<span class="newtag">НОВЕ</span>' : ''}</div>
       <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a>` : 'немає телефону'} · ${esc(ukDate(o.date))}</div>
       <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
       ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
