@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.80.1 · 29.10.2026 15:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.81.1 · 29.10.2026 15:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -558,6 +558,11 @@
     </button>
     <div class="catalog-body" id="catalogBody">
 
+      <div class="fb-row" style="margin-bottom:12px;align-items:center;">
+        <input type="text" id="catSearch" placeholder="🔍 Пошук у довіднику за назвою…" oninput="renderCatalog()" style="flex:1;min-width:200px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;"><input type="checkbox" id="catZeroOnly" onchange="renderCatalog()" style="width:auto;accent-color:var(--saffron);"> лише без собівартості</label>
+      </div>
+
       <div class="catalog-group">
         <div class="catalog-group-title">Упаковка</div>
         <div class="cat-row cat-row-head"><div>Назва</div><div>Категорія</div><div>Одиниця</div><div>Собівартість</div><div>Ціна продажу</div><div></div></div>
@@ -655,6 +660,7 @@
     </div>
   </div>
 
+  <div class="fb-row" style="margin-bottom:10px;"><button class="btn btn-sm" onclick="zeroCostReport()" title="Товари та позиції довідника без собівартості">🧮 Звіт: товари з нульовою собівартістю</button></div>
   <input type="text" id="kitSearch" placeholder="🔍 Пошук товару за назвою або SKU…" oninput="renderKits()" style="margin:0 0 12px;">
   <div id="kitList"></div>
 
@@ -2928,10 +2934,16 @@ function catalogItem(id){ return catalog.find(c => c.id === id); }
 
 let catNewId = null; // щойно додана позиція — показуємо нагорі списку, поки її не назвали
 function catCmp(a,b){ return ((b.id===catNewId)-(a.id===catNewId)) || String(a.name||'').localeCompare(String(b.name||''), 'uk'); }
+function catFilterFn(){
+  const qEl = document.getElementById('catSearch'), zEl = document.getElementById('catZeroOnly');
+  const q = qEl ? qEl.value.trim().toLowerCase() : '', z = !!(zEl && zEl.checked);
+  return c => (!q || String(c.name||'').toLowerCase().includes(q) || c.id === catNewId) && (!z || !(Number(c.cost) > 0));
+}
 function renderCatalog(){
-  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка').sort(catCmp);
-  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція').sort(catCmp);
-  const other = catalog.filter(c => !c.archived && c.category === 'Інше').sort(catCmp);
+  const cf = catFilterFn();
+  const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка' && cf(c)).sort(catCmp);
+  const spices = catalog.filter(c => !c.archived && c.category === 'Спеція' && cf(c)).sort(catCmp);
+  const other = catalog.filter(c => !c.archived && c.category === 'Інше' && cf(c)).sort(catCmp);
   renderCatalogArchive();
   document.getElementById('catalogPackaging').innerHTML = pack.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
   document.getElementById('catalogSpices').innerHTML = spices.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
@@ -3437,6 +3449,53 @@ function dependsOnKit(kitId, targetId, visited){
   return k.components.some(comp => comp.refType === 'kit' && dependsOnKit(comp.catalogId, targetId, visited));
 }
 
+// звіт: які товари (SKU) мають нульову собівартість, у яких — неповну (частина складу без ціни), і які позиції довідника без собівартості
+function zeroCostData(){
+  const zeroOf = k => Object.keys(flattenKitComponents(k.id, 1)).map(id => catalogItem(Number(id))).filter(c => c && !(Number(c.cost) > 0));
+  const zero = [], partial = [];
+  kits.filter(k => !k.archived).forEach(k => {
+    const unit = kitUnitCost(k.id, new Set());
+    const noComp = !(k.components||[]).length && !(Number(k.costManual) > 0);
+    const zc = Number(k.costManual) > 0 ? [] : zeroOf(k);
+    if(unit <= 0) zero.push({k, reason: noComp ? 'склад не заповнено' : (zc.length ? 'без собівартості: ' + zc.map(c => c.name).join(', ') : 'нульова собівартість')});
+    else if(zc.length) partial.push({k, unit, reason: 'без собівартості: ' + zc.map(c => c.name).join(', ')});
+  });
+  const items = catalog.filter(c => !c.archived && !(Number(c.cost) > 0));
+  const byName = (a, b) => String(a.k ? a.k.name : a.name).localeCompare(String(b.k ? b.k.name : b.name), 'uk');
+  return {zero: zero.sort(byName), partial: partial.sort(byName), items: items.sort(byName)};
+}
+function zeroCostReport(){
+  const d = zeroCostData();
+  const old = document.getElementById('zeroCostModal'); if(old) old.remove();
+  const row = (a, b, c) => `<div style="display:grid;grid-template-columns:1.4fr 90px 1.6fr;gap:10px;padding:6px 0;border-top:1px solid var(--border-soft,#3a2e24);font-size:14px;"><div>${escapeAttr(a)}</div><div class="hint">${escapeAttr(b)}</div><div class="hint">${escapeAttr(c)}</div></div>`;
+  const sec = (title, arr, fn, empty) => `<h4 style="margin:16px 0 4px;">${title} <span class="hint">(${arr.length})</span></h4>` + (arr.length ? arr.map(fn).join('') : `<div class="hint">${empty}</div>`);
+  const ov = document.createElement('div'); ov.id = 'zeroCostModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:900px;width:100%;max-height:90vh;display:flex;flex-direction:column;">
+    <div style="padding:16px 18px 6px;font-size:18px;font-weight:700;">Собівартість: що не заповнено</div>
+    <div style="padding:0 18px 12px;overflow:auto;flex:1;">
+      ${sec('Товари з нульовою собівартістю', d.zero, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'ціна ' + fmt1(x.k.price||0), x.reason), 'Таких немає ✓')}
+      ${sec('Товари з неповною собівартістю', d.partial, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'собів. ' + fmt1(x.unit), x.reason), 'Таких немає ✓')}
+      ${sec('Позиції довідника без собівартості', d.items, c => row(c.name, c.category || '', 'од.: ' + (c.unit || '')), 'Таких немає ✓')}
+    </div>
+    <div style="padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-soft,#3a2e24);">
+      <button class="btn" type="button" id="zcXls">📥 Excel</button>
+      <button class="btn btn-primary" type="button" id="zcClose">Закрити</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#zcClose').onclick = () => ov.remove();
+  ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
+  ov.querySelector('#zcXls').onclick = async () => {
+    const wb = new ExcelJS.Workbook();
+    const add = (name, cols, rows) => { const ws = wb.addWorksheet(name); ws.columns = cols; rows.forEach(r => ws.addRow(r)); ws.getRow(1).font = {bold:true}; ws.eachRow(r => r.eachCell(c => { c.border = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}}; c.alignment = {wrapText:true, vertical:'top'}; })); };
+    add('Нульова собівартість', [{header:'Товар',key:'n',width:40},{header:'SKU',key:'s',width:16},{header:'Ціна',key:'p',width:10},{header:'Причина',key:'r',width:60}], d.zero.map(x => ({n:x.k.name, s:x.k.sku||'', p:x.k.price||0, r:x.reason})));
+    add('Неповна собівартість', [{header:'Товар',key:'n',width:40},{header:'SKU',key:'s',width:16},{header:'Собівартість',key:'c',width:12},{header:'Причина',key:'r',width:60}], d.partial.map(x => ({n:x.k.name, s:x.k.sku||'', c:x.unit, r:x.reason})));
+    add('Довідник без собівартості', [{header:'Позиція',key:'n',width:40},{header:'Категорія',key:'c',width:16},{header:'Одиниця',key:'u',width:10}], d.items.map(c => ({n:c.name, c:c.category||'', u:c.unit||''})));
+    const buf = await wb.xlsx.writeBuffer();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], {type:'application/octet-stream'})); a.download = `zero_cost_${todayStr()}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+}
 function calcKit(k){
   const unitCost = kitUnitCost(k.id, new Set());
   const totalCost = unitCost * (k.qty||0);
