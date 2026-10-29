@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.1 · 29.10.2026 17:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.2 · 29.10.2026 17:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -3729,7 +3729,8 @@ function zcSave(kind, id, inp){
 function zeroCostReport(){
   const d = zeroCostData();
   const old = document.getElementById('zeroCostModal'); if(old) old.remove();
-  const row = (a, b, c, inp) => `<div style="display:grid;grid-template-columns:1.4fr 90px 1.6fr 150px;gap:10px;padding:6px 0;border-top:1px solid var(--border-soft,#3a2e24);font-size:14px;align-items:center;"><div>${escapeAttr(a)}</div><div class="hint">${escapeAttr(b)}</div><div class="hint">${escapeAttr(c)}</div><div>${inp||''}</div></div>`;
+  const row = (a, b, c, inp) => `<div style="display:grid;grid-template-columns:1.4fr 90px 1.4fr 190px;gap:10px;padding:6px 0;border-top:1px solid var(--border-soft,#3a2e24);font-size:14px;align-items:center;"><div>${escapeAttr(a)}</div><div class="hint">${escapeAttr(b)}</div><div class="hint">${escapeAttr(c)}</div><div>${inp||''}</div></div>`;
+  const zcUnit = c => `<div style="display:flex;gap:4px;"><select style="width:62px;margin:0;" title="Одиниця виміру" onchange="updateCatalog(${c.id},'unit',this.value);this.nextElementSibling.placeholder='грн за 1 '+this.value">${['шт','г','кг','мл'].map(u => `<option ${c.unit===u?'selected':''}>${u}</option>`).join('')}</select><input type="number" min="0" step="0.01" placeholder="грн за 1 ${escapeAttr(c.unit||'од.')}" style="width:100%;margin:0;" onchange="zcSave('cat',${c.id},this)"></div>`;
   const zcInp = (kind, id, ph) => `<input type="number" min="0" step="0.01" placeholder="${escapeAttr(ph)}" style="width:100%;margin:0;" onchange="zcSave('${kind}',${id},this)">`;
   const sec = (title, arr, fn, empty) => `<h4 style="margin:16px 0 4px;">${title} <span class="hint">(${arr.length})</span></h4>` + (arr.length ? arr.map(fn).join('') : `<div class="hint">${empty}</div>`);
   const ov = document.createElement('div'); ov.id = 'zeroCostModal';
@@ -3739,7 +3740,7 @@ function zeroCostReport(){
     <div style="padding:0 18px 12px;overflow:auto;flex:1;">
       ${sec('Товари з нульовою собівартістю', d.zero, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'ціна ' + fmt1(x.k.price||0), x.reason, zcInp('kit', x.k.id, 'собів. 1 шт, грн')), 'Таких немає ✓')}
       ${sec('Товари з неповною собівартістю', d.partial, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'собів. ' + fmt1(x.unit), x.reason), 'Таких немає ✓')}
-      ${sec('Позиції довідника без собівартості', d.items, c => row(c.name, c.category || '', 'од.: ' + (c.unit || ''), zcInp('cat', c.id, 'грн за 1 ' + (c.unit || 'од.'))), 'Таких немає ✓')}
+      ${sec('Позиції довідника без собівартості', d.items, c => row(c.name, c.category || '', 'од.: ' + (c.unit || ''), zcUnit(c)), 'Таких немає ✓')}
     </div>
     <div style="padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-soft,#3a2e24);">
       <button class="btn" type="button" id="zcXls">📥 Excel</button>
