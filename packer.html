@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root{
     --bg:#1a1410; --card:#251d16; --line:#3a2e24; --text:#f1e7da; --muted:#a8998a;
@@ -107,6 +108,7 @@
           <option value="100">100×100 (термо)</option><option value="85">85×85</option><option value="A4">A4</option>
         </select>
         <button class="btn sm ghost" onclick="printAll('np')" id="btnAllNp">НП — усі показані</button>
+        <button class="btn sm ghost" onclick="printAllUp()" id="btnAllUp">УП — усі показані</button>
       </div>
       <div id="newBanner" style="display:none;" class="card" onclick="markSeen()"></div>
       <div class="muted" id="counts"></div>
@@ -372,7 +374,7 @@ async function ukrStickerOnce(o, size){
   const buf = await res.arrayBuffer();
   return {res, buf};
 }
-async function ukrStickerBlobUrl(o){
+async function ukrStickerBlob(o){
   if(!cfg.ukrProxyUrl) throw new Error('У програмі не вказано проксі Укрпошти');
   if(!o.ukrShipmentUuid) throw new Error('Для цього замовлення немає ідентифікатора відправлення Укрпошти');
   // Укрпошта приймає лише свої значення FormSize — пробуємо кілька, запамʼятовуємо те, що спрацювало
@@ -398,10 +400,11 @@ async function ukrStickerBlobUrl(o){
     if(!blob) throw new Error(res.ok ? 'Проксі повернув не PDF: ' + txt.slice(0, 160) : `Укрпошта: ${res.status} ${txt.slice(0, 160)}`);
     try{ localStorage.setItem('packerUkrSize_' + stSize(), size); }catch(e){}
     if(size === 'SIZE_A5' || (size === 'SIZE_A4' && stSize() !== 'A4')) toast('Формат 100×100 Укрпошта не прийняла — наклейка у ' + size.replace('SIZE_', ''));
-    return URL.createObjectURL(blob);
+    return blob;
   }
   throw new Error('Укрпошта не прийняла жодного розміру наклейки. Остання відповідь: ' + last);
 }
+async function ukrStickerBlobUrl(o){ return URL.createObjectURL(await ukrStickerBlob(o)); }
 async function printSticker(uid){
   const o = orders.find(x => uidOf(x) === uid); if(!o) return;
   const k = stickerKind(o); if(!k) return;
@@ -427,6 +430,32 @@ function showPdf(url, fname){
     <button class="btn sm ghost" onclick="document.getElementById('pdfBox').remove()">✕ Закрити</button></div>
     <iframe id="pdfFrame" src="${url}" style="flex:1;border:0;background:#fff;border-radius:8px;"></iframe>`;
   document.body.appendChild(d);
+}
+let upBusy = false;
+async function printAllUp(){
+  if(upBusy) return;
+  const q = ($('q').value || '').trim().toLowerCase();
+  const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'up' && o.ukrShipmentUuid)
+    .filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
+    .filter(o => !q || [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  if(!list.length){ toast('Немає накладних УП для друку'); return; }
+  if(!window.PDFLib){ showErr('Не завантажилась бібліотека обʼєднання PDF. Перевірте інтернет і оновіть сторінку.'); return; }
+  upBusy = true; const btn = $('btnAllUp'); const oldTxt = btn.textContent;
+  try{
+    const merged = await PDFLib.PDFDocument.create();
+    let done = 0;
+    for(const o of list){
+      btn.textContent = `УП: ${done + 1} з ${list.length}…`;
+      const blob = await ukrStickerBlob(o);
+      const src = await PDFLib.PDFDocument.load(await blob.arrayBuffer());
+      (await merged.copyPages(src, src.getPageIndices())).forEach(pg => merged.addPage(pg));
+      done++;
+    }
+    const bytes = await merged.save();
+    showPdf(URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'})), `naklejky_UP_${todayStr()}.pdf`);
+  }catch(err){
+    showErr(`Наклейки УП: ${err.message || err}` + (list.length ? ` (оброблено до збою: ${btn.textContent})` : ''));
+  }finally{ upBusy = false; btn.textContent = oldTxt; }
 }
 function printAll(kind){
   const q = ($('q').value || '').trim().toLowerCase();
