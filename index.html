@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.79.0 · 29.10.2026 13:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.79.2 · 29.10.2026 14:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -10454,7 +10454,8 @@ function applyOrderFilters(list){
     // і сортовані між собою за часом створення (id), найновіші вище.
     if(!a.shipped && b.shipped) return -1;
     if(a.shipped && !b.shipped) return 1;
-    if(!a.shipped && !b.shipped) return b.id - a.id;
+    // серед не відправлених: спочатку ще не набрані, нижче — уже набрані наборщиком
+    if(!a.shipped && !b.shipped) return (!!a.packed - !!b.packed) || (b.id - a.id);
 
     if(sortVal === 'date-asc') return dateSortValue(a.date) - dateSortValue(b.date) || (a.id - b.id);
     if(sortVal === 'date-desc') return dateSortValue(b.date) - dateSortValue(a.date) || (b.id - a.id);
@@ -14621,7 +14622,63 @@ function rowItems(row, keys){
   }
   return parseItemCell(nameVal || skuVal).map(x => Object.assign({createName: x.token, labels: []}, x));
 }
+// вікно: для кожного товару з файлу, якого нема в довіднику, обрати існуючий набір, створити новий або пропустити
+function chooseKitsForUnresolved(unresolved){
+  return new Promise(resolve => {
+    const list = [...unresolved.keys()];
+    const kitsAvail = kits.filter(k => !k.archived).sort((a, b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
+    const words = t => String(t||'').toLowerCase().split(/[^a-zа-яіїєґ0-9]+/i).filter(w => w.length > 2);
+    const suggest = tok => {
+      const tw = words(tok); let best = null, bs = 0;
+      kitsAvail.forEach(k => { const kw = words(k.name); const sc = tw.filter(w => kw.some(x => x.includes(w) || w.includes(x))).length; if(sc > bs){ bs = sc; best = k; } });
+      return bs >= 2 || (bs >= 1 && tw.length <= 2) ? best : null;
+    };
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
+    const rows = list.map((tok, i) => {
+      const sg = suggest(tok);
+      return `<div style="padding:10px 0;border-top:1px solid var(--border-soft,#3a2e24);">
+        <div style="font-weight:600;margin-bottom:6px;">«${escapeAttr(tok)}»</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="text" placeholder="Пошук у довіднику…" data-kf="${i}" style="flex:1 1 160px;min-width:140px;">
+          <select data-ks="${i}" style="flex:2 1 260px;min-width:200px;"></select>
+        </div>
+      </div>`;
+    }).join('');
+    ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;">
+      <div style="padding:16px 18px 6px;"><div style="font-size:18px;font-weight:700;">Не знайшов ${list.length} товар(ів) у довіднику</div>
+      <div class="hint" style="margin-top:4px;">Для кожного оберіть існуючий набір зі списку (вибір запамʼятається на майбутнє), або створіть новий, або пропустіть.</div></div>
+      <div style="padding:0 18px;overflow:auto;flex:1;">${rows}</div>
+      <div style="padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-soft,#3a2e24);">
+        <button class="btn" type="button" id="kcCancel">Пропустити всі</button>
+        <button class="btn btn-primary" type="button" id="kcOk">Застосувати</button>
+      </div></div>`;
+    document.body.appendChild(ov);
+    const chosen = list.map(tok => { const sg = suggest(tok); return sg ? 'k' + sg.id : 'new'; });
+    const fill = i => {
+      const sel = ov.querySelector(`[data-ks="${i}"]`), f = (ov.querySelector(`[data-kf="${i}"]`).value || '').trim().toLowerCase();
+      const cur = chosen[i];
+      const opts = [`<option value="new">➕ Створити новий набір «${escapeAttr(list[i])}»</option>`, `<option value="skip">⏭ Пропустити цей товар</option>`]
+        .concat(kitsAvail.filter(k => !f || (k.name + ' ' + (k.sku||'')).toLowerCase().includes(f) || ('k' + k.id) === cur).map(k => `<option value="k${k.id}">${escapeAttr(k.name)}${k.sku && k.sku !== k.name ? ' · ' + escapeAttr(k.sku) : ''}</option>`));
+      sel.innerHTML = opts.join(''); sel.value = cur;
+      if(sel.value !== cur){ sel.value = 'new'; }
+    };
+    list.forEach((_, i) => {
+      fill(i);
+      ov.querySelector(`[data-kf="${i}"]`).addEventListener('input', () => fill(i));
+      ov.querySelector(`[data-ks="${i}"]`).addEventListener('change', e => { chosen[i] = e.target.value; });
+    });
+    const done = res => { ov.remove(); resolve(res); };
+    ov.querySelector('#kcCancel').onclick = () => done(new Map(list.map(t => [t, {action:'skip'}])));
+    ov.querySelector('#kcOk').onclick = () => done(new Map(list.map((t, i) => {
+      const v = chosen[i];
+      return [t, v === 'new' ? {action:'new'} : (v === 'skip' ? {action:'skip'} : {action:'kit', kitId: Number(v.slice(1))})];
+    })));
+  });
+}
 function findKitForItem(it){
+  const al = appSettings.kitAliases && appSettings.kitAliases[normKeepDigits(it.createName || it.token)];
+  if(al){ const ak = kits.find(x => x.id === al && !x.archived); if(ak) return ak; }
   const eq = t => { const k = normKeepDigits(t); return kits.find(x => !x.archived && (normKeepDigits(x.name) === k || normKeepDigits(x.sku) === k)); };
   for(const l of (it.labels||[])){ const m = eq(`${it.token} ${l}`); if(m) return m; }
   if(it.labels && it.labels.length){ return eq(it.token) || null; } // фасування вказане, а точного SKU немає — не підсовуємо випадковий збіг
@@ -14710,9 +14767,15 @@ async function handleOrdersExcelFile(file){
     let kitsCreated = 0;
     if(unresolved.size > 0){
       setOrdersExcelStatus(`Знайдено ${unresolved.size} товар(ів), яких немає в довіднику. Зараз запитаю по кожному...`, 'loading');
+      const decisions = await chooseKitsForUnresolved(unresolved);
       for(const [token, priceHint] of unresolved){
-        const create = confirm(`Товар «${token}» не знайдено в довіднику «Товари».\n\nСтворити для нього новий набір (SKU)?\n\n(Можна буде донастроїти склад і ціну пізніше у вкладці «Товари».)`);
-        if(create){
+        const d = decisions.get(token) || {action:'skip'};
+        if(d.action === 'kit' && d.kitId){
+          // обрано існуючий набір — запам'ятовуємо відповідність, щоб наступного разу це спрацювало саме
+          if(!appSettings.kitAliases) appSettings.kitAliases = {};
+          appSettings.kitAliases[normKeepDigits(token)] = d.kitId;
+          scheduleSave();
+        } else if(d.action === 'new'){
           const kitId = nextKitId++;
           kits.push({
             id: kitId, sku: token, name: token, type: 'Набір', components: [],
