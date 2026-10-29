@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.77.2 · 28.10.2026 23:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.78.0 · 29.10.2026 11:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2313,7 +2313,7 @@ function scheduleSave(){
             // вкладка/пристрій рахує окремо й незалежно); на uid-позбавлені старі записи — за id.
             const lo = orders.find(o => (o.uid && ro.uid) ? o.uid === ro.uid : o.id === ro.id);
             if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
-            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy']
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','shipped','shippedBy','shippedMarkAt','shipConfirmed']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
@@ -7330,6 +7330,7 @@ function toggleOrderShipped(id, checked){
   const o = orderById(id);
   if(!o) return;
   o.shipped = checked;
+  if(!checked){ o.shippedBy = ''; o.shippedMarkAt = ''; o.shipConfirmed = false; }
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -7998,6 +7999,7 @@ function applyUkrStatus(o, statusItem){
     // 10100 "Прийнято" — посилку вже фізично прийняли на відділенні (підтверджено реальним тестом
     // трекінгу Укrpошти), тобто це і є момент фактичного відправлення, а не просто "зареєстровано".
     o.shipped = true;
+    o.shipConfirmed = true;
   } else if(event === 41000 || event === 48000){
     if(reasonId === 10){
       o.npReturned = true; // "вручено відправнику" (41010) = фактично повернення, а не доставка отримувачу
@@ -9131,6 +9133,7 @@ function applyNpStatus(o, statusItem){
   const wasCompleted = o.delivered && o.paid;
   if(statusItem.StatusCode && statusItem.StatusCode !== '1'){
     o.shipped = true;
+    o.shipConfirmed = true; // перевізник підтвердив, що посилка реально пішла
   }
   const statusLower = (o.npStatusText || '').toLowerCase();
   // Оплата: намагаємось зловити різні формулювання — і готівкову виплату післяплати,
@@ -9912,6 +9915,13 @@ function packedToggleHtml(o){
   return o.packed
     ? `<button class="packed-badge" type="button" onclick="event.stopPropagation();togglePacked(${o.id}, false)" title="Набрано${o.packedAt ? ' ' + escapeAttr(o.packedAt) : ''} — клік, щоб зняти відмітку">📦 Набрано</button>`
     : `<button class="packed-toggle" type="button" onclick="event.stopPropagation();togglePacked(${o.id}, true)" title="Натисніть, коли замовлення набране (наборщик зібрав)">☐ Набр.</button>`;
+}
+// «відправлено» відмітив наборщик, а перевізник (НП/УП) ще не підтвердив реальним статусом
+function shippedByPackerBadge(o){
+  if(!o.shipped || !o.shippedBy || o.shipConfirmed || o.delivered) return '';
+  const hrs = o.shippedMarkAt ? (Date.now() - Date.parse(o.shippedMarkAt)) / 3600000 : 0;
+  const late = hrs > 24;
+  return `<span class="status-badge" style="background:${late ? 'var(--danger)' : 'var(--surface-2)'};color:${late ? '#fff' : 'var(--text-muted)'};" title="Наборщик відмітив «відправлено», але ${o.deliveryMethod === 'Укрпошта' ? 'Укрпошта' : 'Нова Пошта'} ще не підтвердила реальним статусом${late ? ' — понад добу' : ''}">${late ? '⚠ перевізник не підтвердив' : '🚚 наборщик · чекає підтвердження'}</span>`;
 }
 function packerLinkBuild(){
   const e = document.getElementById('pkEmail').value.trim(), p = document.getElementById('pkPass').value;
@@ -12673,6 +12683,7 @@ function orderCollapsedHtml(o, num){
         <div class="order-collapsed-info">
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
           ${packedToggleHtml(o)}
+          ${shippedByPackerBadge(o)}
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? ((!o.delivered && !o.npReturned && isAtBranchAwaitingPickup(o)) ? `<span class="arrived-badge" title="Посилка вже на відділенні — чекає клієнта${o.atBranchSince ? ' (з ' + o.atBranchSince + ')' : ''}">📍 На місці${o.atBranchSince && daysBetween(o.atBranchSince, todayStr()) > 0 ? ' · ' + daysBetween(o.atBranchSince, todayStr()) + ' дн.' : ''}</span>` : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>') : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}

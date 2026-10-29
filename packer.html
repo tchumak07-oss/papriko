@@ -57,6 +57,7 @@
   #login input{display:block;width:100%;margin:8px 0;}
   .num{display:inline-block;min-width:34px;text-align:center;background:var(--line);color:var(--saffron);border-radius:6px;padding:0 6px;margin-right:6px;font-size:15px;}
   .note{margin:8px 0 2px;padding:8px 10px;border-radius:8px;background:rgba(232,169,58,.18);border:1px solid var(--saffron);color:#ffe3a8;font-weight:600;font-size:15px;white-space:pre-wrap;word-break:break-word;}
+  .btn.ship{background:#3b82f6;color:#fff;}
   .newtag{display:inline-block;background:var(--chili);color:#fff;font-size:12px;font-weight:800;padding:2px 8px;border-radius:6px;margin-left:8px;}
   .card.isnew{border-color:var(--chili);}
   #newBanner{border-color:var(--chili);background:rgba(224,96,74,.15);font-weight:700;cursor:pointer;}
@@ -89,6 +90,7 @@
         <button class="chip on" data-f="all" onclick="setFilter('all')">Усі</button>
         <button class="chip" data-f="todo" onclick="setFilter('todo')">Не зібрані</button>
         <button class="chip" data-f="done" onclick="setFilter('done')">Зібрані</button>
+        <button class="chip" data-f="sent" onclick="setFilter('sent')">Відправлені мною</button>
         <select id="sortSel" onchange="try{localStorage.setItem('packerSort',this.value)}catch(e){};renderOrders()">
           <option value="num">Сортування: за номером</option>
           <option value="carrier">За доставкою (УП, НП, самовивіз)</option>
@@ -448,6 +450,7 @@ function renderOrders(){
   const base = orders.filter(isActiveUnshipped);
   const nDone = base.filter(o => o.packed).length;
   $('counts').textContent = `Не відправлено: ${base.length} · зібрано: ${nDone} · лишилось зібрати: ${base.length - nDone}`;
+  if(filter === 'sent'){ renderSent(q); return; }
   // стабільна нумерація: за датою й номером замовлення серед усіх не відправлених (фільтр її не змінює)
   base.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
   const numOf = new Map(base.map((o, i) => [o, i + 1]));
@@ -478,11 +481,74 @@ function renderOrders(){
       <ul class="items">${lines.map(l => `<li>${esc(l.name)}<span class="qty">× ${esc(l.qty)}</span>${l.comps.length ? `<div class="sub">${esc(l.comps.join(' · '))}</div>` : ''}</li>`).join('') || '<li class="muted">Склад не вказано</li>'}</ul>
       ${o.notes ? `<div class="note">⚠ ${esc(o.notes)}</div>` : ''}
       ${stickerBtn(o)}
+      ${shipBtn(o)}
       ${o.packed
         ? `<div class="muted" style="color:var(--teal);margin-top:6px;">✓ Зібрано ${esc(o.packedAt || '')}</div><button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', false)">Зняти позначку</button>`
         : `<button class="btn pack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', true)">✓ Набрано</button>`}
     </div>`;
   }).join('');
+}
+
+/* ---------- «відправлено» (потім підтверджується реальним статусом НП/УП в основній програмі) ---------- */
+function canShip(o){ return o.deliveryMethod === 'Самовивіз' || !!stickerKind(o); }
+function shipBtn(o){
+  if(!canShip(o)) return '<div class="muted" style="margin-top:6px;">Відправити можна після створення ТТН.</div>';
+  return `<button class="btn ship" style="width:100%;margin-top:8px;" ${busyUid === uidOf(o) ? 'disabled' : ''} onclick="setShipped('${esc(uidOf(o))}', true)">🚚 Відправлено</button>`;
+}
+function isMineSent(o){
+  if(!o.shipped || !o.shippedBy || o.delivered) return false;
+  const t = Date.parse(o.shippedMarkAt || '');
+  return !t || (Date.now() - t) < 4 * 86400000;
+}
+function renderSent(q){
+  let list = orders.filter(isMineSent);
+  if(q) list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  list.sort((a, b) => String(b.shippedMarkAt || '').localeCompare(String(a.shippedMarkAt || '')));
+  $('counts').textContent = `Відправлено вами (за останні дні, ще не доставлено): ${list.length}`;
+  if(!list.length){ $('list').innerHTML = '<div class="empty">Немає відправлених вами замовлень.</div>'; return; }
+  $('list').innerHTML = list.map(o => {
+    const uid = uidOf(o);
+    const hrs = o.shippedMarkAt ? (Date.now() - Date.parse(o.shippedMarkAt)) / 3600000 : 0;
+    const st = o.shipConfirmed
+      ? '<div class="muted" style="color:var(--green);">✓ Підтверджено перевізником</div>'
+      : (hrs > 24 ? '<div class="muted" style="color:var(--danger);">⚠ Перевізник ще не підтвердив (понад добу). Перевірте, чи справді відправлено.</div>' : '<div class="muted">⏳ Чекає підтвердження перевізника</div>');
+    return `<div class="card">
+      <div class="name">${esc(o.customer || 'Без імені')}</div>
+      <div class="muted">${esc(ukDate(o.date))} · відмічено ${esc(o.shippedMarkAt ? new Date(o.shippedMarkAt).toLocaleString('uk-UA', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '')}</div>
+      <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
+      ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
+      <div class="muted">${esc(itemsText(o))}</div>
+      ${st}
+      ${o.shipConfirmed ? '' : `<button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setShipped('${esc(uid)}', false)">Скасувати відправлення</button>`}
+    </div>`;
+  }).join('');
+}
+function setShipped(uid, checked){
+  if(busyUid) return;
+  if(checked){
+    const o0 = orders.find(x => uidOf(x) === uid);
+    if(!confirm(`Позначити відправленим: ${o0 ? (o0.customer || '') : ''}${o0 && !o0.packed ? '\n\nУвага: замовлення ще не відмічене як набране.' : ''}`)) return;
+  }
+  busyUid = uid; renderOrders();
+  db.runTransaction(t => t.get(docRef).then(snap => {
+    if(!snap.exists) throw new Error('Дані не знайдено');
+    const arr = (snap.data().orders || []).slice();
+    const i = arr.findIndex(o => (o.uid || ('id' + o.id)) === uid);
+    if(i < 0) throw new Error('Замовлення не знайдено (його могли видалити)');
+    const o = Object.assign({}, arr[i]);
+    if(checked){
+      if(o.shipped) throw new Error('Це замовлення вже позначене відправленим');
+      o.shipped = true; o.shippedBy = 'наборщик'; o.shippedMarkAt = new Date().toISOString(); o.shipConfirmed = false;
+    } else {
+      if(!o.shippedBy) throw new Error('Це відправлення відмітили не ви — скасувати може лише адміністратор');
+      if(o.shipConfirmed || o.delivered) throw new Error('Перевізник уже підтвердив відправлення — скасувати не можна');
+      o.shipped = false; o.shippedBy = ''; o.shippedMarkAt = ''; o.shipConfirmed = false;
+    }
+    arr[i] = o;
+    t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+  })).then(() => toast(checked ? 'Позначено: відправлено' : 'Відправлення скасовано'))
+    .catch(err => { toast('Помилка: ' + (err && err.message ? err.message : err)); })
+    .finally(() => { busyUid = null; renderOrders(); });
 }
 
 /* ---------- позначка «набрано» (атомарно, чіпаємо лише замовлення й updatedAt) ---------- */
