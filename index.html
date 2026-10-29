@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.80.0 · 29.10.2026 14:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.80.1 · 29.10.2026 15:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -573,6 +573,13 @@
       </div>
 
       <div class="catalog-group">
+        <div class="catalog-group-title">Інше</div>
+        <div class="cat-row cat-row-head"><div>Назва</div><div>Категорія</div><div>Одиниця</div><div>Собівартість</div><div>Ціна продажу</div><div></div></div>
+        <div id="catalogOther"></div>
+        <button class="btn btn-sm" onclick="addCatalogItem('Інше')">+ Додати позицію (інше)</button>
+      </div>
+
+      <div class="catalog-group">
         <div class="catalog-group-title" id="catalogArchiveTitle">Архів інгредієнтів та упаковки</div>
         <div id="catalogArchiveList"></div>
       </div>
@@ -721,6 +728,7 @@
     <div class="fb-row" style="margin-top:10px;">
       <button class="btn btn-sm" onclick="compAddNewCatalogItem('Спеція')">+ Додати інгредієнт</button>
       <button class="btn btn-sm" onclick="compAddNewCatalogItem('Упаковка')">+ Додати упаковку</button>
+      <button class="btn btn-sm" onclick="compAddNewCatalogItem('Інше')">+ Додати інше</button>
     </div>
   </div></div>
 
@@ -2923,9 +2931,12 @@ function catCmp(a,b){ return ((b.id===catNewId)-(a.id===catNewId)) || String(a.n
 function renderCatalog(){
   const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка').sort(catCmp);
   const spices = catalog.filter(c => !c.archived && c.category === 'Спеція').sort(catCmp);
+  const other = catalog.filter(c => !c.archived && c.category === 'Інше').sort(catCmp);
   renderCatalogArchive();
   document.getElementById('catalogPackaging').innerHTML = pack.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
   document.getElementById('catalogSpices').innerHTML = spices.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
+  const otherEl = document.getElementById('catalogOther');
+  if(otherEl) otherEl.innerHTML = other.map(catRowHtml).join('') || '<div class="comp-empty">Немає позицій</div>';
 }
 
 function catRowHtml(c){
@@ -2935,6 +2946,7 @@ function catRowHtml(c){
       <select oninput="updateCatalog(${c.id},'category',this.value)" title="категорія">
         <option value="Упаковка" ${c.category==='Упаковка'?'selected':''}>Упаковка</option>
         <option value="Спеція" ${c.category==='Спеція'?'selected':''}>Спеція</option>
+        <option value="Інше" ${c.category==='Інше'?'selected':''}>Інше</option>
       </select>
       <select oninput="updateCatalog(${c.id},'unit',this.value)">
         <option value="шт" ${c.unit==='шт'?'selected':''}>шт</option>
@@ -3322,14 +3334,14 @@ function exportKitsExcel(){
 }
 
 function addCatalogItem(category){
-  const item = {id: nextCatalogId++, name: category==='Упаковка' ? 'Нова упаковка' : 'Новий інгредієнт', category, unit: category==='Упаковка'?'шт':'г', cost: 0, price: 0, composition: []};
+  const item = {id: nextCatalogId++, name: category==='Упаковка' ? 'Нова упаковка' : (category==='Інше' ? 'Нова позиція' : 'Новий інгредієнт'), category, unit: (category==='Упаковка'||category==='Інше')?'шт':'г', cost: 0, price: 0, composition: []};
   catalog.push(item);
   catNewId = item.id;
   renderCatalog();
   renderKits();
   scheduleSave();
   // новий рядок стоїть нагорі списку — прокручуємо до нього й ставимо курсор у назву
-  const box = document.getElementById(category==='Упаковка' ? 'catalogPackaging' : 'catalogSpices');
+  const box = document.getElementById(category==='Упаковка' ? 'catalogPackaging' : (category==='Інше' ? 'catalogOther' : 'catalogSpices'));
   const inp = box && box.querySelector('input[type="text"]');
   if(inp){ inp.scrollIntoView({block:'center', behavior:'smooth'}); inp.focus(); inp.select(); }
 }
@@ -3567,6 +3579,7 @@ function removeComponent(kitId, catalogId, refType){
 function catalogOptionsHtml(currentKitId){
   const pack = catalog.filter(c => !c.archived && c.category === 'Упаковка').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   const spices = catalog.filter(c => !c.archived && c.category === 'Спеція').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
+  const others = catalog.filter(c => !c.archived && c.category === 'Інше').sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   const opt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.unit})</option>`;
   const readyKits = kits.filter(k => k.id !== currentKitId && !k.archived);
   const kitOpt = k => `<option value="kit:${k.id}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)} (шт)</option>`;
@@ -3574,6 +3587,7 @@ function catalogOptionsHtml(currentKitId){
     <option value="">Оберіть компонент…</option>
     <optgroup label="Упаковка">${pack.map(opt).join('')}</optgroup>
     <optgroup label="Спеції та інгредієнти">${spices.map(opt).join('')}</optgroup>
+    ${others.length ? `<optgroup label="Інше">${others.map(opt).join('')}</optgroup>` : ''}
     ${readyKits.length ? `<optgroup label="Готові набори (SKU)">${readyKits.map(kitOpt).join('')}</optgroup>` : ''}
   `;
 }
@@ -3592,7 +3606,7 @@ function renderKitBuilder(){
 function renderKbPalette(){
   const el = document.getElementById('kbPalette');
   if(!el) return;
-  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка')).sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
+  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка' || c.category === 'Інше')).sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   if(items.length === 0){
     el.innerHTML = '<div class="comp-empty" style="grid-column:1/-1;">Довідник порожній — додайте спеції чи упаковку в «Товари» → «Довідник собівартостей» (або імпортуйте з Excel).</div>';
     return;
@@ -3975,7 +3989,7 @@ function compOnTargetChange(){
 function compRenderPalette(){
   const el = document.getElementById('compPalette');
   if(!el) return;
-  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка')).sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
+  const items = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка' || c.category === 'Інше')).sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'));
   if(items.length === 0){
     el.innerHTML = '<div class="comp-empty" style="grid-column:1/-1;">Довідник порожній — додайте інгредієнт чи упаковку кнопками нижче.</div>';
     return;
@@ -7502,7 +7516,7 @@ function orderKitOptionsHtml(placeholder){
 // нічого більше міняти не довелось.
 function orderItemOptionsHtml(placeholder){
   const kitOpt = k => `<option value="${k.id}" data-price="${k.price||0}">${k.sku ? '['+escapeAttr(k.sku)+'] ' : ''}${escapeAttr(k.name)}</option>`;
-  const catItems = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка') && c.price > 0).sort((a,b) => a.name.localeCompare(b.name));
+  const catItems = catalog.filter(c => !c.archived && (c.category === 'Спеція' || c.category === 'Упаковка' || c.category === 'Інше') && c.price > 0).sort((a,b) => a.name.localeCompare(b.name));
   const catOpt = c => `<option value="cat:${c.id}">${escapeAttr(c.name)} (${c.price > 0 ? fmt1(c.price) + ' грн/' + escapeAttr(c.unit) : 'ціну не задано'})</option>`;
   return `<option value="">${escapeAttr(placeholder || 'Оберіть набір/товар…')}</option>`
     + kitsTareGroupsHtml(kitOpt)
