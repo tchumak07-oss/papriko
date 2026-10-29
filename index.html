@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.2 · 29.10.2026 17:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.3 · 29.10.2026 17:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -3726,27 +3726,52 @@ function zcSave(kind, id, inp){
   if(kind === 'cat') updateCatalog(id, 'cost', v); else updateKitField(id, 'costManual', v);
   inp.style.outline = v > 0 ? '2px solid #4caf50' : '';
 }
+let zcFilter = 'all', zcSort = 'name';
 function zeroCostReport(){
-  const d = zeroCostData();
+  let d = zeroCostData();
   const old = document.getElementById('zeroCostModal'); if(old) old.remove();
   const row = (a, b, c, inp) => `<div style="display:grid;grid-template-columns:1.4fr 90px 1.4fr 190px;gap:10px;padding:6px 0;border-top:1px solid var(--border-soft,#3a2e24);font-size:14px;align-items:center;"><div>${escapeAttr(a)}</div><div class="hint">${escapeAttr(b)}</div><div class="hint">${escapeAttr(c)}</div><div>${inp||''}</div></div>`;
   const zcUnit = c => `<div style="display:flex;gap:4px;"><select style="width:62px;margin:0;" title="Одиниця виміру" onchange="updateCatalog(${c.id},'unit',this.value);this.nextElementSibling.placeholder='грн за 1 '+this.value">${['шт','г','кг','мл'].map(u => `<option ${c.unit===u?'selected':''}>${u}</option>`).join('')}</select><input type="number" min="0" step="0.01" placeholder="грн за 1 ${escapeAttr(c.unit||'од.')}" style="width:100%;margin:0;" onchange="zcSave('cat',${c.id},this)"></div>`;
   const zcInp = (kind, id, ph) => `<input type="number" min="0" step="0.01" placeholder="${escapeAttr(ph)}" style="width:100%;margin:0;" onchange="zcSave('${kind}',${id},this)">`;
+  const catRank = c => ({'Упаковка':1,'Спеція':2,'Інше':3}[c.category] || 4);
+  const uk = (a, b) => String(a).localeCompare(String(b), 'uk');
+  const body = () => {
+    d = zeroCostData();
+    const showKits = zcFilter === 'all' || zcFilter === 'kits';
+    const zero = showKits ? d.zero.slice() : [], partial = showKits ? d.partial.slice() : [];
+    let items = d.items.filter(c => zcFilter === 'all' || zcFilter === c.category || (zcFilter === 'Інше' && !['Упаковка','Спеція'].includes(c.category)));
+    if(zcSort === 'price'){ zero.sort((a, b) => (b.k.price||0) - (a.k.price||0)); partial.sort((a, b) => (b.k.price||0) - (a.k.price||0)); items.sort((a, b) => (b.price||0) - (a.price||0)); }
+    else if(zcSort === 'cat'){ items.sort((a, b) => catRank(a) - catRank(b) || uk(a.name, b.name)); }
+    else { items.sort((a, b) => uk(a.name, b.name)); }
+    const parts = [];
+    if(showKits){
+      parts.push(sec('Товари з нульовою собівартістю', zero, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'ціна ' + fmt1(x.k.price||0), x.reason, zcInp('kit', x.k.id, 'собів. 1 шт, грн')), 'Таких немає ✓'));
+      parts.push(sec('Товари з неповною собівартістю', partial, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'собів. ' + fmt1(x.unit), x.reason), 'Таких немає ✓'));
+    }
+    if(zcFilter !== 'kits') parts.push(sec('Позиції довідника без собівартості', items, c => row(c.name, c.category || '', 'од.: ' + (c.unit || ''), zcUnit(c)), 'Таких немає ✓'));
+    return parts.join('');
+  };
   const sec = (title, arr, fn, empty) => `<h4 style="margin:16px 0 4px;">${title} <span class="hint">(${arr.length})</span></h4>` + (arr.length ? arr.map(fn).join('') : `<div class="hint">${empty}</div>`);
   const ov = document.createElement('div'); ov.id = 'zeroCostModal';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
   ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:900px;width:100%;max-height:90vh;display:flex;flex-direction:column;">
     <div style="padding:16px 18px 6px;font-size:18px;font-weight:700;">Собівартість: що не заповнено</div>
-    <div style="padding:0 18px 12px;overflow:auto;flex:1;">
-      ${sec('Товари з нульовою собівартістю', d.zero, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'ціна ' + fmt1(x.k.price||0), x.reason, zcInp('kit', x.k.id, 'собів. 1 шт, грн')), 'Таких немає ✓')}
-      ${sec('Товари з неповною собівартістю', d.partial, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'собів. ' + fmt1(x.unit), x.reason), 'Таких немає ✓')}
-      ${sec('Позиції довідника без собівартості', d.items, c => row(c.name, c.category || '', 'од.: ' + (c.unit || ''), zcUnit(c)), 'Таких немає ✓')}
+    <div style="padding:0 18px 8px;display:flex;gap:12px;flex-wrap:wrap;font-size:13px;align-items:center;">
+      <label>Показати: <select id="zcFilter" style="margin:0;"><option value="all">Усе</option><option value="kits">Товари</option><option value="Упаковка">Упаковка</option><option value="Спеція">Спеції</option><option value="Інше">Інше</option></select></label>
+      <label>Сортувати: <select id="zcSort" style="margin:0;"><option value="name">за назвою</option><option value="cat">за категорією (довідник)</option><option value="price">за ціною ↓</option></select></label>
     </div>
+    <div id="zcBody" style="padding:0 18px 12px;overflow:auto;flex:1;"></div>
     <div style="padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-soft,#3a2e24);">
       <button class="btn" type="button" id="zcXls">📥 Excel</button>
       <button class="btn btn-primary" type="button" id="zcClose">Закрити</button>
     </div></div>`;
   document.body.appendChild(ov);
+  const zb = ov.querySelector('#zcBody'), zf = ov.querySelector('#zcFilter'), zs = ov.querySelector('#zcSort');
+  zf.value = zcFilter; zs.value = zcSort;
+  const draw = () => { zb.innerHTML = body(); };
+  zf.onchange = () => { zcFilter = zf.value; draw(); };
+  zs.onchange = () => { zcSort = zs.value; draw(); };
+  draw();
   ov.querySelector('#zcClose').onclick = () => ov.remove();
   ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
   ov.querySelector('#zcXls').onclick = async () => {
