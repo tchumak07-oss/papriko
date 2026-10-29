@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.79.2 · 29.10.2026 14:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.80.0 · 29.10.2026 14:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1636,6 +1636,13 @@
       </div>
     </div>
   </div>
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">Telegram</div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;cursor:pointer;margin-top:6px;">
+        <input type="checkbox" id="setTgReplace" onchange="saveTgReplace()" style="width:auto;margin-top:3px;accent-color:var(--saffron);">
+        <span><strong>Замінювати попереднє сповіщення про відправку в групі</strong><br><span class="hint">Якщо ви надсилаєте в групу сповіщення по тому самому замовленню вдруге (наприклад, додали ТТН), бот спершу видаляє старе. Telegram дозволяє боту видаляти свої повідомлення лише протягом 48 годин; якщо старе видалити не вийшло, нове позначається «Оновлене повідомлення».</span></span>
+      </label>
+    </div></div>
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">🚚 Безкоштовна доставка</div>
       <p class="hint" style="margin:0 0 8px;">Якщо сума замовлення (після знижки) дорівнює порогу або більша, у замовленні автоматично вмикається «Доставка за наш рахунок» (платник — відправник у накладних НП і Укрпошти). Самовивіз не враховується. Якщо ви вручну змінили цю галочку в замовленні, автоматика це замовлення більше не чіпає. Залиште поле порожнім або 0, щоб вимкнути.</p>
@@ -4978,10 +4985,21 @@ async function sendTelegramMessage(text, replyMarkup){
     });
     const data = await res.json();
     if(!data.ok) return {ok:false, error: data.description || 'Помилка Telegram API'};
-    return {ok:true};
+    return {ok:true, messageId: data.result && data.result.message_id};
   }catch(err){
     return {ok:false, error: err.message};
   }
+}
+// видаляє раніше надіслане ботом повідомлення (Telegram дозволяє боту видаляти свої повідомлення протягом 48 годин)
+async function deleteTelegramMessage(chatId, messageId){
+  if(!tgBotToken || !chatId || !messageId) return {ok:false, error:'немає даних'};
+  try{
+    const res = await fetch(`https://api.telegram.org/bot${tgBotToken}/deleteMessage`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({chat_id: chatId, message_id: messageId})
+    });
+    const data = await res.json();
+    return data.ok ? {ok:true} : {ok:false, error: data.description || 'Telegram не дозволив видалити'};
+  }catch(err){ return {ok:false, error: err.message}; }
 }
 
 async function sendTelegramPhoto(blob, fileName, caption){
@@ -5024,7 +5042,7 @@ async function sendTestTelegramMessage(){
   statusEl.textContent = res.ok ? 'Надіслано успішно ✓' : ('Помилка: ' + res.error);
 }
 
-function notifyTelegramShipment(o){
+async function notifyTelegramShipment(o){
   if(!tgBotToken || !tgChatId) return Promise.resolve({ok:false, error:'Telegram не налаштовано (вкажіть токен і ID групи в «Налаштування доставки»)'});
   const c = calcOrder(o);
   const itemsText = o.items.map(it => {
@@ -5044,12 +5062,23 @@ function notifyTelegramShipment(o){
   if(Number(o.deliveryCost) > 0) lines.push(`🚚 Вартість доставки: <b>${fmt1(Number(o.deliveryCost))} грн</b>${o.payerType === 'Відправник' ? ' (за наш рахунок)' : ''}`);
   if(ttn) lines.push(`ТТН: <code>${escapeHtml(ttn)}</code>`);
   if(o.notes) lines.push(`💬 Коментар: ${escapeHtml(o.notes)}`);
-  return sendTelegramMessage(lines.join('\n'), {
+  // якщо по цьому замовленню в групу вже надсилали сповіщення — видаляємо старе, щоб не було дублів без ТТН
+  let replacedOld = null;
+  const prev = o.tgShipMsg;
+  if(appSettings.tgReplacePrev !== false && prev && prev.id && String(prev.chat) === String(tgChatId)){
+    const d = await deleteTelegramMessage(prev.chat, prev.id);
+    replacedOld = d.ok;
+    if(!d.ok) lines.unshift('🔄 <b>Оновлене повідомлення</b> (попереднє не вдалося видалити — воно застаріле)');
+  }
+  const res = await sendTelegramMessage(lines.join('\n'), {
     inline_keyboard: [[
       {text: '📋 Список ТТН за сьогодні', callback_data: 'list_today'},
       {text: '📦 Список не відправлених', callback_data: 'list_unshipped'}
     ]]
   });
+  if(res.ok && res.messageId){ o.tgShipMsg = {id: res.messageId, chat: tgChatId, ts: Date.now()}; scheduleSave(); }
+  else if(!res.ok && replacedOld){ o.tgShipMsg = null; } // старе вже видалено, а нове не надіслалось — не тримаємо застарілий id
+  return res;
 }
 
 function escapeHtml(s){
@@ -5315,7 +5344,12 @@ function renderAppSettings(){
   [['setTplShipped'], ['setTplArrived'], ['setTplReminder']].forEach(([id]) => { const e = document.getElementById(id); if(e && document.activeElement !== e){ e.value = smsTplVar(id); smsTplPreview(id); } });
   const c = document.getElementById('setAutoSmsArrived'); if(c) c.checked = !!appSettings.autoSmsArrived;
   const c2 = document.getElementById('setAutoSmsShipped'); if(c2) c2.checked = !!appSettings.autoSmsShipped;
+  const tr = document.getElementById('setTgReplace'); if(tr) tr.checked = appSettings.tgReplacePrev !== false;
   const fs = document.getElementById('setFreeShip'); if(fs && document.activeElement !== fs) fs.value = Number(appSettings.freeShipThreshold) > 0 ? appSettings.freeShipThreshold : '';
+}
+function saveTgReplace(){
+  appSettings.tgReplacePrev = !!document.getElementById('setTgReplace').checked;
+  scheduleSave();
 }
 function saveFreeShip(){
   const v = Number(document.getElementById('setFreeShip').value);
@@ -5560,6 +5594,7 @@ function redirectApply(orderId, r){
   o.atBranchSince = '';
   o.smsLog = []; o.customerSmsSent = false;
   o.ttnTelegramNotified = false;
+  o.tgShipMsg = null; // нова декларація — старе сповіщення в групі лишаємо як історію
   o.notes = (o.notes ? o.notes + ' · ' : '') + `↪ Переадресовано ${smsLogDateUa(todayStr())}: ${r.dest || 'новий отримувач'}${r.note ? ' (' + r.note + ')' : ''}`;
   undoStack.push({label:'Переадресація', restoreFn: () => { const i = orders.findIndex(x => x.id === orderId); if(i > -1){ orders[i] = snapshot; renderOrders(); renderOrdersSummary(); scheduleSave(); } }});
   if(undoStack.length > 10) undoStack.shift();
@@ -6348,6 +6383,7 @@ function duplicateOrder(sourceId){
   copy.npStatusText = '';
   copy.npStatusCode = '';
   copy.ttnTelegramNotified = false;
+  copy.tgShipMsg = null;
   copy.customerSmsSent = false;
   copy.smsLog = [];
   copy.sendToTelegram = false;
@@ -14512,7 +14548,7 @@ const CUSTOMER_KEYS = ['клієнт','клиент','піб','пиб','customer
 const PHONE_KEYS = ['телефон','phone','тел'];
 const SKU_KEYS = ['sku','артикул'];
 const ITEMNAME_KEYS = ['товар','набір','набор','назватовару','product'];
-const QTY_KEYS = ['кількість','количество','кть','qty','quantity'];
+const QTY_KEYS = ['кількість','количество','кть','ксть','кст','кількістьшт','кількістьодиниць','шт','qty','quantity'];
 const ORDPRICE_KEYS = ['ціна','цена','price'];
 const METHOD_KEYS = ['доставка','способдоставки','перевізник','delivery','як'];
 const CITY_KEYS = ['місто','город','city','куди','адресадоставки','напрямок'];
