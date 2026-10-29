@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.4 · 29.10.2026 17:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.5 · 29.10.2026 17:58</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -3627,12 +3627,25 @@ function lnkGrams(name, k){
   if(m){ const v = parseFloat(m[1]); return /кг|kg/.test(m[2]) ? v * 1000 : v; }
   return Number(k.weight) > 0 ? Number(k.weight) : 0;
 }
+function lnkTareClass(n){
+  n = lnkNorm(n);
+  if(/(^| )(пет|pet)( |$)/.test(n)) return 'pet';
+  if(/скло|ск |слоїк|скля/.test(n)) return 'glass';
+  if(/млин/.test(n)) return 'mill';
+  if(/коробк|бокс/.test(n)) return 'box';
+  if(/пакет|пачк|zip|зіп|саше/.test(n)) return 'bag';
+  if(/банк/.test(n)) return 'jar';
+  return '';
+}
 function lnkFindTare(k, grams, tares){
-  const n = lnkNorm(k.name);
-  const jar = /банк|скло|слоїк/.test(n) || k.type === 'Баночка';
-  const bag = /пакет|пачк|zip|зіп|саше/.test(n) || k.type === 'Пакет';
-  const cls = tares.filter(t => { const tn = lnkNorm(t.name); return jar ? /банк|скло|слоїк/.test(tn) : (bag ? /пакет|пачк|zip|зіп|саше/.test(tn) : false); });
-  const pool = cls.length ? cls : [];
+  let cl = lnkTareClass(k.name);
+  if(!cl && k.tareId){ const g = tareById(k.tareId); if(g) cl = lnkTareClass(g.name); }
+  if(!cl) cl = k.type === 'Баночка' ? 'jar' : (k.type === 'Пакет' ? 'bag' : '');
+  if(!cl) return null;
+  const jarish = x => ['pet','glass','jar'].includes(x);
+  let pool = tares.filter(t => lnkTareClass(t.name) === cl);
+  if(!pool.length && jarish(cl)) pool = tares.filter(t => jarish(lnkTareClass(t.name)));
+  if(!pool.length) return null;
   const byNum = pool.filter(t => lnkNorm(t.name).split(' ').some(w => parseFloat(w) === grams));
   if(byNum.length === 1) return byNum[0];
   if(pool.length === 1) return pool[0];
