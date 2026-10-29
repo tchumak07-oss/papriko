@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.78.0 · 29.10.2026 11:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.79.0 · 29.10.2026 13:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1636,6 +1636,15 @@
       </div>
     </div>
   </div>
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">🚚 Безкоштовна доставка</div>
+      <p class="hint" style="margin:0 0 8px;">Якщо сума замовлення (після знижки) дорівнює порогу або більша, у замовленні автоматично вмикається «Доставка за наш рахунок» (платник — відправник у накладних НП і Укрпошти). Самовивіз не враховується. Якщо ви вручну змінили цю галочку в замовленні, автоматика це замовлення більше не чіпає. Залиште поле порожнім або 0, щоб вимкнути.</p>
+      <div class="fb-row">
+        <input type="number" min="0" step="1" id="setFreeShip" placeholder="Поріг, грн (напр. 1000)" style="max-width:240px;" onchange="saveFreeShip()">
+        <button class="btn btn-sm" onclick="freeShipApplyAll()" title="Перерахувати для вже створених замовлень без накладної">Застосувати до наявних замовлень</button>
+      </div>
+      <div class="hint" id="freeShipStatus" style="margin-top:6px;"></div>
+    </div></div>
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">SMS клієнтам</div>
       <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;cursor:pointer;margin-top:6px;">
@@ -5306,6 +5315,13 @@ function renderAppSettings(){
   [['setTplShipped'], ['setTplArrived'], ['setTplReminder']].forEach(([id]) => { const e = document.getElementById(id); if(e && document.activeElement !== e){ e.value = smsTplVar(id); smsTplPreview(id); } });
   const c = document.getElementById('setAutoSmsArrived'); if(c) c.checked = !!appSettings.autoSmsArrived;
   const c2 = document.getElementById('setAutoSmsShipped'); if(c2) c2.checked = !!appSettings.autoSmsShipped;
+  const fs = document.getElementById('setFreeShip'); if(fs && document.activeElement !== fs) fs.value = Number(appSettings.freeShipThreshold) > 0 ? appSettings.freeShipThreshold : '';
+}
+function saveFreeShip(){
+  const v = Number(document.getElementById('setFreeShip').value);
+  appSettings.freeShipThreshold = v > 0 ? v : 0;
+  const st = document.getElementById('freeShipStatus'); if(st) st.textContent = appSettings.freeShipThreshold ? `Збережено: від ${appSettings.freeShipThreshold} грн доставка безкоштовна.` : 'Вимкнено.';
+  scheduleSave();
 }
 function saveAppSettings(){
   appSettings.autoSmsArrived = !!document.getElementById('setAutoSmsArrived').checked;
@@ -7267,6 +7283,7 @@ function updateOrderField(id, field, value){
   if(!o) return;
   o[field] = value;
   if(field === 'discountType' || field === 'discountValue') autoUpdateCodAmountSilently(id, true);
+  applyFreeShipping(o);
   renderOrderTotal(id);
   renderOrdersSummary();
   scheduleSave();
@@ -7277,7 +7294,39 @@ function setPayerAtOurExpense(id, checked){
   const o = orderById(id);
   if(!o) return;
   o.payerType = checked ? 'Відправник' : 'Отримувач';
+  o.payerManual = true; o.payerAuto = false; // ручний вибір — автоматика порогу більше не чіпає це замовлення
+  syncPayerUi(o);
   scheduleSave();
+}
+// безкоштовна доставка: якщо сума замовлення (після знижки) ≥ порогу з налаштувань — доставка за наш рахунок
+function applyFreeShipping(o){
+  const th = Number(appSettings.freeShipThreshold) || 0;
+  if(!th || !o) return false;
+  if(o.deliveryMethod === 'Самовивіз') return false;
+  if(o.ttnNumber || o.ukrTtnNumber) return false; // накладну вже створено — платника не змінюємо
+  if(o.payerManual) return false;
+  const want = calcOrder(o).total >= th;
+  let changed = false;
+  if(want && o.payerType !== 'Відправник'){ o.payerType = 'Відправник'; o.payerAuto = true; changed = true; }
+  else if(!want && o.payerAuto && o.payerType === 'Відправник'){ o.payerType = 'Отримувач'; o.payerAuto = false; changed = true; }
+  if(changed) syncPayerUi(o);
+  return changed;
+}
+function syncPayerUi(o){
+  document.querySelectorAll(`[data-payer-chk="${o.id}"]`).forEach(el => { el.checked = o.payerType === 'Відправник'; });
+  document.querySelectorAll(`[data-payer-auto="${o.id}"]`).forEach(el => {
+    el.textContent = (o.payerAuto && o.payerType === 'Відправник') ? '(авто: сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : '';
+  });
+}
+function freeShipApplyAll(){
+  const th = Number(appSettings.freeShipThreshold) || 0;
+  const st = document.getElementById('freeShipStatus');
+  if(!th){ if(st) st.textContent = 'Спершу вкажіть поріг.'; return; }
+  const cand = orders.filter(o => !isArchived(o) && !o.shipped && !o.ttnNumber && !o.ukrTtnNumber && o.deliveryMethod !== 'Самовивіз' && !o.payerManual);
+  if(!confirm(`Застосувати поріг ${th} грн до ${cand.length} незавершених замовлень без накладної? Для тих, де сума ≥ порогу, доставка стане за наш рахунок.`)) return;
+  let n = 0; cand.forEach(o => { if(applyFreeShipping(o)) n++; });
+  renderOrders(); scheduleSave();
+  if(st) st.textContent = `Змінено замовлень: ${n}.`;
 }
 function toggleOrderPaid(id, checked){
   const o = orderById(id);
@@ -8126,6 +8175,7 @@ function extractUkrDeliveryCost(sh){
 async function createUkrShipment(orderId){
   const o = orderById(orderId);
   if(!o) return;
+  applyFreeShipping(o); // поріг безкоштовної доставки — перед створенням накладної
   const resultEl = document.getElementById(`ukr-result-${orderId}`);
   const btnEl = document.getElementById(`ukr-create-btn-${orderId}`);
   // захист від подвійного створення (напр. подвійний клік чи повторне натискання, поки перший запит ще виконується) —
@@ -8944,6 +8994,7 @@ let npWaybillInFlight = new Set();
 async function createNpWaybill(orderId){
   const o = orderById(orderId);
   if(!o) return;
+  applyFreeShipping(o); // поріг безкоштовної доставки — перед створенням накладної
   const resultEl = document.getElementById(`ttn-result-${orderId}`);
   const btnEl = document.getElementById(`np-create-btn-${orderId}`);
   if(npWaybillInFlight.has(orderId)) return;
@@ -10116,8 +10167,8 @@ function deliveryBlockHtml(o){
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:8px;">
-        <input type="checkbox" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
-        Доставка за наш рахунок
+        <input type="checkbox" data-payer-chk="${o.id}" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
+        Доставка за наш рахунок<span class="hint" data-payer-auto="${o.id}" style="margin-left:6px;">${o.payerAuto && o.payerType==='Відправник' ? '(авто: сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : ''}</span>
       </label>
       <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі. Оскільки у вас підключено послугу «Контроль оплати» (договір з NovaPay), кошти йдуть напряму на розрахунковий рахунок ФОП, а не готівкою чи на картку — без потреби вказувати картку для кожної посилки окремо.</p>
       <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
@@ -10161,8 +10212,8 @@ function deliveryBlockHtml(o){
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:8px;">
-        <input type="checkbox" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
-        Доставка за наш рахунок
+        <input type="checkbox" data-payer-chk="${o.id}" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
+        Доставка за наш рахунок<span class="hint" data-payer-auto="${o.id}" style="margin-left:6px;">${o.payerAuto && o.payerType==='Відправник' ? '(авто: сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : ''}</span>
       </label>
       <p class="hint" id="ukr-index-status-${o.id}" style="margin-top:4px;">${o.ukrOfficeDesc ? `Відділення за цим індексом: <strong>${escapeAttr(o.ukrOfficeDesc)}</strong>` : ''}</p>
       <p class="hint" style="margin-top:4px;">Якщо поле «Вулиця» порожнє — відправлення оформлюється до відділення (за індексом). Якщо заповнене — до дверей. Сума контролю оплати передається в декларацію як післяплата (за наявності договору з NovaPay — надходить напряму на розрахунковий рахунок).</p>
@@ -12936,6 +12987,7 @@ function renderOrderItemLineTotal(orderId, kitId){
 function renderOrderTotal(orderId){
   const o = orderById(orderId);
   if(!o) return;
+  applyFreeShipping(o);
   const c = calcOrder(o);
   document.querySelectorAll(`[id="order-total-${orderId}"]`).forEach(el => {
     el.textContent = fmt(c.total) + ' грн';
