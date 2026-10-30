@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.6 · 30.10.2026 14:50</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.84.0 · 30.10.2026 15:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -3527,10 +3527,15 @@ function wizRenderRows(){
   m.querySelector('#wizRows').innerHTML = wizRows.map((r, i) => `<div style="display:grid;grid-template-columns:1.3fr 70px 1.4fr 1fr 1fr 30px;gap:6px;margin-bottom:6px;align-items:center;">
     <input type="text" value="${escapeAttr(r.label)}" placeholder="пачка 100 г" onchange="wizRows[${i}].label=this.value;wizRenderPreview()">
     <input type="number" min="0" step="any" value="${r.grams}" title="г спеції" onchange="wizRows[${i}].grams=this.value;wizRows[${i}].label=wizAutoLabel(wizRows[${i}]);wizRenderRows();wizRenderPreview()">
-    <select onchange="wizRows[${i}].tareId=this.value;wizRows[${i}].label=wizAutoLabel(wizRows[${i}]);wizRenderRows();wizRenderPreview()"><option value="">— тара (з довідника) —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠ 0'}</option>`).join('')}</select>
+    <select onchange="wizPickTare(${i},this)"><option value="">— тара (з довідника) —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠ 0'}</option>`).join('')}<option value="__new">＋ Створити нову тару…</option></select>
     <select onchange="wizRows[${i}].type=this.value"><option ${r.type==='Пакет'?'selected':''}>Пакет</option><option ${r.type==='Баночка'?'selected':''}>Баночка</option><option ${r.type==='Набір'?'selected':''}>Набір</option></select>
     <select onchange="wizRows[${i}].tg=this.value"><option value="">— група тари —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}</select>
     <button class="btn btn-sm" onclick="wizRows.splice(${i},1);wizRenderRows();wizRenderPreview()" title="Прибрати">✕</button></div>`).join('');
+}
+function wizPickTare(i, sel){
+  const fin = () => { wizRows[i].label = wizAutoLabel(wizRows[i]); wizRenderRows(); wizRenderPreview(); };
+  if(sel.value !== '__new'){ wizRows[i].tareId = sel.value; fin(); return; }
+  catQuickCreate('Упаковка', sel.dataset.newName || '', it => { if(it) wizRows[i].tareId = it.id; fin(); });
 }
 function wizAutoLabel(r){
   const t = r.tareId ? catalogItem(Number(r.tareId)) : null;
@@ -3609,6 +3614,39 @@ function wizCreate(){
 }
 
 /* ---------- майстер: підв'язати склад до існуючих товарів ---------- */
+function catQuickCreate(kind, preName, done){
+  const old = document.getElementById('qcModal'); if(old) old.remove();
+  const isSp = kind === 'Спеція';
+  const ov = document.createElement('div'); ov.id = 'qcModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10001;display:flex;align-items:center;justify-content:center;padding:12px;';
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:440px;width:100%;padding:16px 18px;">
+    <div style="font-size:17px;font-weight:700;margin-bottom:10px;">＋ Нова позиція довідника: ${isSp ? 'спеція' : 'упаковка'}</div>
+    <label style="font-size:13px;">Назва<br><input type="text" id="qcName" value="${escapeAttr(preName||'')}" style="width:100%;"></label>
+    <div style="display:flex;gap:10px;margin-top:8px;font-size:13px;">
+      <label>Одиниця<br><select id="qcUnit" style="width:90px;">${['г','кг','мл','шт'].map(u => `<option ${u===(isSp?'кг':'шт')?'selected':''}>${u}</option>`).join('')}</select></label>
+      <label style="flex:1;">Собівартість за 1 одиницю, грн<br><input type="number" id="qcCost" min="0" step="0.01" style="width:100%;" placeholder="напр. 320 за кг"></label>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;"><button class="btn" id="qcNo" type="button">Скасувати</button><button class="btn btn-primary" id="qcYes" type="button">Створити</button></div></div>`;
+  document.body.appendChild(ov);
+  const nm = ov.querySelector('#qcName'); nm.focus(); nm.select();
+  ov.querySelector('#qcNo').onclick = () => { ov.remove(); done(null); };
+  ov.querySelector('#qcYes').onclick = () => {
+    const name = nm.value.trim();
+    if(!name){ nm.focus(); return; }
+    const ex = catalog.find(c => !c.archived && c.category === kind && String(c.name).trim().toLowerCase() === name.toLowerCase());
+    if(ex && !confirm(`«${ex.name}» уже є в довіднику. Створити ще одну з такою ж назвою?`)) return;
+    const item = {id: nextCatalogId++, name, category: kind, unit: ov.querySelector('#qcUnit').value, cost: parseFloat(ov.querySelector('#qcCost').value) || 0, price: 0, composition: []};
+    catalog.push(item);
+    ov.remove();
+    renderCatalog(); scheduleSave();
+    done(item);
+  };
+  ov.addEventListener('keydown', e => { if(e.key === 'Enter') ov.querySelector('#qcYes').click(); if(e.key === 'Escape') ov.querySelector('#qcNo').click(); });
+}
+function lnkPick(i, field, sel, kind){
+  if(sel.value !== '__new'){ lnkRows[i][field] = sel.value; if(field === 'spId') lnkRows[i].on = !!(sel.value && lnkRows[i].grams); lnkRender(); return; }
+  catQuickCreate(kind, sel.dataset.newName || '', it => { if(it){ lnkRows[i][field] = it.id; if(field === 'spId') lnkRows[i].on = !!lnkRows[i].grams; } lnkRender(); });
+}
 let lnkRows = [];
 function lnkNorm(s){ return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/[^a-zа-яіїєґ0-9.,]+/gi,' ').replace(/(\d)[.,](?=\D|$)/g,'$1').trim(); }
 function lnkWords(s){ return lnkNorm(s).split(/[^a-zа-яіїєґ0-9]+/i).filter(w => w.length > 1); }
@@ -3709,9 +3747,9 @@ function lnkRender(){
     return `<div style="display:grid;grid-template-columns:24px 1.4fr 1.2fr 130px 1.2fr 1fr 80px;gap:6px;padding:4px 0;border-top:1px solid var(--border-soft,#3a2e24);align-items:center;font-size:13px;">
       <input type="checkbox" ${r.on?'checked':''} onchange="lnkRows[${i}].on=this.checked;lnkRender()">
       <div>${escapeAttr(k.name)} <span class="hint">${escapeAttr(k.sku||'')}</span></div>
-      <select onchange="lnkRows[${i}].spId=this.value;lnkRows[${i}].on=!!(this.value&&lnkRows[${i}].grams);lnkRender()"><option value="">— спеція —</option>${spices.map(s => `<option value="${s.id}" ${String(s.id)===String(r.spId)?'selected':''}>${escapeAttr(s.name)}${Number(s.cost)>0?'':' ⚠0'}</option>`).join('')}</select>
+      <select onchange="lnkPick(${i},'spId',this,'Спеція')"><option value="">— спеція —</option>${spices.map(s => `<option value="${s.id}" ${String(s.id)===String(r.spId)?'selected':''}>${escapeAttr(s.name)}${Number(s.cost)>0?'':' ⚠0'}</option>`).join('')}<option value="__new">＋ Створити нову спецію…</option></select>
       <div style="display:flex;gap:3px;"><input type="number" min="0" step="any" value="${r.grams}" placeholder="${r.gu==='кг'?'кг':'г'}" style="width:100%;min-width:0;" onchange="lnkRows[${i}].grams=this.value;lnkRows[${i}].on=!!(lnkRows[${i}].spId&&this.value);lnkRender()"><select style="width:58px;" title="Одиниця ваги спеції в товарі" onchange="lnkRows[${i}].gu=this.value;lnkRender()"><option ${r.gu!=='кг'?'selected':''}>г</option><option ${r.gu==='кг'?'selected':''}>кг</option></select></div>
-      ${r.hasTare ? '<div class="hint">тара вже є</div>' : `<select onchange="lnkRows[${i}].tareId=this.value;lnkRender()"><option value="">— тара —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠0'}</option>`).join('')}</select>`}
+      ${r.hasTare ? '<div class="hint">тара вже є</div>' : `<select onchange="lnkPick(${i},'tareId',this,'Упаковка')"><option value="">— тара —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠0'}</option>`).join('')}<option value="__new">＋ Створити нову тару…</option></select>`}
       <select title="Група тари (для сортування й групування у списках)" onchange="lnkRows[${i}].tg=this.value;lnkRows[${i}].tgTouched=true;"><option value="">— група —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}</select>
       <div class="hint">${r.spId && r.grams ? 'собів. ' + fmt1(lnkCost(r)) + (k.price ? ' / ціна ' + k.price : '') : ''}</div></div>`;
   }).join('') || '<div class="hint">Нічого показувати.</div>';
@@ -15383,12 +15421,13 @@ autoConnectFirebase();
       shown = []; let html = '', lastG = null;
       [...sel.options].forEach((o, i) => {
         if(o.disabled) return;
-        if(q && !o.text.toLowerCase().includes(q)) return;
+        const isNew = o.value === '__new';
+        if(q && !isNew && !o.text.toLowerCase().includes(q)) return;
         if(!q && o.value === '' ) { /* плейсхолдер лишаємо зверху */ }
         const g = o.parentElement && o.parentElement.tagName === 'OPTGROUP' ? o.parentElement.label : '';
         if(g !== lastG){ if(g) html += `<div class="ss-grp">${escapeHtml(g)}</div>`; lastG = g; }
         shown.push(i);
-        html += `<div class="ss-opt${o.selected ? ' ss-sel' : ''}" data-i="${i}">${escapeHtml(o.text) || '&nbsp;'}</div>`;
+        html += `<div class="ss-opt${o.selected ? ' ss-sel' : ''}" data-i="${i}">${isNew && q ? escapeHtml('＋ Створити «' + inp.value.trim() + '»') : (escapeHtml(o.text) || '&nbsp;')}</div>`;
       });
       list.innerHTML = html || '<div class="ss-empty">Нічого не знайдено</div>';
       act = Math.min(act, Math.max(0, shown.length - 1));
@@ -15399,8 +15438,9 @@ autoConnectFirebase();
       const a = list.querySelectorAll('.ss-opt')[act]; if(a) a.scrollIntoView({block:'nearest'});
     }
     function pick(i){
-      const s2 = sel; close();
+      const s2 = sel; const nm = inp.value.trim(); close();
       s2.selectedIndex = i;
+      if(s2.options[i] && s2.options[i].value === '__new') s2.dataset.newName = nm;
       s2.dispatchEvent(new Event('input', {bubbles:true}));
       s2.dispatchEvent(new Event('change', {bubbles:true}));
       s2.focus();
