@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.5 · 29.10.2026 17:58</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.83.6 · 30.10.2026 14:50</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -3629,8 +3629,8 @@ function lnkGrams(name, k){
 }
 function lnkTareClass(n){
   n = lnkNorm(n);
-  if(/(^| )(пет|pet)( |$)/.test(n)) return 'pet';
-  if(/скло|ск |слоїк|скля/.test(n)) return 'glass';
+  if(/(^|[ ,.])(пет|pet)([ ,.]|$)/.test(n)) return 'pet';
+  if(/скло|(^|[ ,.])ск[ .]|слоїк|скля/.test(n)) return 'glass';
   if(/млин/.test(n)) return 'mill';
   if(/коробк|бокс/.test(n)) return 'box';
   if(/пакет|пачк|zip|зіп|саше/.test(n)) return 'bag';
@@ -3660,7 +3660,9 @@ function lnkOpen(){
     const sp = lnkFindSpice(k.name, spices), g = lnkGrams(k.name, k);
     const hasTare = (k.components||[]).some(c => (catalogItem(c.catalogId)||{}).category === 'Упаковка');
     const t = hasTare ? null : lnkFindTare(k, g, tares);
-    return {kid: k.id, spId: sp ? sp.id : '', grams: g || '', tareId: t ? t.id : '', hasTare, on: !!(sp && g)};
+    let tg = k.tareId || '';
+    if(!tg){ const cl = lnkTareClass(k.name) || (k.type === 'Баночка' ? 'jar' : ''); const g2 = cl ? tareTypes.find(x => lnkTareClass(x.name) === cl) : null; if(g2) tg = g2.id; }
+    return {kid: k.id, spId: sp ? sp.id : '', grams: g || '', tareId: t ? t.id : '', tg, tgTouched: false, hasTare, on: !!(sp && g)};
   });
   const old = document.getElementById('lnkModal'); if(old) old.remove();
   const ov = document.createElement('div'); ov.id = 'lnkModal';
@@ -3704,12 +3706,13 @@ function lnkRender(){
   m.querySelector('#lnkTable').innerHTML = lnkRows.map((r, i) => {
     if(onlyBad && r.spId && r.grams) return '';
     const k = kitById(r.kid);
-    return `<div style="display:grid;grid-template-columns:24px 1.5fr 1.3fr 140px 1.3fr 80px;gap:6px;padding:4px 0;border-top:1px solid var(--border-soft,#3a2e24);align-items:center;font-size:13px;">
+    return `<div style="display:grid;grid-template-columns:24px 1.4fr 1.2fr 130px 1.2fr 1fr 80px;gap:6px;padding:4px 0;border-top:1px solid var(--border-soft,#3a2e24);align-items:center;font-size:13px;">
       <input type="checkbox" ${r.on?'checked':''} onchange="lnkRows[${i}].on=this.checked;lnkRender()">
       <div>${escapeAttr(k.name)} <span class="hint">${escapeAttr(k.sku||'')}</span></div>
       <select onchange="lnkRows[${i}].spId=this.value;lnkRows[${i}].on=!!(this.value&&lnkRows[${i}].grams);lnkRender()"><option value="">— спеція —</option>${spices.map(s => `<option value="${s.id}" ${String(s.id)===String(r.spId)?'selected':''}>${escapeAttr(s.name)}${Number(s.cost)>0?'':' ⚠0'}</option>`).join('')}</select>
       <div style="display:flex;gap:3px;"><input type="number" min="0" step="any" value="${r.grams}" placeholder="${r.gu==='кг'?'кг':'г'}" style="width:100%;min-width:0;" onchange="lnkRows[${i}].grams=this.value;lnkRows[${i}].on=!!(lnkRows[${i}].spId&&this.value);lnkRender()"><select style="width:58px;" title="Одиниця ваги спеції в товарі" onchange="lnkRows[${i}].gu=this.value;lnkRender()"><option ${r.gu!=='кг'?'selected':''}>г</option><option ${r.gu==='кг'?'selected':''}>кг</option></select></div>
       ${r.hasTare ? '<div class="hint">тара вже є</div>' : `<select onchange="lnkRows[${i}].tareId=this.value;lnkRender()"><option value="">— тара —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠0'}</option>`).join('')}</select>`}
+      <select title="Група тари (для сортування й групування у списках)" onchange="lnkRows[${i}].tg=this.value;lnkRows[${i}].tgTouched=true;"><option value="">— група —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}</select>
       <div class="hint">${r.spId && r.grams ? 'собів. ' + fmt1(lnkCost(r)) + (k.price ? ' / ціна ' + k.price : '') : ''}</div></div>`;
   }).join('') || '<div class="hint">Нічого показувати.</div>';
   m.querySelector('#lnkCount').textContent = lnkRows.filter(r => r.on && r.spId && Number(r.grams) > 0).length;
@@ -3718,7 +3721,8 @@ function lnkApply(){
   const m = document.getElementById('lnkModal'); if(!m) return;
   const loss = Number(m.querySelector('#lnkLoss').value) || 0;
   const reset = m.querySelector('#lnkResetManual').checked;
-  let n = 0, noTare = 0;
+  let n = 0, noTare = 0, ng = 0;
+  lnkRows.forEach(r => { const k = kitById(r.kid); if(k && r.tg && (r.tgTouched || (r.on && r.spId && Number(r.grams) > 0)) && String(k.tareId||'') !== String(r.tg)){ k.tareId = Number(r.tg); ng++; } });
   lnkRows.filter(r => r.on && r.spId && Number(r.grams) > 0).forEach(r => {
     const k = kitById(r.kid), sp = catalogItem(Number(r.spId)); if(!k || !sp) return;
     const a = wizSpiceAmount(sp, lnkG(r) * (1 + loss/100)); if(a === null) return;
@@ -3732,7 +3736,7 @@ function lnkApply(){
   });
   m.remove();
   renderKits(); renderSummary(); renderChart(); scheduleSave();
-  alert(`Склад заповнено у товарів: ${n}.` + (noTare ? ` Без тари: ${noTare} — додай її вручну.` : '') + ' Звіт «нульова собівартість» покаже, що ще не заповнено.');
+  alert(`Склад заповнено у товарів: ${n}.` + (ng ? ` Групу тари задано: ${ng}.` : '') + (noTare ? ` Без тари: ${noTare} — додай її вручну.` : '') + ' Звіт «нульова собівартість» покаже, що ще не заповнено.');
 }
 
 function zcSave(kind, id, inp){
