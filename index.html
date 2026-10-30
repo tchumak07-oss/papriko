@@ -381,7 +381,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.84.0 · 30.10.2026 15:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.85.1 · 30.10.2026 16:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -660,7 +660,7 @@
     </div>
   </div>
 
-  <div class="fb-row" style="margin-bottom:10px;"><button class="btn btn-sm btn-primary" onclick="wizOpen()" title="Створити товари: спеція × фасування × тара">🪄 Згенерувати товари</button> <button class="btn btn-sm btn-primary" onclick="lnkOpen()" title="Заповнити склад існуючих товарів за назвою">🔗 Підв'язати склад існуючих</button> <button class="btn btn-sm" onclick="zeroCostReport()" title="Товари та позиції довідника без собівартості">🧮 Звіт: товари з нульовою собівартістю</button></div>
+  <div class="fb-row" style="margin-bottom:10px;"><button class="btn btn-sm btn-primary" onclick="wizOpen()" title="Створити товари: спеція × фасування × тара">🪄 Згенерувати товари</button> <button class="btn btn-sm btn-primary" onclick="lnkOpen()" title="Заповнити склад існуючих товарів за назвою">🔗 Підв'язати склад існуючих</button> <button class="btn btn-sm" onclick="zcMode='zero';zeroCostReport()" title="Товари та позиції довідника без собівартості">🧮 Звіт: нульова собівартість</button> <button class="btn btn-sm" onclick="zcMode='filled';zeroCostReport()" title="Товари та позиції довідника із собівартістю, маржа">📊 Звіт: заповнена собівартість</button></div>
   <input type="text" id="kitSearch" placeholder="🔍 Пошук товару за назвою або SKU…" oninput="renderKits()" style="margin:0 0 12px;">
   <div id="kitList"></div>
 
@@ -3712,6 +3712,7 @@ function lnkOpen(){
       <label>Втрати, %<br><input type="number" id="lnkLoss" value="3" min="0" step="any" style="width:90px;"></label>
       <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="lnkResetManual" checked> Скинути «ручну собівартість», щоб рахувалось зі складу</label>
       <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="lnkOnlyOk"> Показати лише нерозпізнані</label>
+      <span style="display:flex;gap:6px;align-items:center;">Вага в усіх рядках: <button class="btn btn-sm" type="button" onclick="lnkSetAllUnit('кг')">→ кг</button><button class="btn btn-sm" type="button" onclick="lnkSetAllUnit('г')">→ г</button></span>
     </div>
     <div style="padding:0 18px 12px;overflow:auto;flex:1;" id="lnkTable"></div>
     <div style="padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-soft,#3a2e24);">
@@ -3726,6 +3727,15 @@ function lnkOpen(){
   lnkRender();
 }
 function lnkG(r){ return (Number(r.grams)||0) * (r.gu === 'кг' ? 1000 : 1); }
+function lnkSetAllUnit(u){
+  lnkRows.forEach(r => {
+    if((r.gu || 'г') === u) return;
+    const v = parseFloat(r.grams);
+    if(v > 0) r.grams = String(Math.round(v * (u === 'кг' ? 0.001 : 1000) * 1e6) / 1e6);
+    r.gu = u;
+  });
+  lnkRender();
+}
 function lnkCost(r){
   const loss = Number((document.getElementById('lnkLoss')||{}).value) || 0;
   const sp = r.spId ? catalogItem(Number(r.spId)) : null, t = r.tareId ? catalogItem(Number(r.tareId)) : null;
@@ -3782,7 +3792,15 @@ function zcSave(kind, id, inp){
   if(kind === 'cat') updateCatalog(id, 'cost', v); else updateKitField(id, 'costManual', v);
   inp.style.outline = v > 0 ? '2px solid #4caf50' : '';
 }
-let zcFilter = 'all', zcSort = 'name';
+let zcFilter = 'all', zcSort = 'name', zcMode = 'zero';
+function filledCostData(){
+  const kitsF = kits.filter(k => !k.archived).map(k => {
+    const cost = kitUnitCost(k.id, new Set()), price = Number(k.price) || 0;
+    return {k, cost, price, profit: price - cost, margin: price > 0 ? (price - cost) / price * 100 : null};
+  }).filter(x => x.cost > 0);
+  const items = catalog.filter(c => !c.archived && Number(c.cost) > 0);
+  return {kits: kitsF, items};
+}
 function zeroCostReport(){
   let d = zeroCostData();
   const old = document.getElementById('zeroCostModal'); if(old) old.remove();
@@ -3792,6 +3810,21 @@ function zeroCostReport(){
   const catRank = c => ({'Упаковка':1,'Спеція':2,'Інше':3}[c.category] || 4);
   const uk = (a, b) => String(a).localeCompare(String(b), 'uk');
   const body = () => {
+    if(zcMode === 'filled'){
+      const f = filledCostData();
+      const showK = zcFilter === 'all' || zcFilter === 'kits';
+      let ks = showK ? f.kits.slice() : [];
+      let its = f.items.filter(c => zcFilter === 'all' || zcFilter === c.category || (zcFilter === 'Інше' && !['Упаковка','Спеція'].includes(c.category)));
+      if(zcSort === 'price'){ ks.sort((a, b) => b.price - a.price); its.sort((a, b) => (b.cost||0) - (a.cost||0)); }
+      else if(zcSort === 'margin'){ ks.sort((a, b) => (a.margin === null) - (b.margin === null) || (a.margin||0) - (b.margin||0)); }
+      else if(zcSort === 'cat'){ its.sort((a, b) => catRank(a) - catRank(b) || uk(a.name, b.name)); }
+      else { ks.sort((a, b) => uk(a.k.name, b.k.name)); its.sort((a, b) => uk(a.name, b.name)); }
+      const mg = x => x.margin === null ? 'ціни немає' : 'маржа ' + fmt1(x.margin) + '% · прибуток ' + fmt1(x.profit);
+      const out = [];
+      if(showK) out.push(sec('Товари із заповненою собівартістю', ks, x => row(x.k.name + (x.k.sku ? ' · ' + x.k.sku : ''), 'ціна ' + fmt1(x.price), 'собів. ' + fmt1(x.cost) + ' · ' + mg(x), ''), 'Немає'));
+      if(zcFilter !== 'kits') out.push(sec('Позиції довідника із собівартістю', its, c => row(c.name, c.category || '', 'од.: ' + (c.unit || ''), zcUnit(c).replace('placeholder="грн за 1', 'value="' + c.cost + '" data-x="1').replace(/onchange="zcSave/, 'onchange="zcSave')), 'Немає'));
+      return out.join('');
+    }
     d = zeroCostData();
     const showKits = zcFilter === 'all' || zcFilter === 'kits';
     const zero = showKits ? d.zero.slice() : [], partial = showKits ? d.partial.slice() : [];
@@ -3813,8 +3846,9 @@ function zeroCostReport(){
   ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:900px;width:100%;max-height:90vh;display:flex;flex-direction:column;">
     <div style="padding:16px 18px 6px;font-size:18px;font-weight:700;">Собівартість: що не заповнено</div>
     <div style="padding:0 18px 8px;display:flex;gap:12px;flex-wrap:wrap;font-size:13px;align-items:center;">
+      <label>Звіт: <select id="zcMode" style="margin:0;"><option value="zero">Нульова собівартість</option><option value="filled">Заповнена собівартість (маржа)</option></select></label>
       <label>Показати: <select id="zcFilter" style="margin:0;"><option value="all">Усе</option><option value="kits">Товари</option><option value="Упаковка">Упаковка</option><option value="Спеція">Спеції</option><option value="Інше">Інше</option></select></label>
-      <label>Сортувати: <select id="zcSort" style="margin:0;"><option value="name">за назвою</option><option value="cat">за категорією (довідник)</option><option value="price">за ціною ↓</option></select></label>
+      <label>Сортувати: <select id="zcSort" style="margin:0;"><option value="name">за назвою</option><option value="cat">за категорією (довідник)</option><option value="price">за ціною ↓</option><option value="margin">за маржею ↑ (лише «заповнена»)</option></select></label>
     </div>
     <div id="zcBody" style="padding:0 18px 12px;overflow:auto;flex:1;"></div>
     <div style="padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-soft,#3a2e24);">
@@ -3823,6 +3857,8 @@ function zeroCostReport(){
     </div></div>`;
   document.body.appendChild(ov);
   const zb = ov.querySelector('#zcBody'), zf = ov.querySelector('#zcFilter'), zs = ov.querySelector('#zcSort');
+  const zm = ov.querySelector('#zcMode'); zm.value = zcMode;
+  zm.onchange = () => { zcMode = zm.value; draw(); };
   zf.value = zcFilter; zs.value = zcSort;
   const draw = () => { zb.innerHTML = body(); };
   zf.onchange = () => { zcFilter = zf.value; draw(); };
@@ -3832,6 +3868,18 @@ function zeroCostReport(){
   ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
   ov.querySelector('#zcXls').onclick = async () => {
     const wb = new ExcelJS.Workbook();
+    if(zcMode === 'filled'){
+      const f = filledCostData();
+      const w1 = wb.addWorksheet('Товари із собівартістю'); w1.columns = [{header:'Товар',key:'n',width:40},{header:'SKU',key:'s',width:16},{header:'Собівартість',key:'c',width:13},{header:'Ціна',key:'p',width:10},{header:'Прибуток',key:'pr',width:11},{header:'Маржа, %',key:'m',width:10}];
+      f.kits.forEach(x => w1.addRow({n:x.k.name, s:x.k.sku||'', c:Math.round(x.cost*100)/100, p:x.price, pr:Math.round(x.profit*100)/100, m:x.margin === null ? '' : Math.round(x.margin*10)/10}));
+      const w2 = wb.addWorksheet('Довідник із собівартістю'); w2.columns = [{header:'Позиція',key:'n',width:40},{header:'Категорія',key:'c',width:16},{header:'Одиниця',key:'u',width:10},{header:'Собівартість',key:'k',width:13}];
+      f.items.forEach(c => w2.addRow({n:c.name, c:c.category||'', u:c.unit||'', k:c.cost}));
+      [w1, w2].forEach(w => { w.getRow(1).font = {bold:true}; });
+      const buf2 = await wb.xlsx.writeBuffer();
+      const a2 = document.createElement('a'); a2.href = URL.createObjectURL(new Blob([buf2], {type:'application/octet-stream'})); a2.download = `filled_cost_${todayStr()}.xlsx`;
+      document.body.appendChild(a2); a2.click(); a2.remove(); setTimeout(() => URL.revokeObjectURL(a2.href), 2000);
+      return;
+    }
     const add = (name, cols, rows) => { const ws = wb.addWorksheet(name); ws.columns = cols; rows.forEach(r => ws.addRow(r)); ws.getRow(1).font = {bold:true}; ws.eachRow(r => r.eachCell(c => { c.border = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}}; c.alignment = {wrapText:true, vertical:'top'}; })); };
     add('Нульова собівартість', [{header:'Товар',key:'n',width:40},{header:'SKU',key:'s',width:16},{header:'Ціна',key:'p',width:10},{header:'Причина',key:'r',width:60}], d.zero.map(x => ({n:x.k.name, s:x.k.sku||'', p:x.k.price||0, r:x.reason})));
     add('Неповна собівартість', [{header:'Товар',key:'n',width:40},{header:'SKU',key:'s',width:16},{header:'Собівартість',key:'c',width:12},{header:'Причина',key:'r',width:60}], d.partial.map(x => ({n:x.k.name, s:x.k.sku||'', c:x.unit, r:x.reason})));
@@ -4333,10 +4381,14 @@ function renderKitStats(kitId){
   const el = document.getElementById(`kit-stats-${kitId}`);
   if(!el) return;
   const c = calcKit(k);
+  const price = Number(k.price) || 0, pu = price - c.unitCost, mu = price > 0 ? pu / price * 100 : 0;
+  const qtyPart = (k.qty || 0) > 0 ? `<span><span class="stat-label">Прибуток × ${k.qty} шт</span><span class="${c.profit>=0?'profit-pos':'profit-neg'}">${c.profit>=0?'':'−'}${fmt(Math.abs(c.profit))} грн</span></span>` : '';
   el.innerHTML = `
     <span><span class="stat-label">Собівартість/од</span>${fmt1(c.unitCost)} грн</span>
-    <span><span class="stat-label">Прибуток</span><span class="${c.profit>=0?'profit-pos':'profit-neg'}">${c.profit>=0?'':'−'}${fmt(Math.abs(c.profit))} грн</span></span>
-    <span><span class="stat-label">Маржа</span><span class="${c.margin>=0?'profit-pos':'profit-neg'}">${fmt1(c.margin)}%</span></span>
+    <span><span class="stat-label">Ціна/од</span>${price > 0 ? fmt1(price) + ' грн' : '<span class="profit-neg">не задана</span>'}</span>
+    <span><span class="stat-label">Прибуток/од</span><span class="${pu>=0?'profit-pos':'profit-neg'}">${pu>=0?'':'−'}${fmt1(Math.abs(pu))} грн</span></span>
+    <span><span class="stat-label">Маржа</span><span class="${mu>=0?'profit-pos':'profit-neg'}">${fmt1(mu)}%</span></span>
+    ${qtyPart}
   `;
   renderCostsPanel();
 }
