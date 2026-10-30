@@ -386,7 +386,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.85.3 · 30.10.2026 16:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.85.6 · 30.10.2026 17:35</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1879,6 +1879,7 @@
   <div id="rb-skumargin" style="display:none;">
     <p class="hint" style="margin:-8px 0 14px;">Те саме, але зведено по кожному товару (SKU) за весь період — скільки продано, яка сумарна виручка, собівартість і маржа саме по цьому товару. Відсортовано від найгіршої маржі до найкращої.</p>
     <div class="catalog-panel"><div style="padding:14px 16px;">
+      <input type="text" id="skuMarginSearch" placeholder="🔍 Пошук за назвою або SKU…" oninput="renderSkuMarginTable()" style="margin:0 0 10px;">
       <div class="wh-row-head" style="grid-template-columns:1fr 90px 90px 100px 100px 90px;"><div>Товар</div><div style="text-align:right;">Продано</div><div style="text-align:right;">Виручка</div><div style="text-align:right;">Собівартість</div><div style="text-align:right;">Прибуток</div><div style="text-align:right;">Маржа</div></div>
       <div id="reportSkuMarginTable"></div>
     </div></div>
@@ -3621,11 +3622,13 @@ function wizCreate(){
 /* ---------- майстер: підв'язати склад до існуючих товарів ---------- */
 function catQuickCreate(kind, preName, done){
   const old = document.getElementById('qcModal'); if(old) old.remove();
+  const any = kind === 'any';
   const isSp = kind === 'Спеція';
   const ov = document.createElement('div'); ov.id = 'qcModal';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10001;display:flex;align-items:center;justify-content:center;padding:12px;';
   ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:440px;width:100%;padding:16px 18px;">
-    <div style="font-size:17px;font-weight:700;margin-bottom:10px;">＋ Нова позиція довідника: ${isSp ? 'спеція' : 'упаковка'}</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:10px;">＋ Нова позиція довідника${any ? '' : ': ' + (isSp ? 'спеція' : 'упаковка')}</div>
+    ${any ? `<label style="font-size:13px;display:block;margin-bottom:8px;">Категорія<br><select id="qcCat" style="width:100%;"><option>Спеція</option><option selected>Упаковка</option><option>Інше</option></select></label>` : ''}
     <label style="font-size:13px;">Назва<br><input type="text" id="qcName" value="${escapeAttr(preName||'')}" style="width:100%;"></label>
     <div style="display:flex;gap:10px;margin-top:8px;font-size:13px;">
       <label>Одиниця<br><select id="qcUnit" style="width:90px;">${['г','кг','мл','шт'].map(u => `<option ${u===(isSp?'кг':'шт')?'selected':''}>${u}</option>`).join('')}</select></label>
@@ -3634,13 +3637,15 @@ function catQuickCreate(kind, preName, done){
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;"><button class="btn" id="qcNo" type="button">Скасувати</button><button class="btn btn-primary" id="qcYes" type="button">Створити</button></div></div>`;
   document.body.appendChild(ov);
   const nm = ov.querySelector('#qcName'); nm.focus(); nm.select();
+  if(any){ const cs = ov.querySelector('#qcCat'), us = ov.querySelector('#qcUnit'); const sync = () => { us.value = cs.value === 'Спеція' ? 'кг' : 'шт'; }; cs.onchange = sync; sync(); }
   ov.querySelector('#qcNo').onclick = () => { ov.remove(); done(null); };
   ov.querySelector('#qcYes').onclick = () => {
     const name = nm.value.trim();
     if(!name){ nm.focus(); return; }
-    const ex = catalog.find(c => !c.archived && c.category === kind && String(c.name).trim().toLowerCase() === name.toLowerCase());
+    const cat = any ? ov.querySelector('#qcCat').value : kind;
+    const ex = catalog.find(c => !c.archived && c.category === cat && String(c.name).trim().toLowerCase() === name.toLowerCase());
     if(ex && !confirm(`«${ex.name}» уже є в довіднику. Створити ще одну з такою ж назвою?`)) return;
-    const item = {id: nextCatalogId++, name, category: kind, unit: ov.querySelector('#qcUnit').value, cost: parseFloat(ov.querySelector('#qcCost').value) || 0, price: 0, composition: []};
+    const item = {id: nextCatalogId++, name, category: cat, unit: ov.querySelector('#qcUnit').value, cost: parseFloat(ov.querySelector('#qcCost').value) || 0, price: 0, composition: []};
     catalog.push(item);
     ov.remove();
     renderCatalog(); scheduleSave();
@@ -3915,7 +3920,13 @@ function nextSku(){
 function addKit(){
   const id = nextKitId++;
   kits.push({id, sku: nextSku(), name: 'Новий набір', type: 'Набір', components: [], composition: [], weight: 0, logistics: 0, marketing: 0, price: 0, qty: 0, collapsed: false});
+  newKitPinId = id;
+  const ks = document.getElementById('kitSearch'); if(ks) ks.value = '';
   renderKits();
+  setTimeout(() => {
+    const el = document.querySelector(`[data-kit="${id}"]`);
+    if(el){ el.scrollIntoView({behavior:'smooth', block:'center'}); const inp = el.querySelector('input[type="text"]'); if(inp){ inp.focus(); inp.select(); } }
+  }, 50);
   renderSummary();
   renderChart();
   scheduleSave();
@@ -3924,6 +3935,7 @@ function saveKit(id){
   const k = kitById(id);
   if(!k) return;
   k.collapsed = true;
+  if(newKitPinId === id) newKitPinId = null;
   renderKits();
   renderSummary();
   renderChart();
@@ -3977,6 +3989,15 @@ function updateKitField(id, field, value){
   renderSummary();
   renderChart();
   scheduleSave();
+}
+function compSelChange(kitId, sel){
+  if(sel.value !== '__new') return;
+  const pre = sel.dataset.newName || ''; sel.dataset.newName = '';
+  catQuickCreate('any', pre, it => {
+    sel.innerHTML = catalogOptionsHtml(kitId) + '<option value="__new">＋ Створити новий компонент…</option>';
+    sel.value = it ? 'cat:' + it.id : '';
+    const amt = document.getElementById(`comp-amt-${kitId}`); if(it && amt) amt.focus();
+  });
 }
 function addComponent(kitId){
   const select = document.getElementById(`comp-select-${kitId}`);
@@ -4258,11 +4279,12 @@ function kbRowDragStart(e, idx){
   document.addEventListener('pointerup', onUp);
 }
 
+let newKitPinId = null; // щойно створений товар: показуємо нагорі списку, поки його не збережено
 function renderKits(){
   const list = document.getElementById('kitList');
   const kq = ((document.getElementById('kitSearch') || {}).value || '').trim().toLowerCase();
   const allKits = kits.filter(k => !k.archived);
-  const shownKits = allKits.filter(k => !kq || ((k.name || '') + ' ' + (k.sku || '')).toLowerCase().includes(kq)).sort((a,b) => tareRank(a) - tareRank(b) || (a.name||'').localeCompare(b.name||''));
+  const shownKits = allKits.filter(k => !kq || ((k.name || '') + ' ' + (k.sku || '')).toLowerCase().includes(kq)).sort((a,b) => ((b.id === newKitPinId) - (a.id === newKitPinId)) || tareRank(a) - tareRank(b) || (a.name||'').localeCompare(b.name||''));
   if(shownKits.length === 0){
     list.innerHTML = kq && allKits.length ? '<div class="comp-empty">Нічого не знайдено за запитом.</div>' : '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
   } else {
@@ -4270,7 +4292,10 @@ function renderKits(){
     let prevLabel = null;
     list.innerHTML = shownKits.map(k => {
       let head = '';
-      if(anyTare){
+      if(k.id === newKitPinId){
+        head = `<div class="tare-group-head">🆕 Новий товар (збережи, і він стане на своє місце)</div>`;
+        prevLabel = '\u0000pinned';
+      } else if(anyTare){
         const label = tareName(k) || 'Без тари';
         if(label !== prevLabel){
           const n = shownKits.filter(x => (tareName(x) || 'Без тари') === label).length;
@@ -4325,7 +4350,7 @@ function kitExpandedHtml(k){
         <div class="comp-list" id="comp-list-${k.id}"></div>
 
         <div class="add-comp-row">
-          <select id="comp-select-${k.id}">${catalogOptionsHtml(k.id)}</select>
+          <select id="comp-select-${k.id}" onchange="compSelChange(${k.id}, this)">${catalogOptionsHtml(k.id)}<option value="__new">＋ Створити новий компонент…</option></select>
           <input type="number" step="0.1" placeholder="к-сть" id="comp-amt-${k.id}">
           <button class="btn btn-sm" onclick="addComponent(${k.id})">Додати</button>
         </div>
@@ -12264,8 +12289,29 @@ let lastExpensesReportRows = [];
 let lastUndeliveredReportRows = [];
 let lastReturnedReportRows = [];
 
+function skuMarginFiltered(){
+  const q = ((document.getElementById('skuMarginSearch') || {}).value || '').trim().toLowerCase();
+  return !q ? lastSkuMarginRows : lastSkuMarginRows.filter(r => (String(r.k.name || '') + ' ' + String(r.k.sku || '')).toLowerCase().includes(q));
+}
+function renderSkuMarginTable(){
+  const el = document.getElementById('reportSkuMarginTable'); if(!el) return;
+  const rows = skuMarginFiltered();
+  if(!lastSkuMarginRows.length){ el.innerHTML = '<div class="comp-empty">Немає продажів за цей період.</div>'; return; }
+  if(!rows.length){ el.innerHTML = '<div class="comp-empty">Нічого не знайдено за цим пошуком.</div>'; return; }
+  el.innerHTML = rows.map(r => `
+        <div class="wh-row" style="grid-template-columns:1fr 90px 90px 100px 100px 90px;">
+          <div>${escapeAttr(r.k.name)}${r.k.sku ? ' <span class="hint">('+escapeAttr(r.k.sku)+')</span>' : ''}</div>
+          <div class="cv" style="text-align:right;">${r.qty}</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.revenue)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.cost)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.profit>=0?'var(--cardamom)':'var(--danger)'};">${fmt(r.profit)} грн</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.margin>=0?'var(--saffron)':'var(--danger)'};">${fmt1(r.margin)}%</div>
+        </div>
+      `).join('');
+}
 function exportSkuMarginReportExcel(){
-  if(lastSkuMarginRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
+  const expRows = skuMarginFiltered();
+  if(expRows.length === 0){ alert('Немає даних для експорту за поточним періодом.'); return; }
   const fromInput = document.getElementById('rep-date-from');
   const toInput = document.getElementById('rep-date-to');
   const period = (fromInput && toInput && fromInput.value && toInput.value) ? `${fromInput.value}_${toInput.value}` : todayStr();
@@ -12276,7 +12322,7 @@ function exportSkuMarginReportExcel(){
       {header:'SKU', width:10}, {header:'Назва', width:26}, {header:'Продано, шт', width:12},
       {header:'Виручка', width:12}, {header:'Собівартість', width:14}, {header:'Прибуток', width:12}, {header:'Маржа, %', width:10}
     ],
-    rows: lastSkuMarginRows.map(r => [r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin)])
+    rows: expRows.map(r => [r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin)])
   });
 }
 
@@ -12966,21 +13012,7 @@ function renderReports(){
       return {...r, profit, margin};
     }).sort((a,b) => a.margin - b.margin);
     lastSkuMarginRows = skuMarginRows;
-
-    if(skuMarginRows.length === 0){
-      skuMarginTableEl.innerHTML = '<div class="comp-empty">Немає продажів за цей період.</div>';
-    } else {
-      skuMarginTableEl.innerHTML = skuMarginRows.map(r => `
-        <div class="wh-row" style="grid-template-columns:1fr 90px 90px 100px 100px 90px;">
-          <div>${escapeAttr(r.k.name)}${r.k.sku ? ' <span class="hint">('+escapeAttr(r.k.sku)+')</span>' : ''}</div>
-          <div class="cv" style="text-align:right;">${r.qty}</div>
-          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.revenue)} грн</div>
-          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.cost)} грн</div>
-          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.profit>=0?'var(--cardamom)':'var(--danger)'};">${fmt(r.profit)} грн</div>
-          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.margin>=0?'var(--saffron)':'var(--danger)'};">${fmt1(r.margin)}%</div>
-        </div>
-      `).join('');
-    }
+    renderSkuMarginTable();
   }
 
   // витрати за категоріями
