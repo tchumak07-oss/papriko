@@ -141,6 +141,11 @@
   .kit-collapsed-info strong{color:var(--text);font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .kit-collapsed-actions{display:flex;gap:8px;flex-shrink:0;}
   .kit-card-collapsed .kit-stats{margin:0;padding:0;border:none;flex-shrink:0;}
+  /* картка товару: зверху назва + тара + ціна + кнопки, нижче окремим рядком собівартість/ціна/прибуток/маржа */
+  .kit-collapsed-row{flex-wrap:wrap;row-gap:8px;}
+  .kit-collapsed-info{flex:1 1 280px;}
+  .kit-collapsed-info .qe-name{min-width:200px;}
+  .kit-card-collapsed .kit-stats{order:5;flex:1 1 100%;flex-shrink:1;white-space:normal;flex-wrap:wrap;gap:4px 18px;padding-top:6px;border-top:1px dashed var(--border-soft);}
   .type-pill-select{font-family:'JetBrains Mono',monospace;font-size:12px;}
   .type-Набір{border-color:var(--saffron)!important;}
   .type-Баночка{border-color:var(--cardamom)!important;}
@@ -381,7 +386,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.85.1 · 30.10.2026 16:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.85.3 · 30.10.2026 16:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -3644,8 +3649,8 @@ function catQuickCreate(kind, preName, done){
   ov.addEventListener('keydown', e => { if(e.key === 'Enter') ov.querySelector('#qcYes').click(); if(e.key === 'Escape') ov.querySelector('#qcNo').click(); });
 }
 function lnkPick(i, field, sel, kind){
-  if(sel.value !== '__new'){ lnkRows[i][field] = sel.value; if(field === 'spId') lnkRows[i].on = !!(sel.value && lnkRows[i].grams); lnkRender(); return; }
-  catQuickCreate(kind, sel.dataset.newName || '', it => { if(it){ lnkRows[i][field] = it.id; if(field === 'spId') lnkRows[i].on = !!lnkRows[i].grams; } lnkRender(); });
+  if(sel.value !== '__new'){ lnkRows[i][field] = sel.value; lnkRows[i].on = lnkRows[i].on || !!sel.value; lnkRender(); return; }
+  catQuickCreate(kind, sel.dataset.newName || '', it => { if(it){ lnkRows[i][field] = it.id; lnkRows[i].on = true; } lnkRender(); });
 }
 let lnkRows = [];
 function lnkNorm(s){ return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/[^a-zа-яіїєґ0-9.,]+/gi,' ').replace(/(\d)[.,](?=\D|$)/g,'$1').trim(); }
@@ -3758,33 +3763,37 @@ function lnkRender(){
       <input type="checkbox" ${r.on?'checked':''} onchange="lnkRows[${i}].on=this.checked;lnkRender()">
       <div>${escapeAttr(k.name)} <span class="hint">${escapeAttr(k.sku||'')}</span></div>
       <select onchange="lnkPick(${i},'spId',this,'Спеція')"><option value="">— спеція —</option>${spices.map(s => `<option value="${s.id}" ${String(s.id)===String(r.spId)?'selected':''}>${escapeAttr(s.name)}${Number(s.cost)>0?'':' ⚠0'}</option>`).join('')}<option value="__new">＋ Створити нову спецію…</option></select>
-      <div style="display:flex;gap:3px;"><input type="number" min="0" step="any" value="${r.grams}" placeholder="${r.gu==='кг'?'кг':'г'}" style="width:100%;min-width:0;" onchange="lnkRows[${i}].grams=this.value;lnkRows[${i}].on=!!(lnkRows[${i}].spId&&this.value);lnkRender()"><select style="width:58px;" title="Одиниця ваги спеції в товарі" onchange="lnkRows[${i}].gu=this.value;lnkRender()"><option ${r.gu!=='кг'?'selected':''}>г</option><option ${r.gu==='кг'?'selected':''}>кг</option></select></div>
+      <div style="display:flex;gap:3px;"><input type="number" min="0" step="any" value="${r.grams}" placeholder="${r.gu==='кг'?'кг':'г'}" style="width:100%;min-width:0;" onchange="lnkRows[${i}].grams=this.value;lnkRows[${i}].on=lnkRows[${i}].on||!!(lnkRows[${i}].spId&&this.value);lnkRender()"><select style="width:58px;" title="Одиниця ваги спеції в товарі" onchange="lnkRows[${i}].gu=this.value;lnkRender()"><option ${r.gu!=='кг'?'selected':''}>г</option><option ${r.gu==='кг'?'selected':''}>кг</option></select></div>
       ${r.hasTare ? '<div class="hint">тара вже є</div>' : `<select onchange="lnkPick(${i},'tareId',this,'Упаковка')"><option value="">— тара —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠0'}</option>`).join('')}<option value="__new">＋ Створити нову тару…</option></select>`}
-      <select title="Група тари (для сортування й групування у списках)" onchange="lnkRows[${i}].tg=this.value;lnkRows[${i}].tgTouched=true;"><option value="">— група —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}</select>
+      <select title="Група тари (для сортування й групування у списках)" onchange="lnkRows[${i}].tg=this.value;lnkRows[${i}].tgTouched=true;lnkRows[${i}].on=lnkRows[${i}].on||!!this.value;lnkRender()"><option value="">— група —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}</select>
       <div class="hint">${r.spId && r.grams ? 'собів. ' + fmt1(lnkCost(r)) + (k.price ? ' / ціна ' + k.price : '') : ''}</div></div>`;
   }).join('') || '<div class="hint">Нічого показувати.</div>';
-  m.querySelector('#lnkCount').textContent = lnkRows.filter(r => r.on && r.spId && Number(r.grams) > 0).length;
+  m.querySelector('#lnkCount').textContent = lnkRows.filter(r => r.on).length;
 }
 function lnkApply(){
   const m = document.getElementById('lnkModal'); if(!m) return;
   const loss = Number(m.querySelector('#lnkLoss').value) || 0;
   const reset = m.querySelector('#lnkResetManual').checked;
-  let n = 0, noTare = 0, ng = 0;
-  lnkRows.forEach(r => { const k = kitById(r.kid); if(k && r.tg && (r.tgTouched || (r.on && r.spId && Number(r.grams) > 0)) && String(k.tareId||'') !== String(r.tg)){ k.tareId = Number(r.tg); ng++; } });
-  lnkRows.filter(r => r.on && r.spId && Number(r.grams) > 0).forEach(r => {
-    const k = kitById(r.kid), sp = catalogItem(Number(r.spId)); if(!k || !sp) return;
-    const a = wizSpiceAmount(sp, lnkG(r) * (1 + loss/100)); if(a === null) return;
+  let n = 0, noTare = 0, ng = 0, nt = 0;
+  lnkRows.filter(r => r.on).forEach(r => {
+    const k = kitById(r.kid); if(!k) return;
     k.components = k.components || [];
-    k.components.push({catalogId: sp.id, refType: 'catalog', amount: Math.round(a * 10000) / 10000});
-    if(r.tareId && !r.hasTare) k.components.push({catalogId: Number(r.tareId), refType: 'catalog', amount: 1});
-    else if(!r.hasTare) noTare++;
-    if(!(Number(k.weight) > 0)) k.weight = Math.round(lnkG(r));
-    if(reset && Number(k.costManual) > 0) k.costManual = 0;
-    n++;
+    const sp = r.spId ? catalogItem(Number(r.spId)) : null;
+    const a = sp && Number(r.grams) > 0 ? wizSpiceAmount(sp, lnkG(r) * (1 + loss/100)) : null;
+    const hasSpice = a !== null && !!sp;
+    if(hasSpice) k.components.push({catalogId: sp.id, refType: 'catalog', amount: Math.round(a * 10000) / 10000});
+    if(r.tareId && !r.hasTare && !k.components.some(c => c.refType !== 'kit' && String(c.catalogId) === String(r.tareId))){ k.components.push({catalogId: Number(r.tareId), refType: 'catalog', amount: 1}); nt++; }
+    else if(hasSpice && !r.hasTare && !r.tareId) noTare++;
+    if(r.tg && String(k.tareId||'') !== String(r.tg)){ k.tareId = Number(r.tg); ng++; }
+    if(hasSpice){
+      if(!(Number(k.weight) > 0)) k.weight = Math.round(lnkG(r));
+      if(reset && Number(k.costManual) > 0) k.costManual = 0;
+      n++;
+    }
   });
   m.remove();
   renderKits(); renderSummary(); renderChart(); scheduleSave();
-  alert(`Склад заповнено у товарів: ${n}.` + (ng ? ` Групу тари задано: ${ng}.` : '') + (noTare ? ` Без тари: ${noTare} — додай її вручну.` : '') + ' Звіт «нульова собівартість» покаже, що ще не заповнено.');
+  alert(`Спеція додана до складу у товарів: ${n}.` + (nt ? ` Тару додано: ${nt}.` : '') + (ng ? ` Групу тари задано: ${ng}.` : '') + (noTare ? ` Без тари: ${noTare} — додай її вручну.` : '') + ' Звіт «нульова собівартість» покаже, що ще не заповнено.');
 }
 
 function zcSave(kind, id, inp){
