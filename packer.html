@@ -360,7 +360,11 @@ function stickerKind(o){
 function stickerBtn(o){
   const k = stickerKind(o);
   if(!k) return (o.deliveryMethod === 'Самовивіз') ? '' : '<div class="muted" style="margin-top:6px;">Наклейка буде доступна після створення ТТН.</div>';
-  return `<button class="btn sm ghost" style="margin-top:8px;" onclick="printSticker('${esc(uidOf(o))}')">🖨 Наклейка ${k === 'np' ? 'НП' : 'УП'}</button>`;
+  const uid = esc(uidOf(o));
+  const st = o.labelPrinted
+    ? `<span style="color:var(--teal);font-size:14px;font-weight:700;margin-left:8px;">✓ Роздруковано${o.labelPrintedAt ? ' ' + esc(o.labelPrintedAt) : ''}</span> <button class="btn sm ghost" style="margin-left:4px;" onclick="setPrinted(['${uid}'], false)">скасувати</button>`
+    : `<button class="btn sm ghost" style="margin-left:6px;" onclick="setPrinted(['${uid}'], true)" title="Позначити, що наклейку вже роздруковано">позначити роздрукованою</button>`;
+  return `<div style="margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;"><button class="btn sm ghost" onclick="printSticker('${uid}')">🖨 Наклейка ${k === 'np' ? 'НП' : 'УП'}</button>${st}</div>`;
 }
 function stSize(){ return ($('stSize') && $('stSize').value) || '100'; }
 function npStickerUrl(ttns){
@@ -464,12 +468,13 @@ async function printSticker(uid){
   if(k === 'np'){
     if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
     window.open(npStickerUrl([o.ttnNumber]), '_blank');
+    askPrinted([uid]);
     return;
   }
   toast('Готую наклейку УП…');
   try{
     const url = await ukrStickerBlobUrl(o);
-    showPdf(url, 'naklejka_UP_' + (o.ukrTtnNumber || o.id) + '.pdf');
+    showPdf(url, 'naklejka_UP_' + (o.ukrTtnNumber || o.id) + '.pdf', [uid]);
   }catch(err){
     showErr('Наклейка УП: ' + (err.message || err));
   }
@@ -502,16 +507,23 @@ async function printPdfBox(){
     const fr = document.createElement('iframe'); fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
     document.body.appendChild(fr);
     fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
-    setTimeout(() => { try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ showErr('Друк: ' + e.message); } setTimeout(() => fr.remove(), 120000); }, 400);
+    let uids = []; try{ uids = JSON.parse(box.dataset.uids || '[]'); }catch(e){}
+    setTimeout(() => {
+      try{
+        fr.contentWindow.addEventListener('afterprint', () => { if(uids.length) askPrinted(uids); });
+        fr.contentWindow.focus(); fr.contentWindow.print();
+      }catch(e){ showErr('Друк: ' + e.message); }
+      setTimeout(() => fr.remove(), 300000);
+    }, 400);
   }catch(err){
     console.warn('printPdfBox', err);
     toast('Не вдалося підготувати друк (' + (err.message || err) + ') — відкриваю PDF у новій вкладці, друкуй кнопкою 🖨 у ній');
     window.open(box.dataset.url, '_blank');
   }finally{ if(btn) btn.textContent = old; }
 }
-function showPdf(url, fname){
+function showPdf(url, fname, uids){
   const old = document.getElementById('pdfBox'); if(old) old.remove();
-  const d = document.createElement('div'); d.id = 'pdfBox'; d.dataset.url = url;
+  const d = document.createElement('div'); d.id = 'pdfBox'; d.dataset.url = url; d.dataset.uids = JSON.stringify(uids || []);
   d.style.cssText = 'position:fixed;inset:0;background:#000d;z-index:40;display:flex;flex-direction:column;padding:10px;gap:8px;';
   d.innerHTML = `<div class="row" style="margin:0;"><a class="btn sm" href="${url}" download="${esc(fname)}" style="text-decoration:none;">⬇ Завантажити PDF</a>
     <button class="btn sm ghost" id="pdfPrintBtn" onclick="printPdfBox()">🖨 Друк</button>
@@ -540,7 +552,7 @@ async function printAllUp(){
       done++;
     }
     const bytes = await merged.save();
-    showPdf(URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'})), `naklejky_UP_${todayStr()}.pdf`);
+    showPdf(URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'})), `naklejky_UP_${todayStr()}.pdf`, list.map(o => uidOf(o)));
   }catch(err){
     showErr(`Наклейки УП: ${err.message || err}` + (list.length ? ` (оброблено до збою: ${btn.textContent})` : ''));
   }finally{ upBusy = false; btn.textContent = oldTxt; }
@@ -553,6 +565,7 @@ function printAll(kind){
   if(!list.length){ toast('Немає накладних НП для друку'); return; }
   if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
   window.open(npStickerUrl(list.map(o => o.ttnNumber)), '_blank');
+  askPrinted(list.map(o => uidOf(o)));
 }
 try{ const sv = localStorage.getItem('packerSort'); if(sv) setTimeout(() => { if($('sortSel')) $('sortSel').value = sv; renderOrders(); }, 0); }catch(e){}
 try{ const v = localStorage.getItem('packerStSize'); if(v) setTimeout(() => { if($('stSize')) $('stSize').value = v; }, 0); }catch(e){}
@@ -705,6 +718,41 @@ function setShipped(uid, checked){
   })).then(() => toast(checked ? 'Позначено: відправлено' : 'Відправлення скасовано'))
     .catch(err => { toast('Помилка: ' + (err && err.message ? err.message : err)); })
     .finally(() => { busyUid = null; render(); });
+}
+
+/* ---------- позначка «наклейку роздруковано» ---------- */
+function setPrinted(uids, val){
+  const set = new Set(uids);
+  const d = new Date();
+  const when = `${z2(d.getDate())}.${z2(d.getMonth()+1)} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+  return db.runTransaction(t => t.get(docRef).then(snap => {
+    if(!snap.exists) throw new Error('Дані не знайдено');
+    const arr = (snap.data().orders || []).slice();
+    let n = 0;
+    arr.forEach((o, i) => {
+      if(!set.has(o.uid || ('id' + o.id))) return;
+      const c = Object.assign({}, o);
+      if(val){ c.labelPrinted = true; c.labelPrintedAt = when; c.labelPrintedBy = 'наборщик'; }
+      else { c.labelPrinted = false; c.labelPrintedAt = ''; c.labelPrintedBy = ''; }
+      arr[i] = c; n++;
+    });
+    if(!n) throw new Error('Замовлення не знайдено');
+    t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+    return n;
+  })).then(n => { toast(val ? `Позначено роздрукованими: ${n}` : 'Позначку знято'); })
+    .catch(err => toast('Помилка: ' + (err && err.message ? err.message : err)));
+}
+function askPrinted(uids){
+  const uniq = [...new Set(uids)].filter(u => { const o = orders.find(x => uidOf(x) === u); return o && !o.labelPrinted; });
+  const old = document.getElementById('printAsk'); if(old) old.remove();
+  if(!uniq.length) return;
+  const d = document.createElement('div'); d.id = 'printAsk';
+  d.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:60;background:#1c1914;color:#fff;border:2px solid var(--teal,#2bb3a3);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 6px 24px #0008;';
+  d.innerHTML = `<div style="flex:1;min-width:200px;font-weight:700;">🖨 ${uniq.length > 1 ? 'Наклейки (' + uniq.length + ') роздруковано' : 'Наклейку роздруковано'} успішно?</div>
+    <button class="btn sm" id="paYes">✓ Так, позначити</button><button class="btn sm ghost" id="paNo">Ні</button>`;
+  document.body.appendChild(d);
+  d.querySelector('#paYes').onclick = () => { d.remove(); setPrinted(uniq, true); };
+  d.querySelector('#paNo').onclick = () => d.remove();
 }
 
 /* ---------- позначка «набрано» (атомарно, чіпаємо лише замовлення й updatedAt) ---------- */

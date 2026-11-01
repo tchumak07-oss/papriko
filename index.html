@@ -386,7 +386,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.85.6 · 30.10.2026 17:35</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.2 · 01.11.2026 14:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -714,7 +714,8 @@
   <div id="section-composition" class="app-section">
 
   <div class="section-title" style="margin-top:0;">Конструктор складу (для етикетки)</div>
-  <p class="hint" style="margin:-8px 0 14px;">Окремий від рецептури перелік — те, що друкується на етикетці як «Склад: …». Виберіть товар або інгредієнт, двічі клікніть по позиціях нижче, щоб додати їх у перелік у потрібному порядку (на етикетці зазвичай пишуть за зменшенням частки). Це чорновий розділ — перелік складу поки ніде більше в програмі не виводиться.</p>
+  <div class="fb-row" style="margin:-4px 0 12px;"><button class="btn btn-primary btn-sm" onclick="lblOpen()">🖨 Друк наліпок 100×100 (PDF)</button></div>
+  <p class="hint" style="margin:-8px 0 14px;">Окремий від рецептури перелік — те, що друкується на етикетці як «Склад: …». Виберіть товар або інгредієнт, двічі клікніть по позиціях нижче, щоб додати їх у перелік у потрібному порядку (на етикетці зазвичай пишуть за зменшенням частки). Склад друкується на наліпках 100×100 мм (кнопка нижче).</p>
 
   <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
     <div class="catalog-group-title">Для чого формуємо склад</div>
@@ -2349,7 +2350,7 @@ function scheduleSave(){
             // вкладка/пристрій рахує окремо й незалежно); на uid-позбавлені старі записи — за id.
             const lo = orders.find(o => (o.uid && ro.uid) ? o.uid === ro.uid : o.id === ro.id);
             if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
-            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','shipped','shippedBy','shippedMarkAt','shipConfirmed']
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','shipConfirmed']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
@@ -3535,8 +3536,12 @@ function wizRenderRows(){
     <input type="number" min="0" step="any" value="${r.grams}" title="г спеції" onchange="wizRows[${i}].grams=this.value;wizRows[${i}].label=wizAutoLabel(wizRows[${i}]);wizRenderRows();wizRenderPreview()">
     <select onchange="wizPickTare(${i},this)"><option value="">— тара (з довідника) —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠ 0'}</option>`).join('')}<option value="__new">＋ Створити нову тару…</option></select>
     <select onchange="wizRows[${i}].type=this.value"><option ${r.type==='Пакет'?'selected':''}>Пакет</option><option ${r.type==='Баночка'?'selected':''}>Баночка</option><option ${r.type==='Набір'?'selected':''}>Набір</option></select>
-    <select onchange="wizRows[${i}].tg=this.value"><option value="">— група тари —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}</select>
+    <select onchange="wizPickGroup(${i},this)"><option value="">— група тари —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}<option value="__new">＋ Створити групу тари…</option></select>
     <button class="btn btn-sm" onclick="wizRows.splice(${i},1);wizRenderRows();wizRenderPreview()" title="Прибрати">✕</button></div>`).join('');
+}
+function wizPickGroup(i, sel){
+  if(sel.value !== '__new'){ wizRows[i].tg = sel.value; return; }
+  tareQuickCreate('', t => { if(t) wizRows[i].tg = t.id; wizRenderRows(); wizRenderPreview(); });
 }
 function wizPickTare(i, sel){
   const fin = () => { wizRows[i].label = wizAutoLabel(wizRows[i]); wizRenderRows(); wizRenderPreview(); };
@@ -3652,6 +3657,11 @@ function catQuickCreate(kind, preName, done){
     done(item);
   };
   ov.addEventListener('keydown', e => { if(e.key === 'Enter') ov.querySelector('#qcYes').click(); if(e.key === 'Escape') ov.querySelector('#qcNo').click(); });
+}
+function lnkPickGroup(i, sel){
+  const set = v => { lnkRows[i].tg = v; lnkRows[i].tgTouched = true; lnkRows[i].on = lnkRows[i].on || !!v; lnkRender(); };
+  if(sel.value !== '__new'){ set(sel.value); return; }
+  tareQuickCreate('', t => { if(t) set(t.id); else lnkRender(); });
 }
 function lnkPick(i, field, sel, kind){
   if(sel.value !== '__new'){ lnkRows[i][field] = sel.value; lnkRows[i].on = lnkRows[i].on || !!sel.value; lnkRender(); return; }
@@ -3770,7 +3780,7 @@ function lnkRender(){
       <select onchange="lnkPick(${i},'spId',this,'Спеція')"><option value="">— спеція —</option>${spices.map(s => `<option value="${s.id}" ${String(s.id)===String(r.spId)?'selected':''}>${escapeAttr(s.name)}${Number(s.cost)>0?'':' ⚠0'}</option>`).join('')}<option value="__new">＋ Створити нову спецію…</option></select>
       <div style="display:flex;gap:3px;"><input type="number" min="0" step="any" value="${r.grams}" placeholder="${r.gu==='кг'?'кг':'г'}" style="width:100%;min-width:0;" onchange="lnkRows[${i}].grams=this.value;lnkRows[${i}].on=lnkRows[${i}].on||!!(lnkRows[${i}].spId&&this.value);lnkRender()"><select style="width:58px;" title="Одиниця ваги спеції в товарі" onchange="lnkRows[${i}].gu=this.value;lnkRender()"><option ${r.gu!=='кг'?'selected':''}>г</option><option ${r.gu==='кг'?'selected':''}>кг</option></select></div>
       ${r.hasTare ? '<div class="hint">тара вже є</div>' : `<select onchange="lnkPick(${i},'tareId',this,'Упаковка')"><option value="">— тара —</option>${tares.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tareId)?'selected':''}>${escapeAttr(t.name)}${Number(t.cost)>0?'':' ⚠0'}</option>`).join('')}<option value="__new">＋ Створити нову тару…</option></select>`}
-      <select title="Група тари (для сортування й групування у списках)" onchange="lnkRows[${i}].tg=this.value;lnkRows[${i}].tgTouched=true;lnkRows[${i}].on=lnkRows[${i}].on||!!this.value;lnkRender()"><option value="">— група —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}</select>
+      <select title="Група тари (для сортування й групування у списках)" onchange="lnkPickGroup(${i},this)"><option value="">— група —</option>${tareTypes.map(t => `<option value="${t.id}" ${String(t.id)===String(r.tg)?'selected':''}>${escapeAttr(t.name)}</option>`).join('')}<option value="__new">＋ Створити групу тари…</option></select>
       <div class="hint">${r.spId && r.grams ? 'собів. ' + fmt1(lnkCost(r)) + (k.price ? ' / ціна ' + k.price : '') : ''}</div></div>`;
   }).join('') || '<div class="hint">Нічого показувати.</div>';
   m.querySelector('#lnkCount').textContent = lnkRows.filter(r => r.on).length;
@@ -3982,7 +3992,10 @@ function removeKit(id){
 function updateKitField(id, field, value){
   const k = kitById(id);
   if(!k) return;
-  if(field === 'tareId'){ k.tareId = value ? parseInt(value, 10) : ''; scheduleSave(); return; }
+  if(field === 'tareId'){
+    if(value === '__new'){ tareQuickCreate('', t => { if(t) k.tareId = t.id; renderKits(); renderTarePanel(); scheduleSave(); }); return; }
+    k.tareId = value ? parseInt(value, 10) : ''; scheduleSave(); return;
+  }
   if(['name','type','sku'].includes(field)) k[field] = value;
   else k[field] = parseFloat(value) || 0;
   renderKitStats(id);
@@ -4566,6 +4579,125 @@ function compSave(){
   alert(`Склад для «${target.name}» збережено (${compDraft.length} поз.).`);
 }
 
+/* ---------- друк наліпок 100×100 мм зі складом (по одній на сторінку) ---------- */
+let lblTab = 'cat', lblSel = new Set();
+function lblLowerFirst(n){ n = String(n||'').trim(); return (n.length > 1 && n[1] === n[1].toUpperCase() && n[1] !== n[1].toLowerCase()) ? n : n.charAt(0).toLowerCase() + n.slice(1); }
+function lblExpandCat(id, seen){
+  seen = seen || new Set();
+  const c = catalogItem(id); if(!c || seen.has(id)) return [];
+  const s2 = new Set(seen); s2.add(id);
+  if(Array.isArray(c.composition) && c.composition.length) return c.composition.flatMap(x => lblExpandCat(x, s2));
+  return [c.name];
+}
+function lblDedupe(a){ const seen = new Set(), out = []; a.forEach(n => { const k = String(n).trim().toLowerCase(); if(k && !seen.has(k)){ seen.add(k); out.push(String(n).trim()); } }); return out; }
+function lblIngredients(type, id){
+  if(type === 'cat') return lblDedupe(lblExpandCat(id));
+  const k = kitById(id); if(!k) return [];
+  if(Array.isArray(k.composition) && k.composition.length) return lblDedupe(k.composition.flatMap(x => lblExpandCat(x)));
+  const flat = flattenKitComponents(id, 1);
+  const items = Object.entries(flat).map(([cid, amt]) => ({c: catalogItem(Number(cid)), amt})).filter(x => x.c && x.c.category === 'Спеція')
+    .map(x => ({c: x.c, g: x.c.unit === 'кг' ? x.amt * 1000 : x.amt})).sort((a, b) => b.g - a.g);
+  return lblDedupe(items.flatMap(x => lblExpandCat(x.c.id)));
+}
+function lblText(names){ return names.length ? 'Склад: ' + names.map((n, i) => i ? lblLowerFirst(n) : n).join(', ') + '.' : ''; }
+function lblOpen(tab){
+  if(tab) lblTab = tab;
+  const old = document.getElementById('lblModal'); if(old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'lblModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
+  let footer = ''; try{ footer = localStorage.getItem('papriko_label_footer') || ''; }catch(e){}
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:960px;width:100%;max-height:92vh;display:flex;flex-direction:column;">
+    <div style="padding:16px 18px 4px;font-size:18px;font-weight:700;">🖨 Наліпки 100×100 мм зі складом</div>
+    <div class="hint" style="padding:0 18px 8px;">Кожна наліпка — окрема сторінка 100×100 мм, за замовчуванням лише назва. Якщо відмітити «Додати склад», склад береться з розділу «Склад (етикетка)»; якщо він не заповнений — для товару збирається зі спецій його рецептури (за спаданням ваги), для спеції — її власна назва. Суміші з довідника розкриваються у свої інгредієнти.</div>
+    <div style="padding:0 18px 8px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;font-size:13px;">
+      <label>Що друкуємо<br><select id="lblTab" style="margin:0;"><option value="cat">Позиції довідника (спеції, суміші)</option><option value="kit">Товари / набори</option></select></label>
+      <label style="flex:1;min-width:180px;">Пошук<br><input type="text" id="lblSearch" placeholder="🔍 назва…" style="margin:0;width:100%;"></label>
+      <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="lblWithComp"> Додати «Склад: …»</label>
+      <label>Копій кожної<br><input type="number" id="lblCopies" value="1" min="1" max="200" style="margin:0;width:80px;"></label>
+      <button class="btn btn-sm" id="lblAll">Усі показані</button><button class="btn btn-sm" id="lblNone">Зняти</button>
+    </div>
+    <div style="padding:0 18px 8px;font-size:13px;"><label>Рядок унизу наліпки (виробник, термін, зберігання…)<br><input type="text" id="lblFooter" value="${escapeAttr(footer)}" placeholder="напр. Виробник: ФОП … · Зберігати в сухому місці · Придатний 18 міс." style="margin:0;width:100%;"></label></div>
+    <div id="lblList" style="padding:0 18px 12px;overflow:auto;flex:1;"></div>
+    <div style="padding:12px 18px;display:flex;gap:10px;justify-content:space-between;align-items:center;border-top:1px solid var(--border-soft,#3a2e24);flex-wrap:wrap;">
+      <span class="hint">Відмічено: <b id="lblCnt">0</b>. У вікні друку обери «Зберегти як PDF» (розмір сторінки 100×100 підставиться сам) або свій принтер.</span>
+      <span style="display:flex;gap:10px;"><button class="btn" id="lblClose" type="button">Закрити</button><button class="btn btn-primary" id="lblGo" type="button">Друк / PDF</button></span>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const tabSel = ov.querySelector('#lblTab'); tabSel.value = lblTab;
+  tabSel.onchange = () => { lblTab = tabSel.value; lblSel = new Set(); lblRenderList(); };
+  ov.querySelector('#lblSearch').oninput = lblRenderList;
+  ov.querySelector('#lblWithComp').onchange = lblRenderList;
+  ov.querySelector('#lblFooter').onchange = e => { try{ localStorage.setItem('papriko_label_footer', e.target.value); }catch(err){} };
+  ov.querySelector('#lblAll').onclick = () => { lblVisible().forEach(x => lblSel.add(x.id)); lblRenderList(); };
+  ov.querySelector('#lblNone').onclick = () => { lblSel = new Set(); lblRenderList(); };
+  ov.querySelector('#lblClose').onclick = () => ov.remove();
+  ov.querySelector('#lblGo').onclick = lblPrint;
+  lblRenderList();
+}
+function lblVisible(){
+  const q = ((document.getElementById('lblSearch') || {}).value || '').trim().toLowerCase();
+  const src = lblTab === 'kit' ? kits.filter(k => !k.archived) : catalog.filter(c => !c.archived && c.category === 'Спеція');
+  return src.filter(x => !q || (String(x.name || '') + ' ' + String(x.sku || '')).toLowerCase().includes(q)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'uk'));
+}
+function lblRenderList(){
+  const m = document.getElementById('lblModal'); if(!m) return;
+  const list = lblVisible();
+  const withC = m.querySelector('#lblWithComp').checked;
+  m.querySelector('#lblList').innerHTML = list.map(x => {
+    if(!withC) return `<label style="display:grid;grid-template-columns:24px 1fr;gap:8px;padding:5px 0;border-top:1px solid var(--border-soft,#3a2e24);font-size:14px;cursor:pointer;align-items:center;"><input type="checkbox" ${lblSel.has(x.id) ? 'checked' : ''} onchange="lblToggle(${x.id},this.checked)"><div>${escapeAttr(x.name)}${x.sku ? ' <span class="hint">' + escapeAttr(x.sku) + '</span>' : ''}</div></label>`;
+    const names = lblIngredients(lblTab, x.id), t = lblText(names);
+    const explicit = Array.isArray(x.composition) && x.composition.length;
+    return `<label style="display:grid;grid-template-columns:24px 1.2fr 2fr;gap:8px;padding:5px 0;border-top:1px solid var(--border-soft,#3a2e24);font-size:13px;cursor:pointer;align-items:start;">
+      <input type="checkbox" ${lblSel.has(x.id) ? 'checked' : ''} onchange="lblToggle(${x.id},this.checked)">
+      <div>${escapeAttr(x.name)}${x.sku ? ' <span class="hint">' + escapeAttr(x.sku) + '</span>' : ''}</div>
+      <div class="hint" style="${t ? '' : 'color:var(--chili,#d9534f);'}">${t ? escapeAttr(t) + (explicit ? '' : ' <i>(авто)</i>') : 'склад не визначено — заповни розділ «Склад (етикетка)» або рецептуру'}</div></label>`;
+  }).join('') || '<div class="hint">Нічого не знайдено.</div>';
+  m.querySelector('#lblCnt').textContent = lblSel.size;
+}
+function lblToggle(id, on){ if(on) lblSel.add(id); else lblSel.delete(id); const c = document.getElementById('lblCnt'); if(c) c.textContent = lblSel.size; }
+function lblFontPt(len){ return len < 110 ? 15 : len < 190 ? 13 : len < 290 ? 11.5 : len < 420 ? 10 : len < 600 ? 8.5 : 7.5; }
+function lblPrint(){
+  const m = document.getElementById('lblModal'); if(!m) return;
+  const copies = Math.max(1, Math.min(200, parseInt(m.querySelector('#lblCopies').value, 10) || 1));
+  const footer = m.querySelector('#lblFooter').value.trim();
+  try{ localStorage.setItem('papriko_label_footer', footer); }catch(e){}
+  const items = (lblTab === 'kit' ? kits : catalog).filter(x => lblSel.has(x.id)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'uk'));
+  if(!items.length){ alert('Відміть хоча б одну позицію.'); return; }
+  const withC = m.querySelector('#lblWithComp').checked;
+  const empty = withC ? items.filter(x => !lblIngredients(lblTab, x.id).length) : [];
+  if(empty.length && !confirm(`Для ${empty.length} позицій склад не визначено — наліпка буде без складу (напр. «${empty[0].name}»). Все одно друкувати?`)) return;
+  const esc = escapeHtml;
+  const pages = [];
+  items.forEach(x => {
+    const nl = String(x.name).length, nfs = nl <= 10 ? 40 : nl <= 16 ? 34 : nl <= 24 ? 28 : nl <= 36 ? 23 : 19;
+    let html;
+    if(!withC){
+      html = `<section class="l"><div class="only" style="font-size:${nfs}pt">${esc(x.name)}</div>${footer ? `<div class="f">${esc(footer)}</div>` : ''}</section>`;
+    } else {
+      const text = lblText(lblIngredients(lblTab, x.id));
+      const w = lblTab === 'kit' && Number(x.weight) > 0 ? `<div class="w">Маса нетто: ${Math.round(x.weight)} г</div>` : '';
+      html = `<section class="l"><div class="n">${esc(x.name)}</div>${w}<div class="s" style="font-size:${lblFontPt(text.length)}pt">${esc(text)}</div>${footer ? `<div class="f">${esc(footer)}</div>` : ''}</section>`;
+    }
+    for(let i = 0; i < copies; i++) pages.push(html);
+  });
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><title>Наліпки 100x100</title><style>
+    @page{size:100mm 100mm;margin:0}
+    *{box-sizing:border-box} html,body{margin:0;padding:0;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif}
+    .l{width:100mm;height:100mm;padding:5mm;display:flex;flex-direction:column;overflow:hidden;page-break-after:always;break-after:page;border:0}
+    .l:last-child{page-break-after:auto;break-after:auto}
+    .n{font-weight:700;font-size:17pt;line-height:1.15;text-align:center;padding-bottom:2mm;border-bottom:.4mm solid #000;margin-bottom:3mm}
+    .only{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;line-height:1.15;word-break:break-word;hyphens:auto}
+    .w{text-align:center;font-size:10pt;margin-bottom:2mm}
+    .s{flex:1;line-height:1.3;overflow:hidden;text-align:left;hyphens:auto}
+    .f{font-size:7.5pt;line-height:1.2;text-align:center;border-top:.3mm solid #000;padding-top:1.5mm;margin-top:2mm}
+  </style></head><body>${pages.join('')}</body></html>`;
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(fr);
+  fr.contentDocument.open(); fr.contentDocument.write(doc); fr.contentDocument.close();
+  setTimeout(() => { try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ alert('Не вдалося відкрити друк: ' + e.message); } setTimeout(() => fr.remove(), 60000); }, 300);
+}
+
 /* ---------- quick edit-by-SKU panel ---------- */
 
 function toggleEditListPanel(){
@@ -5106,7 +5238,26 @@ function tareById(id){ return tareTypes.find(t => t.id === id); }
 function tareName(k){ const t = k && k.tareId ? tareById(k.tareId) : null; return t ? t.name : ''; }
 function tareRank(k){ const i = k && k.tareId ? tareTypes.findIndex(t => t.id === k.tareId) : -1; return i < 0 ? 9999 : i; }
 function tareSelectOptions(selectedId){
-  return `<option value="">— без тари —</option>` + tareTypes.map(t => `<option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>${escapeAttr(t.name)}</option>`).join('');
+  return `<option value="">— без тари —</option>` + tareTypes.map(t => `<option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>${escapeAttr(t.name)}</option>`).join('') + `<option value="__new">＋ Створити групу тари…</option>`;
+}
+function tareQuickCreate(pre, done){
+  const old = document.getElementById('tqModal'); if(old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'tqModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10002;display:flex;align-items:center;justify-content:center;padding:12px;';
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:380px;width:100%;padding:16px 18px;">
+    <div style="font-size:17px;font-weight:700;margin-bottom:10px;">＋ Нова група тари</div>
+    <input type="text" id="tqName" value="${escapeAttr(pre||'')}" placeholder="напр. Дой-пак" style="width:100%;">
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;"><button class="btn" id="tqNo" type="button">Скасувати</button><button class="btn btn-primary" id="tqYes" type="button">Створити</button></div></div>`;
+  document.body.appendChild(ov);
+  const inp = ov.querySelector('#tqName'); inp.focus(); inp.select();
+  ov.querySelector('#tqNo').onclick = () => { ov.remove(); done(null); };
+  ov.querySelector('#tqYes').onclick = () => {
+    const name = inp.value.trim(); if(!name){ inp.focus(); return; }
+    let t = tareTypes.find(x => x.name.toLowerCase() === name.toLowerCase());
+    if(!t){ t = {id: nextTareId++, name}; tareTypes.push(t); }
+    ov.remove(); done(t);
+  };
+  ov.addEventListener('keydown', e => { if(e.key === 'Enter') ov.querySelector('#tqYes').click(); if(e.key === 'Escape') ov.querySelector('#tqNo').click(); });
 }
 // групи <optgroup> за тарою (у порядку списку тари), всередині — за назвою; товари без тари — в кінці
 function kitsTareGroupsHtml(optFn){
@@ -5201,7 +5352,11 @@ function tareRemove(id){
 function tareChanged(){
   renderTarePanel(); renderKits(); renderEditList(); renderQuickOrderKitSelect(); renderOrders(); scheduleSave();
 }
-function quickKitTare(id, v){ const k = kitById(id); if(k){ k.tareId = v ? parseInt(v, 10) : ''; renderKits(); renderTarePanel(); scheduleSave(); } }
+function quickKitTare(id, v){
+  const k = kitById(id); if(!k) return;
+  if(v === '__new'){ tareQuickCreate('', t => { if(t) k.tareId = t.id; renderKits(); renderTarePanel(); renderEditList(); scheduleSave(); }); return; }
+  k.tareId = v ? parseInt(v, 10) : ''; renderKits(); renderTarePanel(); scheduleSave();
+}
 
 /* ---------- costs of all kits panel ---------- */
 
@@ -13283,6 +13438,7 @@ function orderCollapsedHtml(o, num){
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
           ${packedToggleHtml(o)}
           ${shippedByPackerBadge(o)}
+          ${o.labelPrinted && !o.shipped ? `<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);" title="Наборщик роздрукував наклейку${o.labelPrintedAt ? ' ' + escapeAttr(o.labelPrintedAt) : ''}">🖨 наклейка</span>` : ''}
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? ((!o.delivered && !o.npReturned && isAtBranchAwaitingPickup(o)) ? `<span class="arrived-badge" title="Посилка вже на відділенні — чекає клієнта${o.atBranchSince ? ' (з ' + o.atBranchSince + ')' : ''}">📍 На місці${o.atBranchSince && daysBetween(o.atBranchSince, todayStr()) > 0 ? ' · ' + daysBetween(o.atBranchSince, todayStr()) + ' дн.' : ''}</span>` : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>') : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
