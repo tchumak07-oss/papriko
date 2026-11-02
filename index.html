@@ -157,6 +157,8 @@
   .comp-name{color:var(--text);}
   .comp-name .miss{color:var(--danger);font-size:11px;}
   .comp-amt-unit{color:var(--text-faint);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;}
+  .comp-total{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:flex-end;padding:8px 0 2px;font-size:12.5px;color:var(--text-muted);border-top:1px solid var(--border-soft);margin-top:2px;}
+  .comp-total b{color:var(--text);font-family:'JetBrains Mono',monospace;}
   .comp-cost{font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;color:var(--text-muted);}
   .comp-empty{color:var(--text-faint);font-size:12px;padding:6px 0;}
 
@@ -386,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.6 · 02.11.2026 13:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.7 · 02.11.2026 16:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -4064,6 +4066,7 @@ function updateComponentAmount(kitId, catalogId, refType, value){
   const costEl = document.getElementById(`comp-cost-${kitId}-${refType}-${catalogId}`);
   if(costEl) costEl.textContent = fmt1(cost) + ' грн';
 
+  renderCompTotal(kitId);
   renderKitStats(kitId);
   renderSummary();
   renderChart();
@@ -4369,6 +4372,7 @@ function kitExpandedHtml(k){
         </div>
 
         <div class="comp-list" id="comp-list-${k.id}"></div>
+        <div class="comp-total" id="comp-total-${k.id}"></div>
 
         <div class="add-comp-row">
           <select id="comp-select-${k.id}" onchange="compSelChange(${k.id}, this)">${catalogOptionsHtml(k.id)}<option value="__new">＋ Створити новий компонент…</option></select>
@@ -4397,6 +4401,7 @@ function renderKitComponents(kitId){
   if(!el) return;
   if(k.components.length === 0){
     el.innerHTML = '<div class="comp-empty">Компонентів ще немає — додайте упаковку та спеції нижче.</div>';
+    renderCompTotal(kitId);
     return;
   }
   el.innerHTML = k.components.map(comp => {
@@ -4429,6 +4434,79 @@ function renderKitComponents(kitId){
       </div>
     `;
   }).join('');
+  renderCompTotal(kitId);
+}
+
+function kitCostBreakdown(kitId){
+  const k = kitById(kitId);
+  const rows = (k.components||[]).map(comp => {
+    if((comp.refType||'catalog') === 'kit'){
+      const rk = kitById(comp.catalogId);
+      const up = rk ? kitUnitCost(rk.id, new Set([kitId])) : 0;
+      return {name: rk ? ((rk.sku?`[${rk.sku}] `:'') + rk.name) : '(видалено)', amount: comp.amount||0, unit: 'шт', unitPrice: up, cost: up*(comp.amount||0)};
+    }
+    const c = catalogItem(comp.catalogId);
+    return {name: c ? c.name : '(видалено)', amount: comp.amount||0, unit: c ? c.unit : '', unitPrice: c ? c.cost : 0, cost: c ? c.cost*(comp.amount||0) : 0};
+  });
+  const sum = rows.reduce((a,r)=>a+r.cost,0);
+  const manual = Number(k.costManual)||0;
+  const comps = manual > 0 ? manual : sum;
+  return {k, rows, sum, manual, comps, logistics: k.logistics||0, marketing: k.marketing||0, total: comps + (k.logistics||0) + (k.marketing||0)};
+}
+
+function renderCompTotal(kitId){
+  const el = document.getElementById(`comp-total-${kitId}`);
+  if(!el) return;
+  const b = kitCostBreakdown(kitId);
+  if(!b.rows.length && !b.manual){ el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <span>Склад разом: <b>${fmt1(b.comps)} грн</b>${b.manual>0?' <i>(ручна собівартість)</i>':''}</span>
+    ${b.logistics>0?`<span>+ логістика <b>${fmt1(b.logistics)}</b></span>`:''}
+    ${b.marketing>0?`<span>+ маркетинг <b>${fmt1(b.marketing)}</b></span>`:''}
+    <span>Собівартість/од: <b>${fmt1(b.total)} грн</b></span>
+    <button class="btn btn-sm" onclick="kitCostOpen(${kitId})">📋 Склад з собівартістю</button>`;
+}
+
+function kitCostOpen(kitId){
+  const b = kitCostBreakdown(kitId);
+  const old = document.getElementById('kcModal'); if(old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'kcModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
+  const f2 = n => (Math.round(n*100)/100).toFixed(2);
+  const fa = n => String(Math.round(n*1000)/1000).replace('.',',');
+  const sorted = b.rows.slice().sort((x,y)=>y.cost-x.cost);
+  const tr = sorted.map(r => `<tr><td>${escapeAttr(r.name)}</td><td style="text-align:right">${fa(r.amount)} ${r.unit}</td><td style="text-align:right">${f2(r.unitPrice)}</td><td style="text-align:right"><b>${f2(r.cost)}</b></td><td style="text-align:right;color:var(--text-muted)">${b.sum>0?Math.round(r.cost/b.sum*100):0}%</td></tr>`).join('');
+  const extra = (label,v)=> v>0 ? `<tr><td colspan="3" style="text-align:right">${label}</td><td style="text-align:right">${f2(v)}</td><td></td></tr>` : '';
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;">
+    <div style="padding:16px 18px 8px;font-size:18px;font-weight:700;">📋 ${escapeAttr(b.k.name)} — склад і собівартість</div>
+    <div style="padding:0 18px;overflow:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="color:var(--text-muted);text-align:right"><th style="text-align:left">Компонент</th><th>К-сть</th><th>Ціна за од., грн</th><th>Сума, грн</th><th>Частка</th></tr></thead>
+        <tbody>${tr}
+          <tr style="border-top:1px solid var(--border-soft)"><td colspan="3" style="text-align:right">${b.manual>0?'Склад (ручна собівартість)':'Склад разом'}</td><td style="text-align:right"><b>${f2(b.comps)}</b></td><td></td></tr>
+          ${extra('Логістика',b.logistics)}${extra('Маркетинг',b.marketing)}
+          <tr style="border-top:1px solid var(--border-soft)"><td colspan="3" style="text-align:right"><b>Собівартість одиниці</b></td><td style="text-align:right"><b>${f2(b.total)}</b></td><td></td></tr>
+        </tbody>
+      </table>
+      <style>#kcModal td,#kcModal th{padding:5px 6px;border-bottom:1px solid var(--border-soft,#3a2e24);}</style>
+    </div>
+    <div style="padding:12px 18px;display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-sm" id="kcCopy">Копіювати</button>
+      <button class="btn btn-sm" onclick="document.getElementById('kcModal').remove()">Закрити</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
+  document.getElementById('kcCopy').onclick = () => {
+    let t = b.k.name + '\n';
+    sorted.forEach(r => { t += `${r.name}\t${fa(r.amount)} ${r.unit}\t${f2(r.unitPrice)}\t${f2(r.cost)}\n`; });
+    t += `Склад разом\t\t\t${f2(b.comps)}\n`;
+    if(b.logistics>0) t += `Логістика\t\t\t${f2(b.logistics)}\n`;
+    if(b.marketing>0) t += `Маркетинг\t\t\t${f2(b.marketing)}\n`;
+    t += `Собівартість одиниці\t\t\t${f2(b.total)}`;
+    const done = () => { const bt = document.getElementById('kcCopy'); if(bt) bt.textContent = '✓ Скопійовано'; };
+    if(navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => {});
+    else { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){} ta.remove(); }
+  };
 }
 
 function renderKitStats(kitId){
@@ -4445,6 +4523,7 @@ function renderKitStats(kitId){
     <span><span class="stat-label">Маржа</span><span class="${mu>=0?'profit-pos':'profit-neg'}">${fmt1(mu)}%</span></span>
     ${qtyPart}
   `;
+  renderCompTotal(kitId);
   renderCostsPanel();
 }
 
