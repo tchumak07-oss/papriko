@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.7 · 02.11.2026 16:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.8 · 02.11.2026 17:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -4492,6 +4492,8 @@ function kitCostOpen(kitId){
     </div>
     <div style="padding:12px 18px;display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-sm" id="kcCopy">Копіювати</button>
+      <button class="btn btn-sm" onclick="kitCostExcel(${kitId})">📗 Excel</button>
+      <button class="btn btn-sm" onclick="kitCostPdf(${kitId})">📄 PDF</button>
       <button class="btn btn-sm" onclick="document.getElementById('kcModal').remove()">Закрити</button>
     </div></div>`;
   document.body.appendChild(ov);
@@ -4507,6 +4509,90 @@ function kitCostOpen(kitId){
     if(navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => {});
     else { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){} ta.remove(); }
   };
+}
+
+function kitCostFileName(b, ext){
+  const base = String(b.k.sku || b.k.name || 'tovar').replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '');
+  return `sklad_sobivartist_${base}.${ext}`;
+}
+
+async function kitCostExcel(kitId){
+  if(typeof ExcelJS === 'undefined'){ alert('Бібліотека Excel ще не завантажилась — спробуйте за кілька секунд.'); return; }
+  const b = kitCostBreakdown(kitId);
+  const rows = b.rows.slice().sort((x,y)=>y.cost-x.cost);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Склад і собівартість');
+  [34,12,9,16,14,10].forEach((w,i)=>{ ws.getColumn(i+1).width = w; });
+  const t = ws.addRow([(b.k.sku ? b.k.sku + ' — ' : '') + b.k.name]); t.font = {bold:true, size:14};
+  ws.addRow(['Дата: ' + todayStr()]).font = {color:{argb:'FF777777'}};
+  ws.addRow([]);
+  const h = ws.addRow(['Компонент','К-сть','Од.','Ціна за од., грн','Сума, грн','Частка']);
+  h.font = {bold:true}; h.eachCell(c => { c.fill = XLS_BROWN; c.border = XLS_THIN_BORDER; c.alignment = {horizontal:'center', vertical:'middle', wrapText:true}; });
+  const first = h.number + 1, last = h.number + rows.length;
+  const sumRowNo = last + 1;
+  rows.forEach((r,i) => {
+    const n = first + i;
+    const row = ws.addRow([r.name, r.amount, r.unit, r.unitPrice, {formula:`B${n}*D${n}`, result:r.cost}, {formula:`IF($E$${sumRowNo}=0,0,E${n}/$E$${sumRowNo})`, result:b.sum>0?r.cost/b.sum:0}]);
+    row.eachCell({includeEmpty:true}, c => { c.border = XLS_THIN_BORDER; });
+    row.getCell(2).numFmt = '0.###'; row.getCell(4).numFmt = '#,##0.00'; row.getCell(5).numFmt = '#,##0.00'; row.getCell(6).numFmt = '0%';
+    row.getCell(3).alignment = {horizontal:'center'};
+  });
+  const addTot = (label, val, bold) => {
+    const row = ws.addRow([label,'','','', val, '']);
+    row.getCell(1).alignment = {horizontal:'right'}; row.getCell(5).numFmt = '#,##0.00';
+    row.eachCell({includeEmpty:true}, c => { c.border = XLS_THIN_BORDER; });
+    if(bold) row.font = {bold:true};
+    return row;
+  };
+  const sumRow = addTot(b.manual>0 ? 'Склад разом (ручна собівартість замінює суму)' : 'Склад разом', {formula: rows.length ? `SUM(E${first}:E${last})` : '0', result:b.sum}, true);
+  let totalRefs = [`E${sumRow.number}`];
+  if(b.manual>0){ const m = addTot('Ручна собівартість', b.manual); totalRefs = [`E${m.number}`]; }
+  if(b.logistics>0){ const r = addTot('Логістика', b.logistics); totalRefs.push(`E${r.number}`); }
+  if(b.marketing>0){ const r = addTot('Маркетинг', b.marketing); totalRefs.push(`E${r.number}`); }
+  const tot = addTot('Собівартість одиниці', {formula: totalRefs.join('+'), result:b.total}, true);
+  tot.eachCell({includeEmpty:true}, c => { c.fill = XLS_BROWN; });
+  if(Number(b.k.price) > 0){
+    const pr = addTot('Ціна продажу', Number(b.k.price));
+    const pf = addTot('Прибуток / од', {formula:`E${pr.number}-E${tot.number}`, result:Number(b.k.price)-b.total});
+    const mg = ws.addRow(['Маржа','','','',{formula:`IF(E${pr.number}=0,0,E${pf.number}/E${pr.number})`, result:(Number(b.k.price)-b.total)/Number(b.k.price)},'']);
+    mg.getCell(1).alignment = {horizontal:'right'}; mg.getCell(5).numFmt = '0.0%'; mg.eachCell({includeEmpty:true}, c => { c.border = XLS_THIN_BORDER; });
+  }
+  ws.views = [{state:'frozen', ySplit: h.number}];
+  const buf = await wb.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buf], {type:'application/octet-stream'}));
+  const a = document.createElement('a'); a.href = url; a.download = kitCostFileName(b, 'xlsx');
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function kitCostPdf(kitId){
+  const b = kitCostBreakdown(kitId);
+  const rows = b.rows.slice().sort((x,y)=>y.cost-x.cost);
+  const esc = escapeHtml;
+  const f2 = n => (Math.round(n*100)/100).toFixed(2).replace('.',',');
+  const fa = n => String(Math.round(n*1000)/1000).replace('.',',');
+  const price = Number(b.k.price)||0, profit = price - b.total;
+  const tr = rows.map(r => `<tr><td>${esc(r.name)}</td><td class="r">${fa(r.amount)} ${esc(r.unit)}</td><td class="r">${f2(r.unitPrice)}</td><td class="r">${f2(r.cost)}</td><td class="r">${b.sum>0?Math.round(r.cost/b.sum*100):0}%</td></tr>`).join('');
+  const ex = (l,v) => v>0 ? `<tr class="t"><td colspan="3" class="r">${l}</td><td class="r">${f2(v)}</td><td></td></tr>` : '';
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(kitCostFileName(b,'pdf').replace(/\.pdf$/,''))}</title><style>
+    @page{size:A4;margin:15mm}
+    body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:11pt;margin:0}
+    h1{font-size:16pt;margin:0 0 2mm} .d{color:#666;font-size:9pt;margin-bottom:6mm}
+    table{width:100%;border-collapse:collapse} th,td{border:1px solid #999;padding:2mm 2.5mm}
+    th{background:#d9b896;text-align:center} .r{text-align:right} tr.t td{font-weight:700} tr.g td{font-weight:700;background:#f0e2d0}
+    tr{page-break-inside:avoid}
+  </style></head><body>
+    <h1>${esc((b.k.sku ? b.k.sku + ' — ' : '') + b.k.name)}</h1><div class="d">Склад і собівартість · ${esc(todayStr())}</div>
+    <table><thead><tr><th>Компонент</th><th>К-сть</th><th>Ціна за од., грн</th><th>Сума, грн</th><th>Частка</th></tr></thead><tbody>${tr}
+    <tr class="t"><td colspan="3" class="r">${b.manual>0?'Склад (ручна собівартість)':'Склад разом'}</td><td class="r">${f2(b.comps)}</td><td></td></tr>
+    ${ex('Логістика',b.logistics)}${ex('Маркетинг',b.marketing)}
+    <tr class="g"><td colspan="3" class="r">Собівартість одиниці</td><td class="r">${f2(b.total)}</td><td></td></tr>
+    ${price>0?`<tr class="t"><td colspan="3" class="r">Ціна продажу</td><td class="r">${f2(price)}</td><td></td></tr><tr class="t"><td colspan="3" class="r">Прибуток / маржа</td><td class="r">${f2(profit)}</td><td class="r">${Math.round(profit/price*1000)/10}%</td></tr>`:''}
+    </tbody></table></body></html>`;
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(fr);
+  fr.contentDocument.open(); fr.contentDocument.write(doc); fr.contentDocument.close();
+  setTimeout(() => { try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ alert('Не вдалося відкрити друк: ' + e.message); } setTimeout(() => fr.remove(), 60000); }, 300);
 }
 
 function renderKitStats(kitId){
