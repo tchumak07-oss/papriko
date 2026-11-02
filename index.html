@@ -386,7 +386,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.2 · 01.11.2026 14:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.6 · 02.11.2026 13:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -4003,7 +4003,15 @@ function updateKitField(id, field, value){
   renderChart();
   scheduleSave();
 }
+function compStepFor(unit){ return unit === 'шт' ? 1 : (unit === 'кг' ? 0.01 : 0.1); }
 function compSelChange(kitId, sel){
+  const amt0 = document.getElementById(`comp-amt-${kitId}`);
+  if(amt0 && sel.value && sel.value !== '__new'){
+    const [kd, idS] = sel.value.split(':'); const c0 = kd === 'cat' ? catalogItem(parseInt(idS, 10)) : null;
+    const unit = kd === 'kit' ? 'шт' : (c0 ? c0.unit : '');
+    amt0.step = compStepFor(unit); amt0.min = unit === 'шт' ? 1 : 0; amt0.placeholder = unit || 'к-сть';
+    if(unit === 'шт' && !amt0.value) amt0.value = 1;
+  }
   if(sel.value !== '__new') return;
   const pre = sel.dataset.newName || ''; sel.dataset.newName = '';
   catQuickCreate('any', pre, it => {
@@ -4415,7 +4423,7 @@ function renderKitComponents(kitId){
     return `
       <div class="comp-row">
         <div class="comp-name">${tag}${name}${missing}</div>
-        <div class="comp-amt-unit"><input type="number" step="0.1" value="${comp.amount}" oninput="updateComponentAmount(${kitId}, ${comp.catalogId}, '${refType}', this.value)" style="width:64px;text-align:right;padding:4px 6px;"> ${unit}</div>
+        <div class="comp-amt-unit"><input type="number" step="${compStepFor(unit)}" min="0" value="${comp.amount}" oninput="updateComponentAmount(${kitId}, ${comp.catalogId}, '${refType}', this.value)" style="width:64px;text-align:right;padding:4px 6px;"> ${unit}</div>
         <div class="comp-cost" id="comp-cost-${kitId}-${refType}-${comp.catalogId}">${fmt1(cost)} грн</div>
         <button class="btn-ghost" onclick="removeComponent(${kitId}, ${comp.catalogId}, '${refType}')" aria-label="Видалити компонент">×</button>
       </div>
@@ -6038,11 +6046,20 @@ function maybeAutoArrivedSms(o){
   }).catch(e => console.warn('[auto SMS]', e)).finally(() => autoSmsInFlight.delete(o.id));
 }
 
+// посилку вже отримано (або повертається) — SMS «відправлено» / «прибула» слати не треба
+function smsParcelAlreadyDone(o){
+  if(o.delivered || o.npReturned) return true;
+  const code = String(o.npStatusCode || '');
+  if(!o.ukrStatusText && ['9','10','11'].includes(code)) return true; // НП: 9 — одержано, 10/11 — грошовий переказ
+  const t = String(o.npStatusText || o.ukrStatusText || '').toLowerCase();
+  return /отримано|одержано|вручено|видано/.test(t) && !/очікує/.test(t);
+}
 // автоматичне SMS «відправлено» — коли оновлення статусу НП/Укрпошти вперше показало, що посилка виїхала
 function maybeAutoShippedSms(o){
   if(!appSettings.autoSmsShipped || !smsToken) return;
   if(autoSmsInFlight.has(o.id)) return;
   if(isAtBranchAwaitingPickup(o)) return; // вже у відділенні — для цього є SMS «прибула»
+  if(smsParcelAlreadyDone(o)) return;      // вже отримано / повернено — «відправлено» втратило сенс
   if(!o.phone || toIntlPhone(o.phone).length !== 12 || !(o.ttnNumber || o.ukrTtnNumber)) return;
   if(o.customerSmsSent || (o.smsLog||[]).some(l => l.ok && l.kind === 'shipped')) return;
   if(o.date && daysBetween(o.date, todayStr()) > 3) return; // старі замовлення при першому оновленні не чіпаємо
@@ -8377,6 +8394,12 @@ async function ukrApiCall(method, path, body, app, bearerOverride){
     body: JSON.stringify({ app: app||'ecom', method, path, token: ukrToken, bearer: bearerOverride || ukrBearer, body })
   });
   const data = await res.json().catch(()=>null);
+  // замість «простирадла» HTML від їхнього сервера (сторінка «temporarily unavailable» тощо) — коротке пояснення
+  const rawStr = data && typeof data.raw === 'string' ? data.raw : '';
+  if(/<html|<!doctype/i.test(rawStr) || res.status === 502 || res.status === 503 || res.status === 504){
+    const why = (rawStr.match(/<title>([^<]{0,80})<\/title>/i) || [])[1] || '';
+    throw new Error(`Сервер Укрпошти тимчасово недоступний${why ? ' («' + why.trim() + '»)' : ''}, HTTP ${res.status}. Це збій на їхньому боці — дані не змінено, спробуйте за кілька хвилин.`);
+  }
   if(!res.ok){
     const msg = (data && (data.message || data.error || JSON.stringify(data))) || `Помилка Укрпошти API (${res.status})`;
     throw new Error(msg);
@@ -11027,6 +11050,7 @@ async function smsSendToOrders(chosen, opts){
     if(!o.phone) skipped.push(name+' — немає телефону');
     else if(toIntlPhone(o.phone).length !== 12) skipped.push(name+' — невірний телефон');
     else if(!(o.ttnNumber || o.ukrTtnNumber)) skipped.push(name+' — немає ТТН');
+    else if(smsParcelAlreadyDone(o)) skipped.push(name+' — посилку вже отримано/повернено');
     else ready.push(o);
   });
   let already = 0;
@@ -13437,8 +13461,8 @@ function orderCollapsedHtml(o, num){
         <div class="order-collapsed-info">
           <span class="status-badge" style="background:${statusColor(o.status)};color:${statusTextColor(o.status)};">${o.status}</span>
           ${packedToggleHtml(o)}
+          ${o.labelPrinted ? `<span class="status-badge" style="background:#2bb3a3;color:#04201c;" title="Наклейку роздруковано${o.labelPrintedAt ? ' ' + escapeAttr(o.labelPrintedAt) : ''}${o.labelPrintedBy ? ' (' + escapeAttr(o.labelPrintedBy) + ')' : ''}">🖨 Роздр.${o.labelPrintedAt ? ' ' + escapeAttr(o.labelPrintedAt) : ''}</span>` : ''}
           ${shippedByPackerBadge(o)}
-          ${o.labelPrinted && !o.shipped ? `<span class="status-badge" style="background:var(--surface-2);color:var(--text-muted);" title="Наборщик роздрукував наклейку${o.labelPrintedAt ? ' ' + escapeAttr(o.labelPrintedAt) : ''}">🖨 наклейка</span>` : ''}
           ${o.paid ? '<span class="status-badge" style="background:var(--cardamom);color:var(--cardamom-text);">✓ Оплачено</span>' : ''}
           ${o.shipped ? ((!o.delivered && !o.npReturned && isAtBranchAwaitingPickup(o)) ? `<span class="arrived-badge" title="Посилка вже на відділенні — чекає клієнта${o.atBranchSince ? ' (з ' + o.atBranchSince + ')' : ''}">📍 На місці${o.atBranchSince && daysBetween(o.atBranchSince, todayStr()) > 0 ? ' · ' + daysBetween(o.atBranchSince, todayStr()) + ' дн.' : ''}</span>` : '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Відправлено</span>') : ''}
           ${o.delivered ? '<span class="status-badge" style="background:var(--saffron);color:var(--saffron-text);">✓ Доставлено</span>' : ''}
