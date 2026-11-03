@@ -378,9 +378,44 @@ async function ukrStickerOnce(o, size){
   const buf = await res.arrayBuffer();
   return {res, buf};
 }
+/* ТТН привʼязана вручну (без створення в програмі) — ідентифікатора відправлення немає.
+   Шукаємо його в Укрпошті за номером ТТН і зберігаємо в замовленні. */
+async function ukrResolveUuid(o){
+  const ttn = String(o.ukrTtnNumber || '').replace(/\D/g, '');
+  if(!ttn) throw new Error('У замовленні немає номера ТТН Укрпошти');
+  let lastErr = '';
+  for(const path of [`/shipments/barcode/${ttn}`, `/shipments/${ttn}`]){
+    try{
+      const res = await fetch(cfg.ukrProxyUrl, {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({app: 'ecom', method: 'GET', path, token: cfg.ukrToken, bearer: cfg.ukrBearer})});
+      const txt = await res.text();
+      let j = null; try{ j = JSON.parse(txt); }catch(e){}
+      if(j && j.raw && !j.uuid){ try{ j = JSON.parse(j.raw); }catch(e){} }
+      if(res.ok && j && j.uuid) return String(j.uuid);
+      lastErr = `${res.status} ${txt.slice(0, 100)}`;
+    }catch(e){ lastErr = e.message || String(e); }
+  }
+  throw new Error(`Укрпошта не знайшла відправлення ${ttn} у вашому кабінеті (${lastErr}). Можливо, ТТН створена в іншому акаунті або ще не зареєстрована.`);
+}
+async function ukrEnsureUuid(o){
+  if(o.ukrShipmentUuid) return;
+  const uuid = await ukrResolveUuid(o);
+  o.ukrShipmentUuid = uuid;
+  const uid = uidOf(o);
+  try{
+    await db.runTransaction(t => t.get(docRef).then(snap => {
+      if(!snap.exists) return;
+      const arr = (snap.data().orders || []).slice();
+      const i = arr.findIndex(x => (x.uid || ('id' + x.id)) === uid);
+      if(i < 0) return;
+      arr[i] = Object.assign({}, arr[i], {ukrShipmentUuid: uuid});
+      t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+    }));
+  }catch(e){ console.warn('save uuid', e); }
+}
 async function ukrStickerBlobRaw(o){
   if(!cfg.ukrProxyUrl) throw new Error('У програмі не вказано проксі Укрпошти');
-  if(!o.ukrShipmentUuid) throw new Error('Для цього замовлення немає ідентифікатора відправлення Укрпошти');
+  await ukrEnsureUuid(o);
   // Укрпошта приймає лише свої значення FormSize — пробуємо кілька, запамʼятовуємо те, що спрацювало
   let cands = stSize() === 'A4' ? ['SIZE_A4'] : ['SIZE_100_100', 'SIZE_100x100', 'SIZE_A5', 'SIZE_A4'];
   try{ const g = localStorage.getItem('packerUkrSize_' + stSize()); if(g) cands = [g].concat(cands.filter(c => c !== g)); }catch(e){}
@@ -468,7 +503,7 @@ async function printSticker(uid){
   if(k === 'np'){
     if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
     window.open(npStickerUrl([o.ttnNumber]), '_blank');
-    askPrinted([uid]);
+    autoPrinted([uid]);
     return;
   }
   toast('Готую наклейку УП…');
@@ -510,7 +545,7 @@ async function printPdfBox(){
     let uids = []; try{ uids = JSON.parse(box.dataset.uids || '[]'); }catch(e){}
     setTimeout(() => {
       try{
-        fr.contentWindow.addEventListener('afterprint', () => { if(uids.length) askPrinted(uids); });
+        fr.contentWindow.addEventListener('afterprint', () => { if(uids.length) autoPrinted(uids); });
         fr.contentWindow.focus(); fr.contentWindow.print();
       }catch(e){ showErr('Друк: ' + e.message); }
       setTimeout(() => fr.remove(), 300000);
@@ -535,7 +570,7 @@ let upBusy = false;
 async function printAllUp(){
   if(upBusy) return;
   const q = ($('q').value || '').trim().toLowerCase();
-  const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'up' && o.ukrShipmentUuid)
+  const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'up')
     .filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
     .filter(o => !q || [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
   if(!list.length){ toast('Немає накладних УП для друку'); return; }
@@ -565,7 +600,7 @@ function printAll(kind){
   if(!list.length){ toast('Немає накладних НП для друку'); return; }
   if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
   window.open(npStickerUrl(list.map(o => o.ttnNumber)), '_blank');
-  askPrinted(list.map(o => uidOf(o)));
+  autoPrinted(list.map(o => uidOf(o)));
 }
 try{ const sv = localStorage.getItem('packerSort'); if(sv) setTimeout(() => { if($('sortSel')) $('sortSel').value = sv; renderOrders(); }, 0); }catch(e){}
 try{ const v = localStorage.getItem('packerStSize'); if(v) setTimeout(() => { if($('stSize')) $('stSize').value = v; }, 0); }catch(e){}
@@ -741,6 +776,10 @@ function setPrinted(uids, val){
     return n;
   })).then(n => { toast(val ? `Позначено роздрукованими: ${n}` : 'Позначку знято'); })
     .catch(err => toast('Помилка: ' + (err && err.message ? err.message : err)));
+}
+function autoPrinted(uids){
+  const todo = [...new Set(uids)].filter(u => { const o = orders.find(x => uidOf(x) === u); return o && !o.labelPrinted; });
+  if(todo.length) setPrinted(todo, true);
 }
 function askPrinted(uids){
   const uniq = [...new Set(uids)].filter(u => { const o = orders.find(x => uidOf(x) === u); return o && !o.labelPrinted; });
