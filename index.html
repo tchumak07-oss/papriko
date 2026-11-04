@@ -110,7 +110,7 @@
 
   /* --- product / kit cards --- */
   .kit-card{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:1.1rem 1.2rem;margin-bottom:14px;}
-  .kit-head{display:grid;grid-template-columns:1fr 110px 130px 90px 30px;gap:10px;align-items:center;margin-bottom:12px;}
+  .kit-head{display:grid;grid-template-columns:1fr 110px 130px 90px 36px 30px;gap:10px;align-items:center;margin-bottom:12px;}
   .kit-card-collapsed{padding:0.8rem 1.1rem;}
   .kit-collapsed-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
   .kit-collapsed-info{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;}
@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.8 · 02.11.2026 17:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.10 · 04.11.2026 12:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -4368,6 +4368,7 @@ function kitExpandedHtml(k){
             <option ${k.type==='Пакет'?'selected':''}>Пакет</option>
           </select>
           <button class="btn btn-primary btn-sm" onclick="saveKit(${k.id})">Зберегти</button>
+          <button class="btn btn-sm" onclick="kitCostOpen(${k.id})" title="Склад з собівартістю: таблиця, Excel, PDF">📋</button>
           <button class="btn-ghost" onclick="removeKit(${k.id})" aria-label="Видалити набір">×</button>
         </div>
 
@@ -4443,15 +4444,16 @@ function kitCostBreakdown(kitId){
     if((comp.refType||'catalog') === 'kit'){
       const rk = kitById(comp.catalogId);
       const up = rk ? kitUnitCost(rk.id, new Set([kitId])) : 0;
-      return {name: rk ? ((rk.sku?`[${rk.sku}] `:'') + rk.name) : '(видалено)', amount: comp.amount||0, unit: 'шт', unitPrice: up, cost: up*(comp.amount||0)};
+      return {name: rk ? ((rk.sku?`[${rk.sku}] `:'') + rk.name) : '(видалено)', amount: comp.amount||0, unit: 'шт', unitPrice: up, cost: up*(comp.amount||0), unitSale: rk ? (Number(rk.price)||0) : 0, sale: rk ? (Number(rk.price)||0)*(comp.amount||0) : 0};
     }
     const c = catalogItem(comp.catalogId);
-    return {name: c ? c.name : '(видалено)', amount: comp.amount||0, unit: c ? c.unit : '', unitPrice: c ? c.cost : 0, cost: c ? c.cost*(comp.amount||0) : 0};
+    return {name: c ? c.name : '(видалено)', amount: comp.amount||0, unit: c ? c.unit : '', unitPrice: c ? c.cost : 0, cost: c ? c.cost*(comp.amount||0) : 0, unitSale: c ? (Number(c.price)||0) : 0, sale: c ? (Number(c.price)||0)*(comp.amount||0) : 0};
   });
   const sum = rows.reduce((a,r)=>a+r.cost,0);
+  const saleSum = rows.reduce((a,r)=>a+r.sale,0);
   const manual = Number(k.costManual)||0;
   const comps = manual > 0 ? manual : sum;
-  return {k, rows, sum, manual, comps, logistics: k.logistics||0, marketing: k.marketing||0, total: comps + (k.logistics||0) + (k.marketing||0)};
+  return {k, rows, sum, saleSum, manual, comps, logistics: k.logistics||0, marketing: k.marketing||0, total: comps + (k.logistics||0) + (k.marketing||0)};
 }
 
 function renderCompTotal(kitId){
@@ -4467,30 +4469,39 @@ function renderCompTotal(kitId){
     <button class="btn btn-sm" onclick="kitCostOpen(${kitId})">📋 Склад з собівартістю</button>`;
 }
 
+function kcSaleOn(){ try{ return localStorage.getItem('papriko_kc_sale') === '1'; }catch(e){ return false; } }
+function kcSaleSet(kitId, on){ try{ localStorage.setItem('papriko_kc_sale', on ? '1' : '0'); }catch(e){} kitCostOpen(kitId); }
+
 function kitCostOpen(kitId){
   const b = kitCostBreakdown(kitId);
+  const sale = kcSaleOn();
   const old = document.getElementById('kcModal'); if(old) old.remove();
   const ov = document.createElement('div'); ov.id = 'kcModal';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
   const f2 = n => (Math.round(n*100)/100).toFixed(2);
   const fa = n => String(Math.round(n*1000)/1000).replace('.',',');
   const sorted = b.rows.slice().sort((x,y)=>y.cost-x.cost);
-  const tr = sorted.map(r => `<tr><td>${escapeAttr(r.name)}</td><td style="text-align:right">${fa(r.amount)} ${r.unit}</td><td style="text-align:right">${f2(r.unitPrice)}</td><td style="text-align:right"><b>${f2(r.cost)}</b></td><td style="text-align:right;color:var(--text-muted)">${b.sum>0?Math.round(r.cost/b.sum*100):0}%</td></tr>`).join('');
-  const extra = (label,v)=> v>0 ? `<tr><td colspan="3" style="text-align:right">${label}</td><td style="text-align:right">${f2(v)}</td><td></td></tr>` : '';
-  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;">
-    <div style="padding:16px 18px 8px;font-size:18px;font-weight:700;">📋 ${escapeAttr(b.k.name)} — склад і собівартість</div>
+  const price = Number(b.k.price) || 0, profit = price - b.total;
+  const nc = 3, sp = sale ? '<td></td><td></td>' : ''; // підпис займає 3 колонки; sp — порожні клітинки під «продажні» колонки
+  const tr = sorted.map(r => `<tr><td>${escapeAttr(r.name)}</td><td style="text-align:right">${fa(r.amount)} ${r.unit}</td><td style="text-align:right">${f2(r.unitPrice)}</td><td style="text-align:right"><b>${f2(r.cost)}</b></td>${sale ? `<td style="text-align:right">${f2(r.unitSale)}</td><td style="text-align:right"><b>${f2(r.sale)}</b></td>` : ''}<td style="text-align:right;color:var(--text-muted)">${b.sum>0?Math.round(r.cost/b.sum*100):0}%</td></tr>`).join('');
+  const extra = (label,v)=> v>0 ? `<tr><td colspan="${nc}" style="text-align:right">${label}</td><td style="text-align:right">${f2(v)}</td>${sp}<td></td></tr>` : '';
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:${sale?900:760}px;width:100%;max-height:90vh;display:flex;flex-direction:column;">
+    <div style="padding:16px 18px 4px;font-size:18px;font-weight:700;">📋 ${escapeAttr(b.k.name)} — склад і собівартість</div>
+    <label style="padding:0 18px 8px;display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer;"><input type="checkbox" style="width:auto;" ${sale?'checked':''} onchange="kcSaleSet(${kitId}, this.checked)"> Додати продажні ціни компонентів</label>
     <div style="padding:0 18px;overflow:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="color:var(--text-muted);text-align:right"><th style="text-align:left">Компонент</th><th>К-сть</th><th>Ціна за од., грн</th><th>Сума, грн</th><th>Частка</th></tr></thead>
+        <thead><tr style="color:var(--text-muted);text-align:right"><th style="text-align:left">Компонент</th><th>К-сть</th><th>Собівартість за од., грн</th><th>Собівартість, грн</th>${sale?'<th>Продажна ціна за од., грн</th><th>Продажна сума, грн</th>':''}<th>Частка</th></tr></thead>
         <tbody>${tr}
-          <tr style="border-top:1px solid var(--border-soft)"><td colspan="3" style="text-align:right">${b.manual>0?'Склад (ручна собівартість)':'Склад разом'}</td><td style="text-align:right"><b>${f2(b.comps)}</b></td><td></td></tr>
+          <tr style="border-top:1px solid var(--border-soft)"><td colspan="${nc}" style="text-align:right">${b.manual>0?'Склад (ручна собівартість)':'Склад разом'}</td><td style="text-align:right"><b>${f2(b.comps)}</b></td>${sale?`<td></td><td style="text-align:right"><b>${f2(b.saleSum)}</b></td>`:''}<td></td></tr>
           ${extra('Логістика',b.logistics)}${extra('Маркетинг',b.marketing)}
-          <tr style="border-top:1px solid var(--border-soft)"><td colspan="3" style="text-align:right"><b>Собівартість одиниці</b></td><td style="text-align:right"><b>${f2(b.total)}</b></td><td></td></tr>
+          <tr style="border-top:1px solid var(--border-soft)"><td colspan="${nc}" style="text-align:right"><b>Собівартість одиниці</b></td><td style="text-align:right"><b>${f2(b.total)}</b></td>${sp}<td></td></tr>
+          ${sale && price>0 ? `<tr><td colspan="${nc}" style="text-align:right">Ціна продажу товару</td><td style="text-align:right"><b>${f2(price)}</b></td>${sp}<td></td></tr>
+          <tr><td colspan="${nc}" style="text-align:right">Прибуток / маржа</td><td style="text-align:right">${f2(profit)}</td>${sale?'<td></td><td></td>':''}<td style="text-align:right">${Math.round(profit/price*1000)/10}%</td></tr>` : ''}
         </tbody>
       </table>
       <style>#kcModal td,#kcModal th{padding:5px 6px;border-bottom:1px solid var(--border-soft,#3a2e24);}</style>
     </div>
-    <div style="padding:12px 18px;display:flex;gap:8px;justify-content:flex-end;">
+    <div style="padding:12px 18px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
       <button class="btn btn-sm" id="kcCopy">Копіювати</button>
       <button class="btn btn-sm" onclick="kitCostExcel(${kitId})">📗 Excel</button>
       <button class="btn btn-sm" onclick="kitCostPdf(${kitId})">📄 PDF</button>
@@ -4500,11 +4511,13 @@ function kitCostOpen(kitId){
   ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
   document.getElementById('kcCopy').onclick = () => {
     let t = b.k.name + '\n';
-    sorted.forEach(r => { t += `${r.name}\t${fa(r.amount)} ${r.unit}\t${f2(r.unitPrice)}\t${f2(r.cost)}\n`; });
-    t += `Склад разом\t\t\t${f2(b.comps)}\n`;
-    if(b.logistics>0) t += `Логістика\t\t\t${f2(b.logistics)}\n`;
-    if(b.marketing>0) t += `Маркетинг\t\t\t${f2(b.marketing)}\n`;
-    t += `Собівартість одиниці\t\t\t${f2(b.total)}`;
+    sorted.forEach(r => { t += `${r.name}\t${fa(r.amount)} ${r.unit}\t${f2(r.unitPrice)}\t${f2(r.cost)}` + (sale ? `\t${f2(r.unitSale)}\t${f2(r.sale)}` : '') + '\n'; });
+    const pad = sale ? '\t\t\t' : '\t\t\t';
+    t += `Склад разом${pad}${f2(b.comps)}` + (sale ? `\t\t${f2(b.saleSum)}` : '') + '\n';
+    if(b.logistics>0) t += `Логістика${pad}${f2(b.logistics)}\n`;
+    if(b.marketing>0) t += `Маркетинг${pad}${f2(b.marketing)}\n`;
+    t += `Собівартість одиниці${pad}${f2(b.total)}`;
+    if(sale && price>0) t += `\nЦіна продажу товару${pad}${f2(price)}\nПрибуток${pad}${f2(profit)}`;
     const done = () => { const bt = document.getElementById('kcCopy'); if(bt) bt.textContent = '✓ Скопійовано'; };
     if(navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => {});
     else { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){} ta.remove(); }
@@ -4519,32 +4532,47 @@ function kitCostFileName(b, ext){
 async function kitCostExcel(kitId){
   if(typeof ExcelJS === 'undefined'){ alert('Бібліотека Excel ще не завантажилась — спробуйте за кілька секунд.'); return; }
   const b = kitCostBreakdown(kitId);
+  const sale = kcSaleOn();
   const rows = b.rows.slice().sort((x,y)=>y.cost-x.cost);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Склад і собівартість');
-  [34,12,9,16,14,10].forEach((w,i)=>{ ws.getColumn(i+1).width = w; });
+  // колонки: A назва, B к-сть, C од., D собів/од, E собів. сума, [F прод/од, G прод. сума], остання — частка
+  const heads = ['Компонент','К-сть','Од.','Собівартість за од., грн','Собівартість, грн'].concat(sale ? ['Продажна ціна за од., грн','Продажна сума, грн'] : []).concat(['Частка']);
+  const widths = [34,10,8,16,14].concat(sale ? [16,14] : []).concat([10]);
+  widths.forEach((w,i)=>{ ws.getColumn(i+1).width = w; });
+  const colL = i => String.fromCharCode(65 + i);
+  const cE = 'E', cG = 'G', cShare = colL(heads.length - 1);
   const t = ws.addRow([(b.k.sku ? b.k.sku + ' — ' : '') + b.k.name]); t.font = {bold:true, size:14};
   ws.addRow(['Дата: ' + todayStr()]).font = {color:{argb:'FF777777'}};
   ws.addRow([]);
-  const h = ws.addRow(['Компонент','К-сть','Од.','Ціна за од., грн','Сума, грн','Частка']);
+  const h = ws.addRow(heads);
   h.font = {bold:true}; h.eachCell(c => { c.fill = XLS_BROWN; c.border = XLS_THIN_BORDER; c.alignment = {horizontal:'center', vertical:'middle', wrapText:true}; });
   const first = h.number + 1, last = h.number + rows.length;
   const sumRowNo = last + 1;
   rows.forEach((r,i) => {
     const n = first + i;
-    const row = ws.addRow([r.name, r.amount, r.unit, r.unitPrice, {formula:`B${n}*D${n}`, result:r.cost}, {formula:`IF($E$${sumRowNo}=0,0,E${n}/$E$${sumRowNo})`, result:b.sum>0?r.cost/b.sum:0}]);
+    const vals = [r.name, r.amount, r.unit, r.unitPrice, {formula:`B${n}*D${n}`, result:r.cost}];
+    if(sale){ vals.push(r.unitSale, {formula:`B${n}*F${n}`, result:r.sale}); }
+    vals.push({formula:`IF($E$${sumRowNo}=0,0,E${n}/$E$${sumRowNo})`, result:b.sum>0?r.cost/b.sum:0});
+    const row = ws.addRow(vals);
     row.eachCell({includeEmpty:true}, c => { c.border = XLS_THIN_BORDER; });
-    row.getCell(2).numFmt = '0.###'; row.getCell(4).numFmt = '#,##0.00'; row.getCell(5).numFmt = '#,##0.00'; row.getCell(6).numFmt = '0%';
+    row.getCell(2).numFmt = '0.###';
+    [4,5].concat(sale?[6,7]:[]).forEach(ci => { row.getCell(ci).numFmt = '#,##0.00'; });
+    row.getCell(heads.length).numFmt = '0%';
     row.getCell(3).alignment = {horizontal:'center'};
   });
-  const addTot = (label, val, bold) => {
-    const row = ws.addRow([label,'','','', val, '']);
-    row.getCell(1).alignment = {horizontal:'right'}; row.getCell(5).numFmt = '#,##0.00';
+  const ncol = heads.length;
+  const addTot = (label, val, bold, saleVal) => {
+    const vals = new Array(ncol).fill('');
+    vals[0] = label; vals[4] = val; if(sale && saleVal !== undefined) vals[6] = saleVal;
+    const row = ws.addRow(vals);
+    row.getCell(1).alignment = {horizontal:'right'}; row.getCell(5).numFmt = '#,##0.00'; if(sale) row.getCell(7).numFmt = '#,##0.00';
     row.eachCell({includeEmpty:true}, c => { c.border = XLS_THIN_BORDER; });
     if(bold) row.font = {bold:true};
     return row;
   };
-  const sumRow = addTot(b.manual>0 ? 'Склад разом (ручна собівартість замінює суму)' : 'Склад разом', {formula: rows.length ? `SUM(E${first}:E${last})` : '0', result:b.sum}, true);
+  const sumRow = addTot(b.manual>0 ? 'Склад разом (ручна собівартість замінює суму)' : 'Склад разом', {formula: rows.length ? `SUM(E${first}:E${last})` : '0', result:b.sum}, true,
+    sale ? {formula: rows.length ? `SUM(G${first}:G${last})` : '0', result:b.saleSum} : undefined);
   let totalRefs = [`E${sumRow.number}`];
   if(b.manual>0){ const m = addTot('Ручна собівартість', b.manual); totalRefs = [`E${m.number}`]; }
   if(b.logistics>0){ const r = addTot('Логістика', b.logistics); totalRefs.push(`E${r.number}`); }
@@ -4552,9 +4580,11 @@ async function kitCostExcel(kitId){
   const tot = addTot('Собівартість одиниці', {formula: totalRefs.join('+'), result:b.total}, true);
   tot.eachCell({includeEmpty:true}, c => { c.fill = XLS_BROWN; });
   if(Number(b.k.price) > 0){
-    const pr = addTot('Ціна продажу', Number(b.k.price));
-    const pf = addTot('Прибуток / од', {formula:`E${pr.number}-E${tot.number}`, result:Number(b.k.price)-b.total});
-    const mg = ws.addRow(['Маржа','','','',{formula:`IF(E${pr.number}=0,0,E${pf.number}/E${pr.number})`, result:(Number(b.k.price)-b.total)/Number(b.k.price)},'']);
+    const price = Number(b.k.price);
+    const pr = addTot('Ціна продажу товару', price);
+    const pf = addTot('Прибуток / од', {formula:`E${pr.number}-E${tot.number}`, result:price-b.total});
+    const mv = new Array(ncol).fill(''); mv[0] = 'Маржа'; mv[4] = {formula:`IF(E${pr.number}=0,0,E${pf.number}/E${pr.number})`, result:(price-b.total)/price};
+    const mg = ws.addRow(mv);
     mg.getCell(1).alignment = {horizontal:'right'}; mg.getCell(5).numFmt = '0.0%'; mg.eachCell({includeEmpty:true}, c => { c.border = XLS_THIN_BORDER; });
   }
   ws.views = [{state:'frozen', ySplit: h.number}];
@@ -4566,27 +4596,29 @@ async function kitCostExcel(kitId){
 
 function kitCostPdf(kitId){
   const b = kitCostBreakdown(kitId);
+  const sale = kcSaleOn();
   const rows = b.rows.slice().sort((x,y)=>y.cost-x.cost);
   const esc = escapeHtml;
   const f2 = n => (Math.round(n*100)/100).toFixed(2).replace('.',',');
   const fa = n => String(Math.round(n*1000)/1000).replace('.',',');
   const price = Number(b.k.price)||0, profit = price - b.total;
-  const tr = rows.map(r => `<tr><td>${esc(r.name)}</td><td class="r">${fa(r.amount)} ${esc(r.unit)}</td><td class="r">${f2(r.unitPrice)}</td><td class="r">${f2(r.cost)}</td><td class="r">${b.sum>0?Math.round(r.cost/b.sum*100):0}%</td></tr>`).join('');
-  const ex = (l,v) => v>0 ? `<tr class="t"><td colspan="3" class="r">${l}</td><td class="r">${f2(v)}</td><td></td></tr>` : '';
+  const nc = 3, sp = sale ? '<td></td><td></td>' : '';
+  const tr = rows.map(r => `<tr><td>${esc(r.name)}</td><td class="r">${fa(r.amount)} ${esc(r.unit)}</td><td class="r">${f2(r.unitPrice)}</td><td class="r">${f2(r.cost)}</td>${sale?`<td class="r">${f2(r.unitSale)}</td><td class="r">${f2(r.sale)}</td>`:''}<td class="r">${b.sum>0?Math.round(r.cost/b.sum*100):0}%</td></tr>`).join('');
+  const ex = (l,v) => v>0 ? `<tr class="t"><td colspan="${nc}" class="r">${l}</td><td class="r">${f2(v)}</td>${sp}<td></td></tr>` : '';
   const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(kitCostFileName(b,'pdf').replace(/\.pdf$/,''))}</title><style>
-    @page{size:A4;margin:15mm}
+    @page{size:A4${sale?' landscape':''};margin:15mm}
     body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:11pt;margin:0}
     h1{font-size:16pt;margin:0 0 2mm} .d{color:#666;font-size:9pt;margin-bottom:6mm}
     table{width:100%;border-collapse:collapse} th,td{border:1px solid #999;padding:2mm 2.5mm}
     th{background:#d9b896;text-align:center} .r{text-align:right} tr.t td{font-weight:700} tr.g td{font-weight:700;background:#f0e2d0}
     tr{page-break-inside:avoid}
   </style></head><body>
-    <h1>${esc((b.k.sku ? b.k.sku + ' — ' : '') + b.k.name)}</h1><div class="d">Склад і собівартість · ${esc(todayStr())}</div>
-    <table><thead><tr><th>Компонент</th><th>К-сть</th><th>Ціна за од., грн</th><th>Сума, грн</th><th>Частка</th></tr></thead><tbody>${tr}
-    <tr class="t"><td colspan="3" class="r">${b.manual>0?'Склад (ручна собівартість)':'Склад разом'}</td><td class="r">${f2(b.comps)}</td><td></td></tr>
+    <h1>${esc((b.k.sku ? b.k.sku + ' — ' : '') + b.k.name)}</h1><div class="d">Склад і собівартість${sale?' · з продажними цінами':''} · ${esc(todayStr())}</div>
+    <table><thead><tr><th>Компонент</th><th>К-сть</th><th>Собівартість за од., грн</th><th>Собівартість, грн</th>${sale?'<th>Продажна ціна за од., грн</th><th>Продажна сума, грн</th>':''}<th>Частка</th></tr></thead><tbody>${tr}
+    <tr class="t"><td colspan="${nc}" class="r">${b.manual>0?'Склад (ручна собівартість)':'Склад разом'}</td><td class="r">${f2(b.comps)}</td>${sale?`<td></td><td class="r">${f2(b.saleSum)}</td>`:''}<td></td></tr>
     ${ex('Логістика',b.logistics)}${ex('Маркетинг',b.marketing)}
-    <tr class="g"><td colspan="3" class="r">Собівартість одиниці</td><td class="r">${f2(b.total)}</td><td></td></tr>
-    ${price>0?`<tr class="t"><td colspan="3" class="r">Ціна продажу</td><td class="r">${f2(price)}</td><td></td></tr><tr class="t"><td colspan="3" class="r">Прибуток / маржа</td><td class="r">${f2(profit)}</td><td class="r">${Math.round(profit/price*1000)/10}%</td></tr>`:''}
+    <tr class="g"><td colspan="${nc}" class="r">Собівартість одиниці</td><td class="r">${f2(b.total)}</td>${sp}<td></td></tr>
+    ${price>0?`<tr class="t"><td colspan="${nc}" class="r">Ціна продажу товару</td><td class="r">${f2(price)}</td>${sp}<td></td></tr><tr class="t"><td colspan="${nc}" class="r">Прибуток / маржа</td><td class="r">${f2(profit)}</td>${sp}<td class="r">${Math.round(profit/price*1000)/10}%</td></tr>`:''}
     </tbody></table></body></html>`;
   const fr = document.createElement('iframe');
   fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
