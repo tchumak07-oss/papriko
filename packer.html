@@ -79,6 +79,7 @@
   <header>
     <h1>📦 Наборщик</h1>
     <button class="chip" id="soundBtn" onclick="toggleSound()">🔕 Звук вимкнено</button>
+    <button class="chip" id="refreshBtn" onclick="refreshStatuses(true)">🔄 Оновити</button>
     <span class="sync" id="syncLbl">Підключення…</span>
   </header>
   <div class="tabs">
@@ -111,6 +112,7 @@
         <button class="btn sm ghost" onclick="printAllUp()" id="btnAllUp">УП — усі показані</button>
       </div>
       <div id="newBanner" style="display:none;" class="card" onclick="markSeen()"></div>
+      <div class="muted" id="refreshInfo" style="margin-top:4px;"></div>
       <div class="muted" id="counts"></div>
       <div id="list"></div>
     </section>
@@ -155,7 +157,7 @@ const FB_CONFIG = {
 };
 let db, auth, docRef;
 let orders = [], kits = [], catalog = [];
-let cfg = {npApiKey:'', ukrProxyUrl:'', ukrToken:'', ukrBearer:''};
+let cfg = {npApiKey:'', ukrProxyUrl:'', ukrToken:'', ukrBearer:'', ukrTrackingBearer:''};
 let filter = 'all', tab = 'orders';
 let busyUid = null;
 let lastReport = {packed: [], shipped: []};
@@ -285,7 +287,7 @@ function subscribe(){
     orders = Array.isArray(d.orders) ? d.orders : [];
     kits = Array.isArray(d.kits) ? d.kits : [];
     catalog = Array.isArray(d.catalog) ? d.catalog : [];
-    cfg = {npApiKey: d.npApiKey || '', ukrProxyUrl: d.ukrProxyUrl || '', ukrToken: d.ukrToken || '', ukrBearer: d.ukrBearer || ''};
+    cfg = {npApiKey: d.npApiKey || '', ukrProxyUrl: d.ukrProxyUrl || '', ukrToken: d.ukrToken || '', ukrBearer: d.ukrBearer || '', ukrTrackingBearer: d.ukrTrackingBearer || ''};
     setSync('ok', '● На звʼязку · останні зміни ' + new Date().toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'}));
     if(!seen) seen = loadSeen();
     const before = seen ? newOrders().length : 0;
@@ -294,6 +296,7 @@ function subscribe(){
     updateAlert(!firstSnap && newOrders().length > before);
     if(firstSnap && newOrders().length) updateAlert(true);
     firstSnap = false;
+    if(!lastRefreshAt && !refreshBusy) setTimeout(() => { if(!lastRefreshAt) refreshStatuses(false); }, 2500);
   }, err => {
     setSync('err', 'Немає доступу: ' + (err && err.code ? err.code : err.message));
   });
@@ -301,9 +304,13 @@ function subscribe(){
 
 /* ---------- допоміжне ---------- */
 function isArchived(o){ return !o.keepActive && (!!o.manualArchive || (!!o.paid && !!o.delivered)); }
-function isActiveUnshipped(o){ return !o.shipped && !o.delivered && !isArchived(o) && !(o.npReturned || o.status === 'Повернено'); }
+// pk* — власні поля кабінету наборщика: сюди пишемо статус перевізника, отриманий кнопкою «Оновити».
+// Свідомо НЕ чіпаємо npStatusText/shipped/delivered основної програми, щоб не зламати її SMS і сповіщення про зміну статусу.
+function carrierSeen(o){ return !!(o.pkShipped || o.pkDelivered); }
+function isReturnedAny(o){ return !!(o.npReturned || o.status === 'Повернено' || o.pkReturned); }
+function isActiveUnshipped(o){ return !o.shipped && !o.delivered && !carrierSeen(o) && !isArchived(o) && !isReturnedAny(o); }
 // наборщик натиснув «Відправлено», але НП/УП ще не підтвердили реальним статусом — лишається у списку «Замовлення»
-function isPending(o){ return !!o.shipped && !!o.shippedBy && !o.shipConfirmed && !o.delivered; }
+function isPending(o){ return !!o.shipped && !!o.shippedBy && !o.shipConfirmed && !carrierSeen(o) && !o.delivered; }
 function carrierBadge(o){
   if(o.deliveryMethod === 'Нова Пошта') return '<span class="badge b-np">НП</span>';
   if(o.deliveryMethod === 'Укрпошта') return '<span class="badge b-up">УП</span>';
@@ -688,10 +695,10 @@ function setArch(r){
   renderArchive();
 }
 function carrierStatus(o){
-  if(o.npReturned || o.status === 'Повернено') return {t: '⟲ Повернення', c: 'var(--danger)'};
-  if(o.delivered) return {t: '✓ Доставлено' + (o.paid ? ' · оплачено' : ''), c: 'var(--green)'};
-  const real = o.npStatusText || o.ukrStatusText || '';
-  if(o.shipConfirmed || (real && !o.shippedBy)) return {t: '✓ Відправлено' + (real ? ' · ' + real : ''), c: 'var(--green)'};
+  if(isReturnedAny(o)) return {t: '⟲ Повернення', c: 'var(--danger)'};
+  if(o.delivered || o.pkDelivered) return {t: '✓ Доставлено' + (o.paid ? ' · оплачено' : ''), c: 'var(--green)'};
+  const real = o.npStatusText || o.ukrStatusText || o.pkText || '';
+  if(o.shipConfirmed || carrierSeen(o) || (real && !o.shippedBy)) return {t: '✓ Відправлено' + (real ? ' · ' + real : ''), c: 'var(--green)'};
   if(o.shippedBy){
     const hrs = o.shippedMarkAt ? (Date.now() - Date.parse(o.shippedMarkAt)) / 3600000 : 0;
     return hrs > 24 ? {t: '⚠ Позначено відправленим, але перевізник не підтвердив (понад добу). Перевірте, чи справді відправлено.', c: 'var(--danger)'}
@@ -701,7 +708,7 @@ function carrierStatus(o){
 }
 function renderArchive(){
   const q = ($('qa').value || '').trim().toLowerCase();
-  let list = orders.filter(o => (o.shipped || o.delivered) && !isPending(o));
+  let list = orders.filter(o => (o.shipped || o.delivered || carrierSeen(o)) && !isPending(o));
   if(archRange !== 'all'){
     const lim = new Date(); lim.setDate(lim.getDate() - Number(archRange));
     const limS = `${lim.getFullYear()}-${z2(lim.getMonth()+1)}-${z2(lim.getDate())}`;
@@ -714,7 +721,7 @@ function renderArchive(){
   $('archList').innerHTML = list.map(o => {
     const uid = uidOf(o);
     const st = carrierStatus(o);
-    const canUndo = o.shipped && o.shippedBy && !o.shipConfirmed && !o.delivered;
+    const canUndo = o.shipped && o.shippedBy && !o.shipConfirmed && !carrierSeen(o) && !o.delivered;
     return `<div class="card">
       <div class="name">${esc(o.customer || 'Без імені')}</div>
       <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a> · ` : ''}${esc(ukDate(o.date))}</div>
@@ -727,6 +734,99 @@ function renderArchive(){
     </div>`;
   }).join('');
 }
+
+/* ---------- оновлення статусів НП і УП ---------- */
+const UP_SHIPPED_EV = [10100,20700,20800,20900,21500,31100,21700,21400,31300,31400];
+let refreshBusy = false, lastRefreshAt = 0;
+function pkFromNp(it){
+  if(!it) return null;
+  const text = it.Status || '', code = String(it.StatusCode || ''), low = text.toLowerCase();
+  const r = {pkText: text, pkShipped: false, pkDelivered: false, pkReturned: false};
+  if(code && code !== '1' && code !== '2' && code !== '3') r.pkShipped = true;   // 1 — створено, 2 — видалено, 3 — не знайдено
+  if(low.includes('отримано') || ['9','10','11'].includes(code)){ r.pkShipped = true; r.pkDelivered = true; }
+  if(low.includes('поверн') || low.includes('відмова')){ r.pkReturned = true; r.pkDelivered = false; }
+  return r;
+}
+function pkFromUp(it){
+  if(!it) return null;
+  const ev = Number(it.event), reason = Number(it.eventReason_id);
+  const r = {pkText: it.eventName || '', pkShipped: false, pkDelivered: false, pkReturned: false};
+  if(UP_SHIPPED_EV.includes(ev)) r.pkShipped = true;
+  else if(ev === 41000 || ev === 48000){ if(reason === 10) r.pkReturned = true; else { r.pkShipped = true; r.pkDelivered = true; } }
+  else if(ev === 31200) r.pkReturned = true;
+  return r;
+}
+async function npStatuses(list){
+  const out = new Map();
+  for(let i = 0; i < list.length; i += 100){
+    const chunk = list.slice(i, i + 100);
+    const res = await fetch('https://api.novaposhta.ua/v2.0/json/', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({apiKey: cfg.npApiKey, modelName: 'TrackingDocument', calledMethod: 'getStatusDocuments',
+        methodProperties: {Documents: chunk.map(o => ({DocumentNumber: o.ttnNumber, Phone: o.phone || ''}))}})});
+    const j = await res.json();
+    if(!j.success) throw new Error((j.errors && j.errors[0]) || 'Помилка НП');
+    chunk.forEach(o => { const it = (j.data || []).find(d => d.Number === o.ttnNumber); const r = pkFromNp(it); if(r) out.set(uidOf(o), r); });
+  }
+  return out;
+}
+async function upStatuses(list){
+  const out = new Map();
+  for(let i = 0; i < list.length; i += 100){
+    const chunk = list.slice(i, i + 100);
+    const res = await fetch(cfg.ukrProxyUrl, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({app: 'tracking', method: 'POST', path: '/statuses/last', token: cfg.ukrToken, bearer: cfg.ukrTrackingBearer || cfg.ukrBearer, body: chunk.map(o => o.ukrTtnNumber)})});
+    const j = await res.json().catch(() => null);
+    const raw = j && typeof j.raw === 'string' ? j.raw : '';
+    if(/<html|<!doctype/i.test(raw) || [502, 503, 504].includes(res.status)) throw new Error('Сервер Укрпошти тимчасово недоступний — спробуйте за кілька хвилин');
+    if(!res.ok || !Array.isArray(j)) throw new Error('Укрпошта: ' + (res.ok ? 'неочікувана відповідь' : res.status));
+    chunk.forEach(o => { const it = j.find(d => d.barcode === o.ukrTtnNumber); const r = pkFromUp(it); if(r) out.set(uidOf(o), r); });
+  }
+  return out;
+}
+async function refreshStatuses(manual){
+  if(refreshBusy) return;
+  const btn = $('refreshBtn'), info = $('refreshInfo');
+  const todo = orders.filter(o => !isArchived(o) && !o.delivered && !o.npReturned && o.status !== 'Повернено');
+  const np = cfg.npApiKey ? todo.filter(o => o.deliveryMethod === 'Нова Пошта' && o.ttnNumber) : [];
+  const up = (cfg.ukrProxyUrl && (cfg.ukrTrackingBearer || cfg.ukrBearer)) ? todo.filter(o => o.deliveryMethod === 'Укрпошта' && o.ukrTtnNumber) : [];
+  if(!np.length && !up.length){ if(manual) toast('Немає посилок для перевірки'); lastRefreshAt = Date.now(); return; }
+  refreshBusy = true; const old = btn.textContent; btn.textContent = '🔄 Оновлюю…'; btn.disabled = true;
+  const errs = [];
+  const got = new Map();
+  try{
+    const res = await Promise.all([
+      np.length ? npStatuses(np).catch(e => { errs.push('НП: ' + (e.message || e)); return new Map(); }) : new Map(),
+      up.length ? upStatuses(up).catch(e => { errs.push('УП: ' + (e.message || e)); return new Map(); }) : new Map()
+    ]);
+    res.forEach(m => m.forEach((v, k) => got.set(k, v)));
+    let changed = 0;
+    if(got.size){
+      const now = new Date().toISOString();
+      await db.runTransaction(t => t.get(docRef).then(snap => {
+        if(!snap.exists) throw new Error('Дані не знайдено');
+        const arr = (snap.data().orders || []).slice();
+        changed = 0;
+        arr.forEach((o, i) => {
+          const r = got.get(o.uid || ('id' + o.id)); if(!r) return;
+          if(o.pkText === r.pkText && !!o.pkShipped === r.pkShipped && !!o.pkDelivered === r.pkDelivered && !!o.pkReturned === r.pkReturned) return;
+          arr[i] = Object.assign({}, o, r, {pkAt: now}); changed++;
+        });
+        if(changed) t.update(docRef, {orders: arr, updatedAt: now});
+      }));
+    }
+    lastRefreshAt = Date.now();
+    const hhmm = new Date().toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit'});
+    info.style.color = errs.length ? 'var(--danger)' : '';
+    info.textContent = `🔄 Статуси перевірено о ${hhmm}: НП ${np.length}, УП ${up.length}, змінилось ${changed}` + (errs.length ? ' · ' + errs.join('; ') : '') + ' · авто кожні 30 хв';
+    if(manual) toast(errs.length ? 'Оновлено з помилками' : (changed ? `Оновлено: змін ${changed}` : 'Змін немає'));
+  }catch(e){
+    info.style.color = 'var(--danger)'; info.textContent = '🔄 Не вдалося оновити: ' + (e.message || e);
+    if(manual) toast('Помилка: ' + (e.message || e));
+  }finally{ refreshBusy = false; btn.textContent = old; btn.disabled = false; }
+}
+// автооновлення: кожні 30 хв, поки сторінка відкрита; і при поверненні на вкладку, якщо минуло понад 30 хв
+setInterval(() => { if(!document.hidden && orders.length) refreshStatuses(false); }, 30 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden && orders.length && Date.now() - lastRefreshAt > 30 * 60 * 1000) refreshStatuses(false); });
 function setShipped(uid, checked){
   if(busyUid) return;
   if(checked){
