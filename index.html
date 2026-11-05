@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.10 · 04.11.2026 12:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.11 · 05.11.2026 10:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6628,7 +6628,9 @@ function smsDayRows(day, dayTo){
     const atBranch = isToday && !isArchived(o) && isAtBranchAwaitingPickup(o);
     let log = (o.smsLog||[]).filter(l => inR(l.date));
     if(atBranch) log = log.filter(l => l.kind === 'arrived' || l.kind === 'reminder'); // раніше надіслане «відправлено» не рахується
-    const inScope = (!isArchived(o) && inR(o.date)) || log.length || atBranch;
+    // у звіті за сьогодні показуємо й усі інші активні посилки з ТТН (в дорозі, створені раніше) — раніше їх тут не було
+    const carry = isToday && !atBranch && !isArchived(o) && !o.delivered && !o.npReturned && !inR(o.date) && !!(o.ttnNumber || o.ukrTtnNumber);
+    const inScope = (!isArchived(o) && inR(o.date)) || log.length || atBranch || carry;
     if(!inScope) return;
     const okEntry = [...log].reverse().find(l => l.ok);
     const failEntry = [...log].reverse().find(l => !l.ok);
@@ -6643,19 +6645,20 @@ function smsDayRows(day, dayTo){
     else if(atBranch && toIntlPhone(o.phone).length !== 12){ state = 'no'; note = bTag + 'невірний телефон'; }
     else if(atBranch && !(o.ttnNumber || o.ukrTtnNumber)){ state = 'no'; note = bTag + 'немає ТТН'; }
     else if(atBranch){ state = 'no'; note = bTag + 'про прибуття не повідомляли'; }
-    else if(o.customerSmsSent){ state = 'before'; note = 'надіслано раніше (без дати)'; }
-    else if(!o.phone){ state = 'no'; note = 'немає телефону'; }
+    else if(!atBranch && (o.smsLog||[]).some(l => l.ok)){ const a = [...o.smsLog].reverse().find(l => l.ok); state = 'before'; note = (carry ? '🚚 в дорозі · ' : '') + 'надіслано ' + smsLogDateUa(a.date) + ' · «' + smsKindLabel(a.kind) + '»'; }
+    else if(o.customerSmsSent){ state = 'before'; note = (carry ? '🚚 в дорозі · ' : '') + 'надіслано раніше (без дати)'; }
+    else if(!o.phone){ state = 'no'; note = (carry ? '🚚 в дорозі · ' : '') + 'немає телефону'; }
     else if(toIntlPhone(o.phone).length !== 12){ state = 'no'; note = 'невірний телефон'; }
     else if(!(o.ttnNumber || o.ukrTtnNumber)){ state = 'no'; note = 'немає ТТН'; }
-    else { state = 'no'; note = 'ще не надсилали'; }
-    rows.push({o, state, note});
+    else { state = 'no'; note = (carry ? '🚚 в дорозі · ' : '') + 'ще не надсилали'; }
+    rows.push({o, state, note, carry});
   });
   const order = {error:0, no:1, before:2, sent:3};
   rows.sort((a,b) => order[a.state]-order[b.state] || String(a.o.customer||'').localeCompare(String(b.o.customer||''), 'uk'));
   return rows;
 }
 function smsDayRetryTargets(day, dayTo){
-  return smsDayRows(day, dayTo).filter(r => (r.state==='no' || r.state==='error') && r.o.phone && toIntlPhone(r.o.phone).length===12 && (r.o.ttnNumber||r.o.ukrTtnNumber)).map(r => r.o);
+  return smsDayRows(day, dayTo).filter(r => !r.carry && (r.state==='no' || r.state==='error') && r.o.phone && toIntlPhone(r.o.phone).length===12 && (r.o.ttnNumber||r.o.ukrTtnNumber)).map(r => r.o);
 }
 function renderSmsDayReport(){
   const el = document.getElementById('reportSmsDay');
