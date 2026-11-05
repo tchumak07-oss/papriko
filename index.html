@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.11 · 05.11.2026 10:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.12 · 05.11.2026 14:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6651,15 +6651,17 @@ function smsDayRows(day, dayTo){
     else if(toIntlPhone(o.phone).length !== 12){ state = 'no'; note = 'невірний телефон'; }
     else if(!(o.ttnNumber || o.ukrTtnNumber)){ state = 'no'; note = 'немає ТТН'; }
     else { state = 'no'; note = (carry ? '🚚 в дорозі · ' : '') + 'ще не надсилали'; }
-    rows.push({o, state, note, carry});
+    rows.push({o, state, note, carry, grp: atBranch ? 'branch' : (carry ? 'transit' : 'new')});
   });
   const order = {error:0, no:1, before:2, sent:3};
-  rows.sort((a,b) => order[a.state]-order[b.state] || String(a.o.customer||'').localeCompare(String(b.o.customer||''), 'uk'));
+  const gOrder = {branch:0, transit:1, new:2};
+  rows.sort((a,b) => gOrder[a.grp]-gOrder[b.grp] || order[a.state]-order[b.state] || String(a.o.customer||'').localeCompare(String(b.o.customer||''), 'uk'));
   return rows;
 }
 function smsDayRetryTargets(day, dayTo){
   return smsDayRows(day, dayTo).filter(r => !r.carry && (r.state==='no' || r.state==='error') && r.o.phone && toIntlPhone(r.o.phone).length===12 && (r.o.ttnNumber||r.o.ukrTtnNumber)).map(r => r.o);
 }
+const SMS_GRP_LABEL = {branch:'📦 У відділенні — чекають, поки заберуть', transit:'🚚 В дорозі — створені раніше', new:'🆕 Замовлення за цей період'};
 function renderSmsDayReport(){
   const el = document.getElementById('reportSmsDay');
   if(!el) return;
@@ -6673,12 +6675,19 @@ function renderSmsDayReport(){
     ? `Усього: <strong>${rows.length}</strong> · <span style="color:var(--cardamom);">надіслано: <strong>${cnt('sent')}</strong></span> · <span style="color:var(--danger);">не надіслано: <strong>${cnt('no')+cnt('error')}</strong></span>${cnt('before')?` · раніше: ${cnt('before')}`:''}`
     : '';
   if(!rows.length){ el.innerHTML = '<div class="comp-empty">За цей період немає замовлень.</div>'; return; }
-  el.innerHTML = rows.map(({o, state, note}) => {
+  let lastGrp = null;
+  el.innerHTML = rows.map(({o, state, note, grp}) => {
+    let head = '';
+    if(grp !== lastGrp){
+      lastGrp = grp;
+      const g = rows.filter(r => r.grp === grp), red = g.filter(r => r.state==='no' || r.state==='error').length;
+      head = `<div style="margin:14px 0 4px;padding:6px 10px;background:var(--surface-2,rgba(255,255,255,.05));border-radius:6px;font-weight:700;">${SMS_GRP_LABEL[grp]} <span class="hint" style="font-weight:400;">· ${g.length}${red ? ' · <span style="color:var(--danger);">без SMS: ' + red + '</span>' : ''}</span></div>`;
+    }
     const bad = state==='no' || state==='error';
     const col = state==='sent' ? 'var(--cardamom)' : (bad ? 'var(--danger)' : 'var(--text-muted)');
     const mark = state==='sent' ? '✓ Надіслано' : (state==='error' ? '✗ Помилка' : (state==='before' ? '• Раніше' : '✗ Не надіслано'));
     const canSend = bad && o.phone && toIntlPhone(o.phone).length===12 && (o.ttnNumber||o.ukrTtnNumber);
-    return `<div class="wh-row" style="grid-template-columns:120px 1fr 120px 140px 1fr 1.3fr 100px;${bad?'background:rgba(180,60,40,0.07);':''}">
+    return head + `<div class="wh-row" style="grid-template-columns:120px 1fr 120px 140px 1fr 1.3fr 100px;${bad?'background:rgba(180,60,40,0.07);':''}">
       <div class="cv" style="color:${col};font-weight:600;">${mark}</div>
       <div>${escapeAttr(o.customer||'Без імені')}</div>
       <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.phone||'—')}</div>
@@ -6702,13 +6711,14 @@ async function exportSmsDayExcel(){
   if(!rows.length){ alert('За цей період немає замовлень.'); return; }
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('SMS '+day);
-  ws.columns = [{header:'Статус',key:'st',width:16},{header:'Клієнт',key:'c',width:26},{header:'Телефон',key:'p',width:16},{header:'ТТН',key:'t',width:22},{header:'Примітка',key:'n',width:36},{header:'Скільки разів і коли надсилали SMS',key:'h',width:60}];
+  ws.columns = [{header:'Тип',key:'g',width:14},{header:'Статус',key:'st',width:16},{header:'Клієнт',key:'c',width:26},{header:'Телефон',key:'p',width:16},{header:'ТТН',key:'t',width:22},{header:'Примітка',key:'n',width:36},{header:'Скільки разів і коли надсилали SMS',key:'h',width:60}];
   const label = {sent:'Надіслано', error:'Помилка', before:'Раніше', no:'Не надіслано'};
   const B = {top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}};
   ws.getRow(1).font = {bold:true};
   ws.getRow(1).eachCell(c => { c.border = B; c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFD9B896'}}; });
-  rows.forEach(({o,state,note}) => {
-    const r = ws.addRow({st:label[state], c:o.customer||'Без імені', p:o.phone||'', t:o.ttnNumber||o.ukrTtnNumber||'', n:note, h:smsHistoryText(o)});
+  const gl = {branch:'У відділенні', transit:'В дорозі', new:'За період'};
+  rows.forEach(({o,state,note,grp}) => {
+    const r = ws.addRow({g:gl[grp], st:label[state], c:o.customer||'Без імені', p:o.phone||'', t:o.ttnNumber||o.ukrTtnNumber||'', n:note, h:smsHistoryText(o)});
     r.eachCell({includeEmpty:true}, c => { c.border = B; if(state==='no'||state==='error') c.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFF3C6C0'}}; });
   });
   ws.views = [{state:'frozen', ySplit:1}];
