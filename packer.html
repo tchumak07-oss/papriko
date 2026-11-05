@@ -8,8 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-app-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root{
     --bg:#1a1410; --card:#251d16; --line:#3a2e24; --text:#f1e7da; --muted:#a8998a;
@@ -66,6 +66,17 @@
 </style>
 </head>
 <body>
+<div id="boot" style="padding:40px 20px;text-align:center;">
+  <h1 style="margin:0 0 10px;">📦 Наборщик</h1>
+  <div id="bootMsg" class="muted">Завантаження…</div>
+  <div id="bootBtns" style="display:none;margin-top:16px;">
+    <button class="btn" onclick="location.reload()">🔄 Оновити сторінку</button>
+    <button class="btn ghost" style="margin-top:8px;" onclick="showLogin()">Увійти вручну</button>
+  </div>
+</div>
+<script>
+window.onerror = function(msg){ var m = document.getElementById('bootMsg'); if(m && document.getElementById('boot').style.display !== 'none'){ m.textContent = 'Помилка: ' + msg; document.getElementById('bootBtns').style.display = 'block'; } };
+</script>
 <div id="login" style="display:none;">
   <h1>Папріко · Наборщик</h1>
   <p class="muted">Відкрийте особисте посилання, яке вам дали, або введіть пошту й пароль.</p>
@@ -243,19 +254,31 @@ function manualLogin(){
   if(!e || !p){ $('lgErr').textContent = 'Введіть пошту й пароль.'; return; }
   signIn({e, p}, true);
 }
+function bootMsg(t, withBtns){ const b = $('boot'); if(!b) return; b.style.display = 'block'; $('bootMsg').textContent = t; $('bootBtns').style.display = withBtns ? 'block' : 'none'; }
+function hideBoot(){ const b = $('boot'); if(b) b.style.display = 'none'; clearTimeout(bootTimer); }
+function showLogin(){ hideBoot(); $('login').style.display = 'block'; $('app').style.display = 'none'; }
+let bootTimer = null;
+function armBootTimer(t){
+  clearTimeout(bootTimer);
+  bootTimer = setTimeout(() => bootMsg(t + ' Перевірте інтернет і натисніть «Оновити сторінку». Якщо не допомагає — закрийте інші вкладки з цим сайтом.', true), 15000);
+}
 function signIn(cred, remember){
   $('lgErr').textContent = '';
+  if($('login').style.display !== 'block'){ bootMsg('Вхід…'); armBootTimer('Вхід триває надто довго.'); }
   auth.signInWithEmailAndPassword(cred.e, cred.p).then(() => {
     if(remember){ try{ localStorage.setItem('packerCred', JSON.stringify(cred)); }catch(e){} }
   }).catch(err => {
-    try{ localStorage.removeItem('packerCred'); }catch(e){}
-    $('login').style.display = 'block'; $('app').style.display = 'none';
+    const c0 = err && err.code;
+    if(c0 !== 'auth/network-request-failed'){ try{ localStorage.removeItem('packerCred'); }catch(e){} }
+    showLogin();
     const c = err && err.code;
     $('lgErr').textContent = (c === 'auth/network-request-failed') ? 'Немає інтернету.' : 'Не вдалось увійти. Перевірте посилання або пароль.';
   });
 }
 
 function start(){
+  if(typeof firebase === 'undefined'){ bootMsg('Не завантажились бібліотеки (немає інтернету або їх заблоковано).', true); return; }
+  bootMsg('Підключення…'); armBootTimer('Не вдається підключитися.');
   firebase.initializeApp(FB_CONFIG);
   auth = firebase.auth();
   db = firebase.firestore();
@@ -264,12 +287,12 @@ function start(){
   docRef = db.collection('spice-app').doc('data');
   auth.onAuthStateChanged(user => {
     if(user){
-      $('login').style.display = 'none'; $('app').style.display = 'block';
+      hideBoot(); $('login').style.display = 'none'; $('app').style.display = 'block';
       subscribe();
     } else {
       const c = readLinkCreds();
       if(c) signIn(c, false);
-      else { $('login').style.display = 'block'; $('app').style.display = 'none'; }
+      else showLogin();
     }
   });
 }
@@ -974,7 +997,7 @@ async function excelReport(kind){
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-start();
+try{ start(); }catch(e){ bootMsg('Помилка запуску: ' + (e && e.message || e), true); }
 </script>
 </body>
 </html>
