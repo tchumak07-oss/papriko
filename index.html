@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.12 · 05.11.2026 14:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.14 · 06.11.2026 12:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1978,6 +1978,9 @@
     <span id="rb-smsday-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-smsday');renderSmsDayReport()">▸ SMS клієнтам за день</span>
     <span class="btns">
       <button class="btn btn-sm" onclick="smsDaySendMissing()">✉ Надіслати тим, кому ні</button>
+      <button class="btn btn-sm" onclick="smsSelMissing()">☑ Вибрати всіх без SMS</button>
+      <button class="btn btn-sm" onclick="smsSelClear()">☐ Зняти вибір</button>
+      <button class="btn btn-primary btn-sm" onclick="smsSendSelected()">📨 Надіслати вибраним (<span id="smsSelCount">0</span>)</button>
       <button class="btn btn-sm" onclick="exportSmsDayExcel()">⬇ Excel</button>
     </span>
   </div>
@@ -1992,7 +1995,7 @@
       <span class="hint" id="smsDaySummary"></span>
     </div>
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-      <div class="wh-row-head" style="grid-template-columns:120px 1fr 120px 140px 1fr 1.3fr 100px;"><div>Статус</div><div>Клієнт</div><div>Телефон</div><div>ТТН</div><div>Примітка</div><div>Коли надсилали SMS</div><div></div></div>
+      <div class="wh-row-head" style="grid-template-columns:28px 120px 1fr 120px 140px 1fr 1.3fr 100px;"><div></div><div>Статус</div><div>Клієнт</div><div>Телефон</div><div>ТТН</div><div>Примітка</div><div>Коли надсилали SMS</div><div></div></div>
       <div id="reportSmsDay"></div>
     </div></div>
   </div>
@@ -6662,6 +6665,35 @@ function smsDayRetryTargets(day, dayTo){
   return smsDayRows(day, dayTo).filter(r => !r.carry && (r.state==='no' || r.state==='error') && r.o.phone && toIntlPhone(r.o.phone).length===12 && (r.o.ttnNumber||r.o.ukrTtnNumber)).map(r => r.o);
 }
 const SMS_GRP_LABEL = {branch:'📦 У відділенні — чекають, поки заберуть', transit:'🚚 В дорозі — створені раніше', new:'🆕 Замовлення за цей період'};
+const smsSel = new Set();
+function smsCanSelect(o){ return !!(o.phone && toIntlPhone(o.phone).length === 12 && (o.ttnNumber || o.ukrTtnNumber) && !smsParcelAlreadyDone(o)); }
+function smsSelUpdateCount(){
+  const el = document.getElementById('smsSelCount'); if(el) el.textContent = smsSel.size;
+  document.querySelectorAll('#reportSmsDay input[data-smsid]').forEach(cb => { cb.checked = smsSel.has(Number(cb.dataset.smsid)); });
+  document.querySelectorAll('#reportSmsDay input[data-smsgrp]').forEach(cb => {
+    const boxes = [...document.querySelectorAll(`#reportSmsDay input[data-smsid][data-g="${cb.dataset.smsgrp}"]`)];
+    cb.checked = boxes.length > 0 && boxes.every(b => b.checked);
+  });
+}
+function smsSelToggle(id, on){ if(on) smsSel.add(id); else smsSel.delete(id); smsSelUpdateCount(); }
+function smsSelGroup(grp, on){
+  document.querySelectorAll(`#reportSmsDay input[data-smsid][data-g="${grp}"]`).forEach(cb => { const id = Number(cb.dataset.smsid); if(on) smsSel.add(id); else smsSel.delete(id); });
+  smsSelUpdateCount();
+}
+function smsSelMissing(){
+  const {from: day, to: dayTo} = smsRange();
+  smsSel.clear();
+  smsDayRows(day, dayTo).forEach(r => { if((r.state === 'no' || r.state === 'error') && smsCanSelect(r.o)) smsSel.add(r.o.id); });
+  smsSelUpdateCount();
+}
+function smsSelClear(){ smsSel.clear(); smsSelUpdateCount(); }
+async function smsSendSelected(){
+  const list = [...smsSel].map(orderById).filter(Boolean);
+  if(!list.length){ alert('Спершу відмітьте галочками замовлення у списку.'); return; }
+  await smsSendToOrders(list, {emptyMsg: 'Нікому надсилати.'});
+  smsSel.clear();
+  renderSmsDayReport();
+}
 function renderSmsDayReport(){
   const el = document.getElementById('reportSmsDay');
   if(!el) return;
@@ -6681,13 +6713,15 @@ function renderSmsDayReport(){
     if(grp !== lastGrp){
       lastGrp = grp;
       const g = rows.filter(r => r.grp === grp), red = g.filter(r => r.state==='no' || r.state==='error').length;
-      head = `<div style="margin:14px 0 4px;padding:6px 10px;background:var(--surface-2,rgba(255,255,255,.05));border-radius:6px;font-weight:700;">${SMS_GRP_LABEL[grp]} <span class="hint" style="font-weight:400;">· ${g.length}${red ? ' · <span style="color:var(--danger);">без SMS: ' + red + '</span>' : ''}</span></div>`;
+      head = `<div style="margin:14px 0 4px;padding:6px 10px;background:var(--surface-2,rgba(255,255,255,.05));border-radius:6px;font-weight:700;"><label style="cursor:pointer;margin-right:8px;" title="Вибрати всю групу"><input type="checkbox" data-smsgrp="${grp}" onchange="smsSelGroup('${grp}', this.checked)"></label>${SMS_GRP_LABEL[grp]} <span class="hint" style="font-weight:400;">· ${g.length}${red ? ' · <span style="color:var(--danger);">без SMS: ' + red + '</span>' : ''}</span></div>`;
     }
     const bad = state==='no' || state==='error';
     const col = state==='sent' ? 'var(--cardamom)' : (bad ? 'var(--danger)' : 'var(--text-muted)');
     const mark = state==='sent' ? '✓ Надіслано' : (state==='error' ? '✗ Помилка' : (state==='before' ? '• Раніше' : '✗ Не надіслано'));
     const canSend = bad && o.phone && toIntlPhone(o.phone).length===12 && (o.ttnNumber||o.ukrTtnNumber);
-    return head + `<div class="wh-row" style="grid-template-columns:120px 1fr 120px 140px 1fr 1.3fr 100px;${bad?'background:rgba(180,60,40,0.07);':''}">
+    const selOk = smsCanSelect(o);
+    return head + `<div class="wh-row" style="grid-template-columns:28px 120px 1fr 120px 140px 1fr 1.3fr 100px;${bad?'background:rgba(180,60,40,0.07);':''}">
+      <div>${selOk ? `<input type="checkbox" data-smsid="${o.id}" data-g="${grp}" ${smsSel.has(o.id)?'checked':''} onchange="smsSelToggle(${o.id}, this.checked)">` : ''}</div>
       <div class="cv" style="color:${col};font-weight:600;">${mark}</div>
       <div>${escapeAttr(o.customer||'Без імені')}</div>
       <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.phone||'—')}</div>
@@ -6697,6 +6731,7 @@ function renderSmsDayReport(){
       <div>${canSend ? `<button class="btn btn-sm" onclick="smsSendToOrders([orderById(${o.id})],{}).then(renderSmsDayReport)">Надіслати</button>` : ''}</div>
     </div>`;
   }).join('');
+  smsSelUpdateCount();
 }
 async function smsDaySendMissing(){
   const {from: day, to: dayTo} = smsRange();
@@ -7179,6 +7214,52 @@ function resolveDuplicateOrderIds(){
     if(seen.has(o.id)) o.id = allocOrderId();
     seen.add(o.id);
   });
+  resolveDuplicateOrderUids();
+}
+// «Копіювати» раніше залишало в копії uid оригіналу — через це злиття даних з бази (воно звіряє замовлення за uid)
+// переносило ТТН, статуси й «повернено» з оригіналу в копію. Тут: копії дістають власний uid, а якщо вони вже
+// «заразились» чужою ТТН — її (і статуси перевізника) знімаємо; ТТН для копії потрібно створити/прив'язати заново.
+const ORDER_CARRIER_FIELDS = ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','ukrStatusText','atBranchSince','deliveredDate','shipConfirmed','labelPrinted','labelPrintedAt','labelPrintedBy','shippedBy','shippedMarkAt'];
+function resolveDuplicateOrderUids(){
+  const groups = new Map();
+  orders.forEach(o => { if(o.uid){ if(!groups.has(o.uid)) groups.set(o.uid, []); groups.get(o.uid).push(o); } });
+  let fixed = 0, cleaned = [];
+  groups.forEach(list => {
+    if(list.length < 2) return;
+    list.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+    const keeper = list[0];
+    list.slice(1).forEach(o => {
+      o.uid = generateOrderUid(); fixed++;
+      const sameTtn = (o.ttnNumber && o.ttnNumber === keeper.ttnNumber) || (o.ukrTtnNumber && o.ukrTtnNumber === keeper.ukrTtnNumber);
+      if(sameTtn){
+        ORDER_CARRIER_FIELDS.forEach(f => { if(typeof o[f] === 'boolean') o[f] = false; else o[f] = ''; });
+        o.shipped = false; o.delivered = false; o.npReturned = false; o.packed = false; o.packedAt = '';
+        if(o.status === 'Повернено') o.status = 'Нове';
+        cleaned.push(o.customer || ('№' + o.id));
+      }
+    });
+  });
+  // «Копіювати» переносило в копію й фіскальний чек оригіналу (cbReceipt) — тоді нове замовлення вважалось уже «пробитим»,
+  // і Checkbox не пробивав чек на нову відправку. Якщо один і той самий чек стоїть у кількох замовленнях — лишаємо найстарішому.
+  const byReceipt = new Map(), rcClean = [];
+  orders.slice().sort((x, y) => (Number(x.id) || 0) - (Number(y.id) || 0)).forEach(o => {
+    const rid = o.cbReceipt && o.cbReceipt.id;
+    if(!rid) return;
+    if(byReceipt.has(rid)){ delete o.cbReceipt; fixed++; rcClean.push(o.customer || ('№' + o.id)); }
+    else byReceipt.set(rid, o);
+  });
+  if(fixed){
+    setTimeout(() => {
+      try{ if(rcClean.length) showUndoToast(`Знято чужий чек Checkbox з копій: ${rcClean.join(', ')} — натисніть «пробити» в замовленні, щоб пробити чек заново`, false); }catch(e){}
+    }, 800);
+  }
+  if(fixed){
+    setTimeout(() => {
+      try{ showUndoToast(`Виправлено замовлень зі спільним ідентифікатором: ${fixed}` + (cleaned.length ? `. З ТТН оригіналу знято: ${cleaned.join(', ')} — створіть або прив'яжіть їм ТТН заново` : ''), false); }catch(e){}
+      try{ scheduleSave(); }catch(e){}
+    }, 1500);
+  }
+  return fixed;
 }
 
 function newOrderDefaults(id){
@@ -7252,6 +7333,7 @@ function duplicateOrder(sourceId){
   const id = allocOrderId();
   const copy = JSON.parse(JSON.stringify(src));
   copy.id = id;
+  copy.uid = generateOrderUid(); // ВАЖЛИВО: власний uid — інакше при злитті даних копія «підхоплює» ТТН і статуси оригіналу
   copy.date = todayStr();
   copy.status = 'Нове';
   copy.paid = false;
@@ -7274,6 +7356,9 @@ function duplicateOrder(sourceId){
   copy.smsLog = [];
   copy.sendToTelegram = false;
   copy.sendSms = false;
+  ['ukrRecipientUuid','ukrStatusText','deliveredDate','atBranchSince','branchReminderSentDate','packedTs','packedBy','shippedBy','shippedMarkAt','labelPrintedAt','labelPrintedBy','codPaymentDate','codReceivedAmount','deliveryCost'].forEach(f => { if(f in copy) copy[f] = ''; });
+  copy.shipConfirmed = false; copy.labelPrinted = false; copy.npReturned = false; copy.keepActive = false;
+  delete copy.cbReceipt; delete copy.pkText; delete copy.pkShipped; delete copy.pkDelivered; delete copy.pkReturned; delete copy.pkAt;
   orders.push(copy);
   renderOrders();
   renderOrdersSummary();
@@ -11276,7 +11361,9 @@ async function smsSendToOrders(chosen, opts){
   }
   const sentBefore = opts.skipSent ? 0 : ready.filter(o => smsKindFor(o) === 'shipped' && o.customerSmsSent).length;
   const remindN = ready.filter(o => smsKindFor(o) === 'reminder').length;
-  let q = `Надіслати SMS ${ready.length} клієнт(ам)?\n\nПриклад (${ready[0].customer||'?'}):\n${fillSmsTemplate(ready[0])}`;
+  const kindCnt = {shipped:0, arrived:0, reminder:0};
+  ready.forEach(o => { kindCnt[smsKindFor(o)]++; });
+  let q = `Надіслати SMS ${ready.length} клієнт(ам)?\nКожному — за його ситуацією: відправлено — ${kindCnt.shipped}, прибула у відділення — ${kindCnt.arrived}, нагадування про відділення — ${kindCnt.reminder}.\n\nПриклад (${ready[0].customer||'?'}):\n${fillSmsTemplate(ready[0])}`;
   if(sentBefore) q += `\n\n⚠ ${sentBefore} з них уже отримували SMS про відправку раніше.`;
   if(remindN) q += `\n\nℹ ${remindN} з них уже отримали SMS про прибуття — їм піде НАГАДУВАННЯ (шаблон 3).`;
   if(already) q += `\n\nПропущено ${already}, які вже отримали SMS.`;
