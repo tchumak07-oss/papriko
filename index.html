@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.14 · 06.11.2026 12:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.87.0 · 07.11.2026 10:18</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1675,6 +1675,22 @@
       <div class="hint" id="freeShipStatus" style="margin-top:6px;"></div>
     </div></div>
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">🌐 Замовлення з сайту papriko.com.ua</div>
+      <p class="hint" style="margin:0 0 8px;">Програма раз на 3 хвилини забирає з сайту нові замовлення разом із ТТН, яку створив сайт, і додає їх у список (позначка «З сайту»). Карткою й частинами — лише після підтвердження оплати. Якщо на сайті є товар, якого програма ще не знає, з'явиться вікно: оберіть відповідний набір один раз, далі він підставлятиметься сам. Ключ сайту зберігається в посереднику на Cloudflare, а не тут.</p>
+      <div class="fb-row">
+        <input type="text" id="siteSyncUrl" placeholder="Адреса посередника, напр. https://papriko-site.….workers.dev" style="flex:1 1 320px;">
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin-top:8px;">
+        <input type="checkbox" id="siteSyncEnabled" style="width:auto;accent-color:var(--saffron);">
+        <span>Автоматично завантажувати замовлення з сайту</span>
+      </label>
+      <div class="fb-row" style="margin-top:8px;">
+        <button class="btn btn-sm btn-primary" onclick="saveSiteSyncSettings()">Зберегти</button>
+        <button class="btn btn-sm" onclick="runSiteImport(true)">Завантажити зараз</button>
+      </div>
+      <div class="hint" id="siteSyncStatus" style="margin-top:6px;"></div>
+    </div></div>
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">SMS клієнтам</div>
       <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;cursor:pointer;margin-top:6px;">
         <input type="checkbox" id="setAutoSmsArrived" onchange="saveAppSettings()" style="width:auto;margin-top:3px;accent-color:var(--saffron);">
@@ -2359,6 +2375,7 @@ function scheduleSave(){
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
+          dedupeSiteOrders();
           setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
         }
         const payload = buildStatePayload();
@@ -2438,6 +2455,7 @@ function doConnect(config){
         setSyncBadge('on', 'Синхронізовано');
         updateDbSizeMeter();
         setTimeout(() => runAutoSyncDelivery('start'), 4000);
+        setTimeout(() => { startSiteSync(); runSiteImport(false); }, 8000);
 
         // aux — окремим, НЕ блокуючим потоком: похибка тут (права доступу, відсутній документ
         // тощо) лише лишає рух товарів тимчасово несинхронізованим, не заважаючи основним даним.
@@ -6213,6 +6231,7 @@ function renderAppSettings(){
   const c2 = document.getElementById('setAutoSmsShipped'); if(c2) c2.checked = !!appSettings.autoSmsShipped;
   const tr = document.getElementById('setTgReplace'); if(tr) tr.checked = appSettings.tgReplacePrev !== false;
   const fs = document.getElementById('setFreeShip'); if(fs && document.activeElement !== fs) fs.value = Number(appSettings.freeShipThreshold) > 0 ? appSettings.freeShipThreshold : '';
+  if(typeof renderSiteSyncSettings === 'function') renderSiteSyncSettings();
 }
 function saveTgReplace(){
   appSettings.tgReplacePrev = !!document.getElementById('setTgReplace').checked;
@@ -16544,6 +16563,240 @@ function copyInvoiceDraft(id){
   if(titleEl) titleEl.textContent = (type === 'waybill' ? 'Нова видаткова накладна' : 'Новий рахунок') + ` (копія № ${inv.number})`;
   const noticeEl = document.getElementById('invoiceEditingNotice');
   if(noticeEl){ noticeEl.style.display = ''; noticeEl.textContent = `Це копія документа № ${inv.number}: номер і дату змінено, решту дані перенесено. Перевірте й натисніть «Сформувати».`; }
+}
+
+/* ---------- замовлення з сайту papriko.com.ua (через посередника на Cloudflare, див. site-proxy-worker.js) ---------- */
+// Програма раз на 3 хвилини забирає з сайту нові й змінені замовлення і додає їх у список разом із ТТН,
+// яку створив сайт. Товари сайту зіставляються з наборами програми; вибір запам'ятовується в appSettings.siteKitMap.
+// Працює лише в активній вкладці (sessionLocked = false), щоб два пристрої не завантажували те саме.
+const SITE_SYNC_EVERY_MS = 3 * 60 * 1000;
+const SITE_PAY_LABELS = {cod: 'накладений платіж', prepaid: 'передоплата', card: 'картка', chast: 'Покупка Частинами', privat: 'ПриватБанк'};
+let siteSyncTimer = null, siteSyncBusy = false;
+
+function siteSyncCfg(){
+  if(!appSettings.siteSync || typeof appSettings.siteSync !== 'object') appSettings.siteSync = {};
+  return appSettings.siteSync;
+}
+function setSiteSyncStatus(t){
+  const c = siteSyncCfg(); c.lastMsg = t; c.lastAt = new Date().toISOString();
+  const el = document.getElementById('siteSyncStatus'); if(el) el.textContent = t;
+}
+function renderSiteSyncSettings(){
+  const c = siteSyncCfg();
+  const u = document.getElementById('siteSyncUrl'); if(u && document.activeElement !== u) u.value = c.url || '';
+  const e = document.getElementById('siteSyncEnabled'); if(e) e.checked = !!c.enabled;
+  const s = document.getElementById('siteSyncStatus');
+  if(s && c.lastMsg) s.textContent = c.lastMsg + (c.lastAt ? ' (' + new Date(c.lastAt).toLocaleString('uk-UA', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) + ')' : '');
+}
+function saveSiteSyncSettings(){
+  const c = siteSyncCfg();
+  c.url = (document.getElementById('siteSyncUrl').value || '').trim().replace(/\/+$/, '');
+  c.enabled = !!document.getElementById('siteSyncEnabled').checked;
+  scheduleSave();
+  startSiteSync();
+  setSiteSyncStatus(c.enabled ? (c.url ? 'Збережено. Перевіряю сайт…' : 'Вкажіть адресу посередника.') : 'Автозавантаження вимкнено.');
+  if(c.enabled && c.url) setTimeout(() => runSiteImport(true), 300);
+}
+function startSiteSync(){
+  if(siteSyncTimer){ clearInterval(siteSyncTimer); siteSyncTimer = null; }
+  const c = siteSyncCfg();
+  if(!c.enabled || !c.url) return;
+  siteSyncTimer = setInterval(() => runSiteImport(false), SITE_SYNC_EVERY_MS);
+}
+
+async function siteApiGet(path){
+  const c = siteSyncCfg();
+  if(!fbAuth || !fbAuth.currentUser) throw new Error('потрібен вхід у програму');
+  const token = await fbAuth.currentUser.getIdToken();
+  const res = await fetch(c.url + path, {headers: {'Authorization': 'Bearer ' + token}});
+  let data = null; try{ data = await res.json(); }catch(e){}
+  if(!res.ok || !data || data.ok === false){
+    const msg = (data && (data.message || data.error)) || ('HTTP ' + res.status);
+    const err = new Error(msg); err.status = res.status; err.code = data && data.error; throw err;
+  }
+  return data;
+}
+
+function siteLocalDate(iso){
+  const d = new Date(iso || Date.now());
+  if(isNaN(d)) return todayStr();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function sitePhone(p){ const d = String(p||'').replace(/\D/g, ''); return d.length >= 9 ? '0' + d.slice(-9) : String(p||''); }
+function siteItemKey(it){ return String(it.productId || it.name || '') + '|' + String(it.variantId || it.variantLabel || ''); }
+function siteItemTitle(it){ return [it.name, it.variantLabel, it.variantMeta].filter(Boolean).join(' · '); }
+// оплату карткою / частинами беремо лише після підтвердження банку; накладений платіж і передоплату — одразу
+function siteOrderReady(so){
+  if(so.removed || so.hidden || so.test) return false;
+  if(so.status === 'cancelled') return false;
+  if(['card','chast','privat'].includes(so.payMethod) && !['paid','hold'].includes(so.payStatus)) return false;
+  return true;
+}
+function siteStatusToLocal(s){ return ({new:'Нове', processing:'В обробці', shipped:'Відправлено', done:'Відправлено', cancelled:'Скасовано'})[s] || 'Нове'; }
+function siteSetTtn(o, so){
+  if(!so.ttn) return false;
+  const ttn = String(so.ttn).replace(/\s/g, '');
+  if(o.ttnNumber === ttn || o.ukrTtnNumber === ttn) return false;
+  if(o.ttnNumber || o.ukrTtnNumber) return false; // у програмі вже інша накладна — не перезаписуємо
+  const ukr = so.deliveryMethod ? so.deliveryMethod === 'ukrposhta' : o.deliveryMethod === 'Укрпошта';
+  if(ukr){ o.ukrTtnNumber = ttn; o.deliveryMethod = 'Укрпошта'; } else { o.ttnNumber = ttn; o.deliveryMethod = 'Нова Пошта'; }
+  return true;
+}
+function findKitForSiteItem(it){
+  const map = appSettings.siteKitMap || {};
+  const mapped = map[siteItemKey(it)];
+  if(mapped === 'skip') return 'skip';
+  if(mapped != null){ const k = kits.find(x => x.id === mapped && !x.archived); if(k) return k; }
+  const labels = packLabelsFromCell([it.variantLabel, it.variantMeta].filter(Boolean).join(' '));
+  return findKitForItem({token: String(it.name || '').trim(), labels, createName: siteItemTitle(it)}) || null;
+}
+// спільне зіставлення для всієї пачки: невідомі товари показуємо одним вікном (один раз на товар)
+async function resolveSiteKits(list){
+  const unresolved = new Map();
+  list.forEach(so => (so.items || []).forEach(it => {
+    if(!findKitForSiteItem(it)){ const t = siteItemTitle(it); if(!unresolved.has(t)) unresolved.set(t, it); }
+  }));
+  if(!unresolved.size) return;
+  setSiteSyncStatus(`Нові товари з сайту (${unresolved.size}) — оберіть відповідні набори у вікні.`);
+  const choice = await chooseKitsForUnresolved(unresolved);
+  if(!appSettings.siteKitMap) appSettings.siteKitMap = {};
+  choice.forEach((d, title) => {
+    const it = unresolved.get(title);
+    const key = siteItemKey(it);
+    if(d.action === 'kit') appSettings.siteKitMap[key] = d.kitId;
+    else if(d.action === 'new'){
+      const k = createNewKitFromName(title.replace(/ · /g, ' '));
+      k.price = Number(it.price) || 0;
+      appSettings.siteKitMap[key] = k.id;
+    } else appSettings.siteKitMap[key] = 'skip';
+  });
+  try{ if(typeof renderKits === 'function') renderKits(); }catch(e){ console.warn('[site import] renderKits', e); }
+}
+function siteFillOrder(o, so){
+  o.fromSite = true; o.siteImported = true;
+  o.siteId = so.id; o.siteNo = so.no || ''; o.siteVersion = so.version || 0;
+  o.customer = so.name || (so.phone ? 'Клієнт ' + so.phone : '');
+  o.phone = sitePhone(so.phone);
+  o.date = siteLocalDate(so.createdAt);
+  o.status = siteStatusToLocal(so.status);
+  if(so.deliveryMethod === 'ukrposhta'){
+    o.deliveryMethod = 'Укрпошта';
+    o.ukrCity = so.city || ''; o.ukrOfficeDesc = so.warehouse || '';
+    const idx = String(so.warehouse || '').match(/\b\d{5}\b/); if(idx) o.ukrIndex = idx[0];
+  } else {
+    o.deliveryMethod = 'Нова Пошта';
+    o.city = so.city || ''; o.cityRef = so.cityRef || '';
+    o.warehouseDesc = so.warehouse || ''; o.warehouseRef = so.warehouseRef || '';
+  }
+  siteSetTtn(o, so);
+  const skipped = [];
+  (so.items || []).forEach(it => {
+    const k = findKitForSiteItem(it);
+    const qty = Number(it.qty) || 1, price = Number(it.price) || 0;
+    if(!k || k === 'skip'){ skipped.push(`${siteItemTitle(it)} × ${qty}`); return; }
+    const ex = o.items.find(x => x.kitId === k.id && x.price === price);
+    if(ex) ex.qty += qty; else o.items.push({kitId: k.id, qty, price});
+  });
+  const sub = calcOrder(o).subtotal, total = Number(so.total) || 0;
+  if(total > 0 && sub - total > 0.5 && !skipped.length){ o.discountType = 'amount'; o.discountValue = Math.round((sub - total) * 100) / 100; }
+  o.paid = so.payStatus === 'paid';
+  o.codAmount = (so.payMethod === 'cod' && !o.paid) ? total : '';
+  const notes = [`🌐 Сайт №${so.no || so.id}`];
+  if(so.payMethod) notes.push('Оплата: ' + (SITE_PAY_LABELS[so.payMethod] || so.payMethod) + (so.payStatus === 'paid' ? ' (оплачено)' : ''));
+  if(so.comment) notes.push('Коментар: ' + so.comment);
+  if(skipped.length) notes.push('⚠️ Не додано товари: ' + skipped.join('; '));
+  o.notes = notes.join('\n');
+  o.collapsed = true;
+}
+// уже наявне в програмі замовлення, внесене вручну до появи імпорту: та сама ТТН або (без ТТН) той самий телефон за ±2 дні
+function findLocalMatchForSite(so){
+  const free = orders.filter(o => !o.siteId);
+  const ttn = String(so.ttn || '').replace(/\s/g, '');
+  if(ttn){ const m = free.find(o => o.ttnNumber === ttn || o.ukrTtnNumber === ttn); if(m) return m; }
+  const pk = normPhoneKey(so.phone); if(!pk) return null;
+  const d = siteLocalDate(so.createdAt);
+  const c = free.filter(o => !isArchived(o) && o.status !== 'Скасовано' && normPhoneKey(o.phone) === pk && Math.abs(daysBetween(o.date, d) || daysBetween(d, o.date)) <= 2);
+  return c.length === 1 ? c[0] : null;
+}
+// якщо два пристрої все ж створили те саме замовлення сайту — лишаємо старіше
+function dedupeSiteOrders(){
+  const seenIds = new Map(); const drop = new Set();
+  orders.slice().sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0)).forEach(o => {
+    if(!o.siteId) return;
+    if(seenIds.has(o.siteId)){ if(o.siteImported) drop.add(o); }
+    else seenIds.set(o.siteId, o);
+  });
+  if(drop.size) orders = orders.filter(o => !drop.has(o));
+  return drop.size;
+}
+
+async function runSiteImport(manual){
+  const c = siteSyncCfg();
+  if(siteSyncBusy) return;
+  if(!c.url){ if(manual) setSiteSyncStatus('Вкажіть адресу посередника.'); return; }
+  if(!manual && !c.enabled) return;
+  if(sessionLocked){ if(manual) setSiteSyncStatus('Ця вкладка неактивна — завантаження робить активна вкладка/пристрій.'); return; }
+  if(!fbConnected){ if(manual) setSiteSyncStatus('Немає підключення до бази.'); return; }
+  siteSyncBusy = true;
+  try{
+    // перший запуск — лише замовлення, змінені за останні 3 дні (а не вся історія сайту)
+    const since = c.since || new Date(Date.now() - 3 * 86400000).toISOString();
+    let cursor = null, serverTime = null, fetched = [];
+    for(let page = 0; page < 20; page++){
+      const q = cursor ? `cursor=${encodeURIComponent(cursor)}&limit=200` : `updatedSince=${encodeURIComponent(since)}&limit=200`;
+      const d = await siteApiGet('/orders?' + q);
+      if(!serverTime) serverTime = d.serverTime;
+      fetched = fetched.concat(d.data || []);
+      if(!(d.page && d.page.hasMore && d.page.nextCursor)) break;
+      cursor = d.page.nextCursor;
+    }
+    const toCreate = [];
+    let updated = 0, linked = 0, created = 0;
+    fetched.forEach(so => {
+      let o = orders.find(x => x.siteId === so.id);
+      if(!o && siteOrderReady(so)){
+        const m = findLocalMatchForSite(so);
+        if(m){ m.siteId = so.id; m.siteNo = so.no || ''; m.fromSite = true; o = m; linked++; }
+      }
+      if(o){
+        let ch = false;
+        if(siteSetTtn(o, so)) ch = true;
+        if((so.removed || so.status === 'cancelled') && !o.shipped && !o.ttnNumber && !o.ukrTtnNumber && o.status !== 'Скасовано'){
+          o.status = 'Скасовано'; o.notes = (o.notes ? o.notes + '\n' : '') + '⚠️ На сайті замовлення скасовано' + (so.removed ? ' (оплата не відбулась)' : ''); ch = true;
+        }
+        if(so.payStatus === 'paid' && !o.paid){ o.paid = true; o.codAmount = ''; ch = true; }
+        if(so.version) o.siteVersion = so.version;
+        if(ch) updated++;
+      } else if(siteOrderReady(so)) toCreate.push(so);
+    });
+    if(toCreate.length) await resolveSiteKits(toCreate);
+    toCreate.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).forEach(so => {
+      if(orders.some(x => x.siteId === so.id)) return;
+      const o = newOrderDefaults(allocOrderId());
+      siteFillOrder(o, so);
+      orders.push(o);
+      ensureClientForOrder(o);
+      autoUpdateWeightSilently(o.id);
+      created++;
+    });
+    dedupeSiteOrders();
+    if(serverTime) c.since = serverTime;
+    const parts = [];
+    if(created) parts.push(`нових: ${created}`);
+    if(linked) parts.push(`прив'язано до наявних: ${linked}`);
+    if(updated) parts.push(`оновлено: ${updated}`);
+    setSiteSyncStatus(parts.length ? 'З сайту — ' + parts.join(', ') : 'З сайту: нових замовлень немає');
+    if(created || updated || linked){
+      renderOrders(); renderOrdersSummary();
+      if(created && !manual) showUndoToast(`🌐 З сайту додано замовлень: ${created}`, false);
+    }
+    scheduleSave();
+  }catch(err){
+    setSiteSyncStatus('Помилка завантаження з сайту: ' + err.message);
+    console.warn('[site import]', err);
+  }finally{
+    siteSyncBusy = false;
+  }
 }
 </script>
 </body>

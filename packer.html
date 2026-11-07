@@ -265,12 +265,16 @@ function armBootTimer(t){
 function signIn(cred, remember){
   $('lgErr').textContent = '';
   if($('login').style.display !== 'block'){ bootMsg('Вхід…'); armBootTimer('Вхід триває надто довго.'); }
+  else {
+    $('lgErr').style.color = 'var(--muted)'; $('lgErr').textContent = 'Вхід…';
+    clearTimeout(window._lgT); window._lgT = setTimeout(() => { if($('lgErr').textContent === 'Вхід…'){ $('lgErr').style.color = 'var(--danger)'; $('lgErr').textContent = 'Вхід триває надто довго. Перевірте інтернет і оновіть сторінку.'; } }, 15000);
+  }
   auth.signInWithEmailAndPassword(cred.e, cred.p).then(() => {
     if(remember){ try{ localStorage.setItem('packerCred', JSON.stringify(cred)); }catch(e){} }
   }).catch(err => {
     const c0 = err && err.code;
     if(c0 !== 'auth/network-request-failed'){ try{ localStorage.removeItem('packerCred'); }catch(e){} }
-    showLogin();
+    showLogin(); $('lgErr').style.color = 'var(--danger)';
     const c = err && err.code;
     $('lgErr').textContent = (c === 'auth/network-request-failed') ? 'Немає інтернету.' : 'Не вдалось увійти. Перевірте посилання або пароль.';
   });
@@ -279,6 +283,9 @@ function signIn(cred, remember){
 function start(){
   if(typeof firebase === 'undefined'){ bootMsg('Не завантажились бібліотеки (немає інтернету або їх заблоковано).', true); return; }
   bootMsg('Підключення…'); armBootTimer('Не вдається підключитися.');
+  // Chrome на iPhone інколи «зависає» на сховищі IndexedDB — тоді вхід ніколи не завершується.
+  // Цій сторінці воно не потрібне: Firebase збереже вхід у звичайному localStorage.
+  try{ Object.defineProperty(window, 'indexedDB', {value: undefined, configurable: true}); }catch(e){}
   firebase.initializeApp(FB_CONFIG);
   auth = firebase.auth();
   db = firebase.firestore();
