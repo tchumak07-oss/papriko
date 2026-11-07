@@ -388,11 +388,12 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.87.0 · 07.11.2026 10:18</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.87.2 · 07.11.2026 12:36</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
         <button class="btn btn-sm" onclick="openOcrModal()">📷 Зі скріншота</button>
+        <button class="btn btn-sm" id="siteImportBtn" onclick="siteImportFromHeader()" title="Забрати нові замовлення з papriko.com.ua зараз (автоматично це відбувається раз на 3 хвилини)">🌐 З сайту</button>
         <select id="quickOrderKitSelect" onchange="setQuickOrderKit(this.value)" title="Цей набір автоматично додаватиметься в кожне нове замовлення, поки ви не зміните вибір тут"></select>
       </div>
     </div>
@@ -16708,6 +16709,28 @@ function siteFillOrder(o, so){
   o.notes = notes.join('\n');
   o.collapsed = true;
 }
+// дозаповнює порожні поля (ім'я, телефон, адреса, коментар) — для замовлень, завантажених, поки ключу сайту
+// ще не були дозволені «особисті дані». Нічого, що вже заповнено в програмі, не перезаписує.
+function siteBackfill(o, so){
+  let ch = false;
+  const set = (f, v) => { if(v && !String(o[f] || '').trim()){ o[f] = v; ch = true; } };
+  if(so.name && (!o.customer || /^Клієнт\b/.test(o.customer))){ if(o.customer !== so.name){ o.customer = so.name; ch = true; } }
+  set('phone', so.phone ? sitePhone(so.phone) : '');
+  if(o.deliveryMethod === 'Укрпошта'){
+    set('ukrCity', so.city); set('ukrOfficeDesc', so.warehouse);
+    const idx = String(so.warehouse || '').match(/\b\d{5}\b/); if(idx) set('ukrIndex', idx[0]);
+  } else {
+    set('city', so.city); set('cityRef', so.cityRef); set('warehouseDesc', so.warehouse); set('warehouseRef', so.warehouseRef);
+  }
+  if(so.comment && !String(o.notes || '').includes(so.comment)){ o.notes = (o.notes ? o.notes + '\n' : '') + 'Коментар: ' + so.comment; ch = true; }
+  if(ch) ensureClientForOrder(o);
+  return ch;
+}
+function siteOrderIncomplete(o){
+  if(!o.siteImported || isArchived(o) || o.status === 'Скасовано') return false;
+  const addr = o.deliveryMethod === 'Укрпошта' ? (o.ukrCity || o.ukrOfficeDesc) : (o.city || o.warehouseDesc);
+  return !o.phone || !o.customer || /^Клієнт\b/.test(o.customer) || !addr;
+}
 // уже наявне в програмі замовлення, внесене вручну до появи імпорту: та сама ТТН або (без ТТН) той самий телефон за ±2 дні
 function findLocalMatchForSite(so){
   const free = orders.filter(o => !o.siteId);
@@ -16730,6 +16753,20 @@ function dedupeSiteOrders(){
   return drop.size;
 }
 
+// кнопка в шапці: показує результат прямо на кнопці й спливаючим повідомленням
+async function siteImportFromHeader(){
+  const b = document.getElementById('siteImportBtn');
+  const c = siteSyncCfg();
+  if(!c.url){ alert('Спершу вкажіть адресу посередника: «Налаштування» → «🌐 Замовлення з сайту».'); return; }
+  if(siteSyncBusy) return;
+  if(b){ b.disabled = true; b.textContent = '🌐 Завантажую…'; }
+  const before = orders.length;
+  try{ await runSiteImport(true); }
+  finally{ if(b){ b.disabled = false; b.textContent = '🌐 З сайту'; } }
+  const added = orders.length - before;
+  showUndoToast(c.lastMsg || 'Готово', false);
+  if(added > 0){ try{ showSection('orders'); resetOrderFilters(); renderOrders(); }catch(e){} }
+}
 async function runSiteImport(manual){
   const c = siteSyncCfg();
   if(siteSyncBusy) return;
@@ -16761,6 +16798,7 @@ async function runSiteImport(manual){
       if(o){
         let ch = false;
         if(siteSetTtn(o, so)) ch = true;
+        if(o.siteImported && siteBackfill(o, so)) ch = true;
         if((so.removed || so.status === 'cancelled') && !o.shipped && !o.ttnNumber && !o.ukrTtnNumber && o.status !== 'Скасовано'){
           o.status = 'Скасовано'; o.notes = (o.notes ? o.notes + '\n' : '') + '⚠️ На сайті замовлення скасовано' + (so.removed ? ' (оплата не відбулась)' : ''); ch = true;
         }
@@ -16779,13 +16817,29 @@ async function runSiteImport(manual){
       autoUpdateWeightSilently(o.id);
       created++;
     });
+    // замовлення, яким бракує імені/телефону/адреси, дочитуємо поштучно (до 20 за раз) — дані підтягнуться,
+    // щойно в адмінці сайту ключу дозволять ці поля
+    let filled = 0, stillMissing = 0;
+    const fetchedIds = new Set(fetched.map(x => x.id));
+    for(const o of orders.filter(siteOrderIncomplete).slice(0, 20)){
+      if(fetchedIds.has(o.siteId) && !siteOrderIncomplete(o)) continue;
+      try{
+        const d = await siteApiGet('/orders/' + encodeURIComponent(o.siteId));
+        const so = d.data || d;
+        if(so && siteBackfill(o, so)) filled++;
+        if(siteOrderIncomplete(o)) stillMissing++;
+      }catch(e){ if(e.status === 429) break; }
+    }
+    if(filled) updated += filled;
     dedupeSiteOrders();
     if(serverTime) c.since = serverTime;
     const parts = [];
     if(created) parts.push(`нових: ${created}`);
     if(linked) parts.push(`прив'язано до наявних: ${linked}`);
     if(updated) parts.push(`оновлено: ${updated}`);
-    setSiteSyncStatus(parts.length ? 'З сайту — ' + parts.join(', ') : 'З сайту: нових замовлень немає');
+    let msg = parts.length ? 'З сайту — ' + parts.join(', ') : 'З сайту: нових замовлень немає';
+    if(stillMissing) msg += `. ⚠️ Сайт не передає ім'я/телефон/адресу (${stillMissing} замовл.) — дозвольте ці поля ключу в адмінці сайту, розділ «API»`;
+    setSiteSyncStatus(msg);
     if(created || updated || linked){
       renderOrders(); renderOrdersSummary();
       if(created && !manual) showUndoToast(`🌐 З сайту додано замовлень: ${created}`, false);
