@@ -388,12 +388,11 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.87.2 · 07.11.2026 12:36</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.17 · 08.11.2026 13:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
         <button class="btn btn-sm" onclick="openOcrModal()">📷 Зі скріншота</button>
-        <button class="btn btn-sm" id="siteImportBtn" onclick="siteImportFromHeader()" title="Забрати нові замовлення з papriko.com.ua зараз (автоматично це відбувається раз на 3 хвилини)">🌐 З сайту</button>
         <select id="quickOrderKitSelect" onchange="setQuickOrderKit(this.value)" title="Цей набір автоматично додаватиметься в кожне нове замовлення, поки ви не зміните вибір тут"></select>
       </div>
     </div>
@@ -874,6 +873,7 @@
     <div class="hint" id="fixFutureStatus" style="margin-top:6px;"></div>
   </div></div>
 
+  <div id="attentionBox" style="display:none;"></div>
   <div class="fb-row" style="align-items:flex-end;margin-bottom:8px;">
     <div><label style="font-size:12px;color:var(--text-muted);">Період з</label><input type="date" id="ordersSummaryFrom" onchange="renderOrdersSummary()" style="width:auto;"></div>
     <div><label style="font-size:12px;color:var(--text-muted);">по</label><input type="date" id="ordersSummaryTo" onchange="renderOrdersSummary()" style="width:auto;"></div>
@@ -1668,28 +1668,12 @@
     </div></div>
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">🚚 Безкоштовна доставка</div>
-      <p class="hint" style="margin:0 0 8px;">Якщо сума замовлення (після знижки) дорівнює порогу або більша, у замовленні автоматично вмикається «Доставка за наш рахунок» (платник — відправник у накладних НП і Укрпошти). Самовивіз не враховується. Якщо ви вручну змінили цю галочку в замовленні, автоматика це замовлення більше не чіпає. Залиште поле порожнім або 0, щоб вимкнути.</p>
+      <p class="hint" style="margin:0 0 8px;">Якщо замовлення позначене «Замовлено з сайту» і його сума (після знижки) дорівнює порогу або більша, у замовленні автоматично вмикається «Доставка за наш рахунок» (платник — відправник у накладних НП і Укрпошти). Самовивіз не враховується. Якщо ви вручну змінили цю галочку в замовленні, автоматика це замовлення більше не чіпає. Залиште поле порожнім або 0, щоб вимкнути.</p>
       <div class="fb-row">
         <input type="number" min="0" step="1" id="setFreeShip" placeholder="Поріг, грн (напр. 1000)" style="max-width:240px;" onchange="saveFreeShip()">
         <button class="btn btn-sm" onclick="freeShipApplyAll()" title="Перерахувати для вже створених замовлень без накладної">Застосувати до наявних замовлень</button>
       </div>
       <div class="hint" id="freeShipStatus" style="margin-top:6px;"></div>
-    </div></div>
-    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
-      <div class="catalog-group-title">🌐 Замовлення з сайту papriko.com.ua</div>
-      <p class="hint" style="margin:0 0 8px;">Програма раз на 3 хвилини забирає з сайту нові замовлення разом із ТТН, яку створив сайт, і додає їх у список (позначка «З сайту»). Карткою й частинами — лише після підтвердження оплати. Якщо на сайті є товар, якого програма ще не знає, з'явиться вікно: оберіть відповідний набір один раз, далі він підставлятиметься сам. Ключ сайту зберігається в посереднику на Cloudflare, а не тут.</p>
-      <div class="fb-row">
-        <input type="text" id="siteSyncUrl" placeholder="Адреса посередника, напр. https://papriko-site.….workers.dev" style="flex:1 1 320px;">
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin-top:8px;">
-        <input type="checkbox" id="siteSyncEnabled" style="width:auto;accent-color:var(--saffron);">
-        <span>Автоматично завантажувати замовлення з сайту</span>
-      </label>
-      <div class="fb-row" style="margin-top:8px;">
-        <button class="btn btn-sm btn-primary" onclick="saveSiteSyncSettings()">Зберегти</button>
-        <button class="btn btn-sm" onclick="runSiteImport(true)">Завантажити зараз</button>
-      </div>
-      <div class="hint" id="siteSyncStatus" style="margin-top:6px;"></div>
     </div></div>
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
       <div class="catalog-group-title">SMS клієнтам</div>
@@ -2376,7 +2360,6 @@ function scheduleSave(){
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
-          dedupeSiteOrders();
           setSyncBadge('warn', 'На сервері з\'явились зміни з іншої вкладки/пристрою — об\'єднав з поточними (ваші щойно внесені зміни збережено).');
         }
         const payload = buildStatePayload();
@@ -2456,7 +2439,6 @@ function doConnect(config){
         setSyncBadge('on', 'Синхронізовано');
         updateDbSizeMeter();
         setTimeout(() => runAutoSyncDelivery('start'), 4000);
-        setTimeout(() => { startSiteSync(); runSiteImport(false); }, 8000);
 
         // aux — окремим, НЕ блокуючим потоком: похибка тут (права доступу, відсутній документ
         // тощо) лише лишає рух товарів тимчасово несинхронізованим, не заважаючи основним даним.
@@ -6232,7 +6214,6 @@ function renderAppSettings(){
   const c2 = document.getElementById('setAutoSmsShipped'); if(c2) c2.checked = !!appSettings.autoSmsShipped;
   const tr = document.getElementById('setTgReplace'); if(tr) tr.checked = appSettings.tgReplacePrev !== false;
   const fs = document.getElementById('setFreeShip'); if(fs && document.activeElement !== fs) fs.value = Number(appSettings.freeShipThreshold) > 0 ? appSettings.freeShipThreshold : '';
-  if(typeof renderSiteSyncSettings === 'function') renderSiteSyncSettings();
 }
 function saveTgReplace(){
   appSettings.tgReplacePrev = !!document.getElementById('setTgReplace').checked;
@@ -7295,7 +7276,7 @@ function newOrderDefaults(id){
     discountType:'none', discountValue:'',
     atBranchSince:'', branchReminderSentDate:'',
     importedFromNp:false,
-    sendToTelegram:false,
+    sendToTelegram:true, // за замовчуванням: при «Зберегти» одразу йде в Telegram
     sendSms:false,
     fromSite:false,
     ttnNumber:'', ttnRef:''
@@ -7374,7 +7355,8 @@ function duplicateOrder(sourceId){
   copy.tgShipMsg = null;
   copy.customerSmsSent = false;
   copy.smsLog = [];
-  copy.sendToTelegram = false;
+  copy.sendToTelegram = true;
+  copy.errLog = [];
   copy.sendSms = false;
   ['ukrRecipientUuid','ukrStatusText','deliveredDate','atBranchSince','branchReminderSentDate','packedTs','packedBy','shippedBy','shippedMarkAt','labelPrintedAt','labelPrintedBy','codPaymentDate','codReceivedAmount','deliveryCost'].forEach(f => { if(f in copy) copy[f] = ''; });
   copy.shipConfirmed = false; copy.labelPrinted = false; copy.npReturned = false; copy.keepActive = false;
@@ -8255,9 +8237,11 @@ async function saveOrder(id){
     if(res && res.ok){
       o.ttnTelegramNotified = true;
       o.sendToTelegram = false;
+      errOk(o,'Telegram');
       showUndoToast('✓ Надіслано в Telegram', false);
     } else {
       o.sendToTelegram = true; // лишаємо галочку, щоб можна було повторити
+      logOrderError(o,'Telegram', (res && res.error) || 'невідома помилка');
       alert('Не вдалося надіслати в Telegram: ' + ((res && res.error) || 'невідома помилка') + '\n\nПеревірте токен бота й ID групи в «Налаштування доставки» → «Уведомлення в Telegram» (кнопка «Надіслати тестове повідомлення»). Галочку лишено — після виправлення натисніть «Зберегти» ще раз.');
       o.collapsed = false;
     }
@@ -8332,7 +8316,7 @@ function applyFreeShipping(o){
   if(o.deliveryMethod === 'Самовивіз') return false;
   if(o.ttnNumber || o.ukrTtnNumber) return false; // накладну вже створено — платника не змінюємо
   if(o.payerManual) return false;
-  const want = calcOrder(o).total >= th;
+  const want = !!o.fromSite && calcOrder(o).total >= th; // лише для «Замовлено з сайту»
   let changed = false;
   if(want && o.payerType !== 'Відправник'){ o.payerType = 'Відправник'; o.payerAuto = true; changed = true; }
   else if(!want && o.payerAuto && o.payerType === 'Відправник'){ o.payerType = 'Отримувач'; o.payerAuto = false; changed = true; }
@@ -8342,7 +8326,7 @@ function applyFreeShipping(o){
 function syncPayerUi(o){
   document.querySelectorAll(`[data-payer-chk="${o.id}"]`).forEach(el => { el.checked = o.payerType === 'Відправник'; });
   document.querySelectorAll(`[data-payer-auto="${o.id}"]`).forEach(el => {
-    el.textContent = (o.payerAuto && o.payerType === 'Відправник') ? '(авто: сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : '';
+    el.textContent = (o.payerAuto && o.payerType === 'Відправник') ? '(авто: з сайту, сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : '';
   });
 }
 function freeShipApplyAll(){
@@ -8350,7 +8334,7 @@ function freeShipApplyAll(){
   const st = document.getElementById('freeShipStatus');
   if(!th){ if(st) st.textContent = 'Спершу вкажіть поріг.'; return; }
   const cand = orders.filter(o => !isArchived(o) && !o.shipped && !o.ttnNumber && !o.ukrTtnNumber && o.deliveryMethod !== 'Самовивіз' && !o.payerManual);
-  if(!confirm(`Застосувати поріг ${th} грн до ${cand.length} незавершених замовлень без накладної? Для тих, де сума ≥ порогу, доставка стане за наш рахунок.`)) return;
+  if(!confirm(`Застосувати поріг ${th} грн до ${cand.length} незавершених замовлень без накладної? Для тих, що «з сайту» і де сума ≥ порогу, доставка стане за наш рахунок.`)) return;
   let n = 0; cand.forEach(o => { if(applyFreeShipping(o)) n++; });
   renderOrders(); scheduleSave();
   if(st) st.textContent = `Змінено замовлень: ${n}.`;
@@ -8394,10 +8378,12 @@ async function cancelCodControlOnPaid(o){
     } else return;
     o.codAmountWas = amount;
     o.codAmount = 0;
+    errOk(o,'Контроль оплати');
     say(' <span style="color:var(--cardamom);">✓ Контроль оплати знято в ТТН</span>');
     renderOrders();
     scheduleSave();
   }catch(err){
+    logOrderError(o,'Контроль оплати', err.message);
     say(` <span style="color:var(--danger);">Не вдалося зняти контроль оплати: ${escapeAttr(err.message)}</span>`);
     alert('Позначено як оплачене, але контроль оплати в ТТН зняти не вдалося: '+err.message+'\nЗніміть його вручну в кабінеті перевізника (або кнопкою «оновити суму» із значенням 0).');
   }
@@ -9279,8 +9265,10 @@ async function createUkrShipment(orderId){
     }
     if(ukrCost > 0){ o.deliveryCost = ukrCost; const dci = document.getElementById(`ship-dc-${o.id}`); if(dci) dci.value = ukrCost; }
     resultEl.innerHTML = ukrResultHtml(o);
+    errOk(o,'ТТН УП');
     scheduleSave();
   }catch(err){
+    logOrderError(o,'ТТН УП', err.message);
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</div>`;
   }finally{
     ukrShipmentInFlight.delete(orderId);
@@ -10014,10 +10002,12 @@ async function updateNpCodAmount(orderId){
     };
     await npApiCall('InternetDocument', 'update', docParams);
     o.codAmount = newAmount;
+    errOk(o,'Контроль оплати');
     if(statusEl) statusEl.innerHTML = `<span style="color:var(--cardamom);">✓ Оновлено: ${fmt(newAmount)} грн</span>`;
     renderOrders();
     scheduleSave();
   }catch(err){
+    logOrderError(o,'Контроль оплати', err.message);
     if(statusEl) statusEl.innerHTML = `<span style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}</span>`;
   }
 }
@@ -10151,8 +10141,10 @@ async function createNpWaybill(orderId){
     }
     if(dcost > 0){ o.deliveryCost = dcost; const dci = document.getElementById(`ship-dc-${o.id}`); if(dci) dci.value = dcost; }
     resultEl.innerHTML = ttnResultHtml(o) + recipientNote;
+    errOk(o,'ТТН НП');
     scheduleSave();
   }catch(err){
+    logOrderError(o,'ТТН НП', err.message);
     const sentName = cleanRecipientName(o.customer);
     const nameHint = /RecipientName/i.test(err.message || '') ? `<br>Ім'я, яке програма надіслала в НП: «${escapeAttr(sentName || '(порожньо)')}» (у картці: «${escapeAttr(o.customer || '')}»). НП очікує «Прізвище Ім'я По батькові» кирилицею, кожне слово від 2 літер.` : '';
     resultEl.innerHTML = `<div class="hint" style="color:var(--danger);">Помилка: ${escapeAttr(err.message)}${nameHint}</div>`;
@@ -11201,7 +11193,7 @@ function deliveryBlockHtml(o){
       </div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:8px;">
         <input type="checkbox" data-payer-chk="${o.id}" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
-        Доставка за наш рахунок<span class="hint" data-payer-auto="${o.id}" style="margin-left:6px;">${o.payerAuto && o.payerType==='Відправник' ? '(авто: сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : ''}</span>
+        Доставка за наш рахунок<span class="hint" data-payer-auto="${o.id}" style="margin-left:6px;">${o.payerAuto && o.payerType==='Відправник' ? '(авто: з сайту, сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : ''}</span>
       </label>
       <p class="hint" style="margin-top:6px;">Післяплата стягується з отримувача при видачі. Оскільки у вас підключено послугу «Контроль оплати» (договір з NovaPay), кошти йдуть напряму на розрахунковий рахунок ФОП, а не готівкою чи на картку — без потреби вказувати картку для кожної посилки окремо.</p>
       <div id="ttn-result-${o.id}" style="margin-top:8px;">${ttnResultHtml(o)}</div>
@@ -11246,7 +11238,7 @@ function deliveryBlockHtml(o){
       </div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:8px;">
         <input type="checkbox" data-payer-chk="${o.id}" ${o.payerType==='Відправник'?'checked':''} onchange="setPayerAtOurExpense(${o.id}, this.checked)" style="width:auto;accent-color:var(--cardamom);">
-        Доставка за наш рахунок<span class="hint" data-payer-auto="${o.id}" style="margin-left:6px;">${o.payerAuto && o.payerType==='Відправник' ? '(авто: сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : ''}</span>
+        Доставка за наш рахунок<span class="hint" data-payer-auto="${o.id}" style="margin-left:6px;">${o.payerAuto && o.payerType==='Відправник' ? '(авто: з сайту, сума від ' + fmt(Number(appSettings.freeShipThreshold)||0) + ' грн)' : ''}</span>
       </label>
       <p class="hint" id="ukr-index-status-${o.id}" style="margin-top:4px;">${o.ukrOfficeDesc ? `Відділення за цим індексом: <strong>${escapeAttr(o.ukrOfficeDesc)}</strong>` : ''}</p>
       <p class="hint" style="margin-top:4px;">Якщо поле «Вулиця» порожнє — відправлення оформлюється до відділення (за індексом). Якщо заповнене — до дверей. Сума контролю оплати передається в декларацію як післяплата (за наявності договору з NovaPay — надходить напряму на розрахунковий рахунок).</p>
@@ -14055,7 +14047,96 @@ function resetOrdersSummaryPeriod(){
   renderOrdersSummary();
 }
 
+/* ---------- контроль помилок: журнал помилок у замовленні + блок «Потребує уваги» ---------- */
+const ERR_HINTS = [
+  [/already printed/i, 'ТТН уже роздрукована — Нова Пошта не дозволяє її змінювати. Поки статус «Створено», видали накладну в кабінеті НП і створи нову.'],
+  [/RecipientName/i, 'НП не прийняла ПІБ отримувача. Потрібно «Прізвище Ім\'я По батькові» кирилицею, кожне слово від 2 літер.'],
+  [/Recipient not selected/i, 'НП не побачила отримувача. Перевір ПІБ і телефон у замовленні.'],
+  [/API key|apiKey|invalid.*key/i, 'Ключ API не прийнято. Перевір ключ у «Налаштування доставки».'],
+  [/Failed to fetch|NetworkError|Load failed/i, 'Немає зв\'язку з сервісом. Перевір інтернет і повтори.'],
+  [/chat not found|bot token|Unauthorized|Forbidden/i, 'Telegram не прийняв повідомлення. Перевір токен бота й ID групи в налаштуваннях.']
+];
+function errHintFor(msg){ for(const [re, h] of ERR_HINTS) if(re.test(String(msg||''))) return h; return ''; }
+function logOrderError(o, src, msg){
+  if(!o) return;
+  msg = String(msg || 'невідома помилка');
+  o.errLog = Array.isArray(o.errLog) ? o.errLog : [];
+  const hint = errHintFor(msg);
+  const same = o.errLog.find(e => e.open && e.src === src && e.msg === msg);
+  if(same) same.t = new Date().toISOString();
+  else o.errLog.push({t:new Date().toISOString(), src, msg, hint, open:true});
+  if(o.errLog.length > 15) o.errLog = o.errLog.slice(-15);
+  try{ scheduleSave(); }catch(e){}
+  try{ renderAttention(); }catch(e){}
+}
+function errOk(o, src){
+  if(!o || !Array.isArray(o.errLog)) return;
+  let ch = false;
+  o.errLog.forEach(e => { if(e.open && e.src === src){ e.open = false; e.fixedAt = new Date().toISOString(); ch = true; } });
+  if(ch){ try{ scheduleSave(); renderAttention(); }catch(e){} }
+}
+function resolveOrderError(id, idx){
+  const o = orderById(id); if(!o || !o.errLog || !o.errLog[idx]) return;
+  o.errLog[idx].open = false; o.errLog[idx].fixedAt = new Date().toISOString();
+  scheduleSave(); renderAttention();
+}
+function orderIssues(o){
+  const out = [];
+  const num = s => String(s||'').replace(/\D/g,'');
+  const hasTtn = !!(o.ttnNumber || o.ukrTtnNumber);
+  if(o.paid && Number(o.codAmount) > 0 && hasTtn && !o.delivered && !o.npReturned){
+    out.push({sev:2, text:`Оплачено, а в ТТН лишився контроль оплати ${fmt(Number(o.codAmount))} грн`,
+      fix: o.labelPrinted ? 'Наклейку вже роздруковано, змінити накладну неможливо. Видали ТТН у кабінеті НП (поки «Створено») і створи нову без контролю оплати.' : 'Натисни «оновити суму» → 0, або видали ТТН і створи нову.'});
+  }
+  if(o.ttnNumber && !o.ukrStatusText && o.shipped && !o.delivered && String(o.npStatusCode||'') === '1'){
+    out.push({sev:1, text:'Стоїть «Відправлено», а НП каже: ТТН створено, посилку ще не прийнято', fix:'Передай посилку в НП. Якщо її ще не віддали, зніми галочку «Відправлено».'});
+  }
+  if(o.ttnNumber && num(o.ttnNumber).length !== 14) out.push({sev:1, text:`Номер ТТН НП «${o.ttnNumber}» не має 14 цифр`, fix:'Перевір номер.'});
+  if(o.ukrTtnNumber && num(o.ukrTtnNumber).length !== 13) out.push({sev:1, text:`Номер ТТН Укрпошти «${o.ukrTtnNumber}» не має 13 цифр`, fix:'Перевір номер.'});
+  const cb = o.cbReceipt;
+  if(cb && (cb.state === 'error' || cb.state === 'unknown')){
+    out.push({sev:2, text: cb.state === 'unknown' ? 'Чек Checkbox: відповіді не було, чек міг створитись' : 'Чек Checkbox не пробито' + (cb.error ? ': ' + cb.error : ''), fix:'Перевір кабінет Checkbox і натисни «Чек Checkbox» ще раз, якщо чека нема.'});
+  }
+  (o.errLog || []).forEach((e, i) => { if(e.open) out.push({sev:2, text:`${e.src}: ${e.msg}`, fix: e.hint || 'Виправ і повтори дію.', logIdx:i}); });
+  return out;
+}
+function attentionList(){
+  const list = [];
+  const act = orders.filter(o => !isArchived(o));
+  act.forEach(o => orderIssues(o).forEach(is => list.push(Object.assign({o}, is))));
+  // дублі: ТТН, uid, id чека
+  const seen = {};
+  const dup = (key, label, o) => { if(!key) return; const k = label + key; (seen[k] = seen[k] || []).push(o); };
+  orders.forEach(o => { dup(o.ttnNumber, 'ТТН НП ', o); dup(o.ukrTtnNumber, 'ТТН УП ', o); dup(o.uid, 'uid ', o); dup(o.cbReceipt && o.cbReceipt.id, 'чек ', o); });
+  Object.keys(seen).forEach(k => { const arr = seen[k]; if(arr.length > 1 && arr.some(o => !isArchived(o))){
+    arr.filter(o => !isArchived(o)).forEach(o => list.push({o, sev:2, text:`Дубль: ${k.trim()} є ще в ${arr.length-1} замовл.`, fix:'Одне із замовлень має чужі дані. Прибери прив\'язку там, де вона зайва.'}));
+  }});
+  list.sort((a,b) => b.sev - a.sev);
+  return list;
+}
+function renderAttention(){
+  const box = document.getElementById('attentionBox'); if(!box) return;
+  let list; try{ list = attentionList(); }catch(e){ box.innerHTML = ''; return; }
+  if(!list.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  const rows = list.map(it => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border-soft);flex-wrap:wrap;">
+    <span style="flex:0 0 auto;">${it.sev >= 2 ? '🔴' : '🟡'}</span>
+    <div style="flex:1 1 260px;min-width:0;"><div><strong>№${it.o.id} ${escapeHtml(it.o.customer || 'без імені')}</strong>: ${escapeHtml(it.text)}</div>
+    <div class="hint" style="margin-top:2px;">${escapeHtml(it.fix || '')}</div></div>
+    <button class="btn btn-sm" onclick="attentionOpen(${it.o.id})">Відкрити</button>
+    ${it.logIdx !== undefined ? `<button class="btn btn-sm" onclick="resolveOrderError(${it.o.id},${it.logIdx})">Вирішено</button>` : ''}
+  </div>`).join('');
+  box.innerHTML = `<div style="border:1px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:1rem;background:var(--surface);">
+    <div style="font-weight:600;color:var(--danger);">⚠️ Потребує уваги: ${list.length}</div>${rows}</div>`;
+}
+function attentionOpen(id){
+  const o = orderById(id); if(!o) return;
+  if(typeof hasActiveOrderFilter === 'function' && hasActiveOrderFilter()){ /* фільтр може приховати картку — скидати не будемо */ }
+  o.collapsed = false; renderOrders(); scrollToOrderCard(id);
+}
+
 function renderOrdersSummary(){
+  try{ renderAttention(); }catch(e){}
   const fromEl = document.getElementById('ordersSummaryFrom');
   const toEl = document.getElementById('ordersSummaryTo');
   const fromVal = fromEl ? fromEl.value : '';
@@ -16564,293 +16645,6 @@ function copyInvoiceDraft(id){
   if(titleEl) titleEl.textContent = (type === 'waybill' ? 'Нова видаткова накладна' : 'Новий рахунок') + ` (копія № ${inv.number})`;
   const noticeEl = document.getElementById('invoiceEditingNotice');
   if(noticeEl){ noticeEl.style.display = ''; noticeEl.textContent = `Це копія документа № ${inv.number}: номер і дату змінено, решту дані перенесено. Перевірте й натисніть «Сформувати».`; }
-}
-
-/* ---------- замовлення з сайту papriko.com.ua (через посередника на Cloudflare, див. site-proxy-worker.js) ---------- */
-// Програма раз на 3 хвилини забирає з сайту нові й змінені замовлення і додає їх у список разом із ТТН,
-// яку створив сайт. Товари сайту зіставляються з наборами програми; вибір запам'ятовується в appSettings.siteKitMap.
-// Працює лише в активній вкладці (sessionLocked = false), щоб два пристрої не завантажували те саме.
-const SITE_SYNC_EVERY_MS = 3 * 60 * 1000;
-const SITE_PAY_LABELS = {cod: 'накладений платіж', prepaid: 'передоплата', card: 'картка', chast: 'Покупка Частинами', privat: 'ПриватБанк'};
-let siteSyncTimer = null, siteSyncBusy = false;
-
-function siteSyncCfg(){
-  if(!appSettings.siteSync || typeof appSettings.siteSync !== 'object') appSettings.siteSync = {};
-  return appSettings.siteSync;
-}
-function setSiteSyncStatus(t){
-  const c = siteSyncCfg(); c.lastMsg = t; c.lastAt = new Date().toISOString();
-  const el = document.getElementById('siteSyncStatus'); if(el) el.textContent = t;
-}
-function renderSiteSyncSettings(){
-  const c = siteSyncCfg();
-  const u = document.getElementById('siteSyncUrl'); if(u && document.activeElement !== u) u.value = c.url || '';
-  const e = document.getElementById('siteSyncEnabled'); if(e) e.checked = !!c.enabled;
-  const s = document.getElementById('siteSyncStatus');
-  if(s && c.lastMsg) s.textContent = c.lastMsg + (c.lastAt ? ' (' + new Date(c.lastAt).toLocaleString('uk-UA', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) + ')' : '');
-}
-function saveSiteSyncSettings(){
-  const c = siteSyncCfg();
-  c.url = (document.getElementById('siteSyncUrl').value || '').trim().replace(/\/+$/, '');
-  c.enabled = !!document.getElementById('siteSyncEnabled').checked;
-  scheduleSave();
-  startSiteSync();
-  setSiteSyncStatus(c.enabled ? (c.url ? 'Збережено. Перевіряю сайт…' : 'Вкажіть адресу посередника.') : 'Автозавантаження вимкнено.');
-  if(c.enabled && c.url) setTimeout(() => runSiteImport(true), 300);
-}
-function startSiteSync(){
-  if(siteSyncTimer){ clearInterval(siteSyncTimer); siteSyncTimer = null; }
-  const c = siteSyncCfg();
-  if(!c.enabled || !c.url) return;
-  siteSyncTimer = setInterval(() => runSiteImport(false), SITE_SYNC_EVERY_MS);
-}
-
-async function siteApiGet(path){
-  const c = siteSyncCfg();
-  if(!fbAuth || !fbAuth.currentUser) throw new Error('потрібен вхід у програму');
-  const token = await fbAuth.currentUser.getIdToken();
-  const res = await fetch(c.url + path, {headers: {'Authorization': 'Bearer ' + token}});
-  let data = null; try{ data = await res.json(); }catch(e){}
-  if(!res.ok || !data || data.ok === false){
-    const msg = (data && (data.message || data.error)) || ('HTTP ' + res.status);
-    const err = new Error(msg); err.status = res.status; err.code = data && data.error; throw err;
-  }
-  return data;
-}
-
-function siteLocalDate(iso){
-  const d = new Date(iso || Date.now());
-  if(isNaN(d)) return todayStr();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function sitePhone(p){ const d = String(p||'').replace(/\D/g, ''); return d.length >= 9 ? '0' + d.slice(-9) : String(p||''); }
-function siteItemKey(it){ return String(it.productId || it.name || '') + '|' + String(it.variantId || it.variantLabel || ''); }
-function siteItemTitle(it){ return [it.name, it.variantLabel, it.variantMeta].filter(Boolean).join(' · '); }
-// оплату карткою / частинами беремо лише після підтвердження банку; накладений платіж і передоплату — одразу
-function siteOrderReady(so){
-  if(so.removed || so.hidden || so.test) return false;
-  if(so.status === 'cancelled') return false;
-  if(['card','chast','privat'].includes(so.payMethod) && !['paid','hold'].includes(so.payStatus)) return false;
-  return true;
-}
-function siteStatusToLocal(s){ return ({new:'Нове', processing:'В обробці', shipped:'Відправлено', done:'Відправлено', cancelled:'Скасовано'})[s] || 'Нове'; }
-function siteSetTtn(o, so){
-  if(!so.ttn) return false;
-  const ttn = String(so.ttn).replace(/\s/g, '');
-  if(o.ttnNumber === ttn || o.ukrTtnNumber === ttn) return false;
-  if(o.ttnNumber || o.ukrTtnNumber) return false; // у програмі вже інша накладна — не перезаписуємо
-  const ukr = so.deliveryMethod ? so.deliveryMethod === 'ukrposhta' : o.deliveryMethod === 'Укрпошта';
-  if(ukr){ o.ukrTtnNumber = ttn; o.deliveryMethod = 'Укрпошта'; } else { o.ttnNumber = ttn; o.deliveryMethod = 'Нова Пошта'; }
-  return true;
-}
-function findKitForSiteItem(it){
-  const map = appSettings.siteKitMap || {};
-  const mapped = map[siteItemKey(it)];
-  if(mapped === 'skip') return 'skip';
-  if(mapped != null){ const k = kits.find(x => x.id === mapped && !x.archived); if(k) return k; }
-  const labels = packLabelsFromCell([it.variantLabel, it.variantMeta].filter(Boolean).join(' '));
-  return findKitForItem({token: String(it.name || '').trim(), labels, createName: siteItemTitle(it)}) || null;
-}
-// спільне зіставлення для всієї пачки: невідомі товари показуємо одним вікном (один раз на товар)
-async function resolveSiteKits(list){
-  const unresolved = new Map();
-  list.forEach(so => (so.items || []).forEach(it => {
-    if(!findKitForSiteItem(it)){ const t = siteItemTitle(it); if(!unresolved.has(t)) unresolved.set(t, it); }
-  }));
-  if(!unresolved.size) return;
-  setSiteSyncStatus(`Нові товари з сайту (${unresolved.size}) — оберіть відповідні набори у вікні.`);
-  const choice = await chooseKitsForUnresolved(unresolved);
-  if(!appSettings.siteKitMap) appSettings.siteKitMap = {};
-  choice.forEach((d, title) => {
-    const it = unresolved.get(title);
-    const key = siteItemKey(it);
-    if(d.action === 'kit') appSettings.siteKitMap[key] = d.kitId;
-    else if(d.action === 'new'){
-      const k = createNewKitFromName(title.replace(/ · /g, ' '));
-      k.price = Number(it.price) || 0;
-      appSettings.siteKitMap[key] = k.id;
-    } else appSettings.siteKitMap[key] = 'skip';
-  });
-  try{ if(typeof renderKits === 'function') renderKits(); }catch(e){ console.warn('[site import] renderKits', e); }
-}
-function siteFillOrder(o, so){
-  o.fromSite = true; o.siteImported = true;
-  o.siteId = so.id; o.siteNo = so.no || ''; o.siteVersion = so.version || 0;
-  o.customer = so.name || (so.phone ? 'Клієнт ' + so.phone : '');
-  o.phone = sitePhone(so.phone);
-  o.date = siteLocalDate(so.createdAt);
-  o.status = siteStatusToLocal(so.status);
-  if(so.deliveryMethod === 'ukrposhta'){
-    o.deliveryMethod = 'Укрпошта';
-    o.ukrCity = so.city || ''; o.ukrOfficeDesc = so.warehouse || '';
-    const idx = String(so.warehouse || '').match(/\b\d{5}\b/); if(idx) o.ukrIndex = idx[0];
-  } else {
-    o.deliveryMethod = 'Нова Пошта';
-    o.city = so.city || ''; o.cityRef = so.cityRef || '';
-    o.warehouseDesc = so.warehouse || ''; o.warehouseRef = so.warehouseRef || '';
-  }
-  siteSetTtn(o, so);
-  const skipped = [];
-  (so.items || []).forEach(it => {
-    const k = findKitForSiteItem(it);
-    const qty = Number(it.qty) || 1, price = Number(it.price) || 0;
-    if(!k || k === 'skip'){ skipped.push(`${siteItemTitle(it)} × ${qty}`); return; }
-    const ex = o.items.find(x => x.kitId === k.id && x.price === price);
-    if(ex) ex.qty += qty; else o.items.push({kitId: k.id, qty, price});
-  });
-  const sub = calcOrder(o).subtotal, total = Number(so.total) || 0;
-  if(total > 0 && sub - total > 0.5 && !skipped.length){ o.discountType = 'amount'; o.discountValue = Math.round((sub - total) * 100) / 100; }
-  o.paid = so.payStatus === 'paid';
-  o.codAmount = (so.payMethod === 'cod' && !o.paid) ? total : '';
-  const notes = [`🌐 Сайт №${so.no || so.id}`];
-  if(so.payMethod) notes.push('Оплата: ' + (SITE_PAY_LABELS[so.payMethod] || so.payMethod) + (so.payStatus === 'paid' ? ' (оплачено)' : ''));
-  if(so.comment) notes.push('Коментар: ' + so.comment);
-  if(skipped.length) notes.push('⚠️ Не додано товари: ' + skipped.join('; '));
-  o.notes = notes.join('\n');
-  o.collapsed = true;
-}
-// дозаповнює порожні поля (ім'я, телефон, адреса, коментар) — для замовлень, завантажених, поки ключу сайту
-// ще не були дозволені «особисті дані». Нічого, що вже заповнено в програмі, не перезаписує.
-function siteBackfill(o, so){
-  let ch = false;
-  const set = (f, v) => { if(v && !String(o[f] || '').trim()){ o[f] = v; ch = true; } };
-  if(so.name && (!o.customer || /^Клієнт\b/.test(o.customer))){ if(o.customer !== so.name){ o.customer = so.name; ch = true; } }
-  set('phone', so.phone ? sitePhone(so.phone) : '');
-  if(o.deliveryMethod === 'Укрпошта'){
-    set('ukrCity', so.city); set('ukrOfficeDesc', so.warehouse);
-    const idx = String(so.warehouse || '').match(/\b\d{5}\b/); if(idx) set('ukrIndex', idx[0]);
-  } else {
-    set('city', so.city); set('cityRef', so.cityRef); set('warehouseDesc', so.warehouse); set('warehouseRef', so.warehouseRef);
-  }
-  if(so.comment && !String(o.notes || '').includes(so.comment)){ o.notes = (o.notes ? o.notes + '\n' : '') + 'Коментар: ' + so.comment; ch = true; }
-  if(ch) ensureClientForOrder(o);
-  return ch;
-}
-function siteOrderIncomplete(o){
-  if(!o.siteImported || isArchived(o) || o.status === 'Скасовано') return false;
-  const addr = o.deliveryMethod === 'Укрпошта' ? (o.ukrCity || o.ukrOfficeDesc) : (o.city || o.warehouseDesc);
-  return !o.phone || !o.customer || /^Клієнт\b/.test(o.customer) || !addr;
-}
-// уже наявне в програмі замовлення, внесене вручну до появи імпорту: та сама ТТН або (без ТТН) той самий телефон за ±2 дні
-function findLocalMatchForSite(so){
-  const free = orders.filter(o => !o.siteId);
-  const ttn = String(so.ttn || '').replace(/\s/g, '');
-  if(ttn){ const m = free.find(o => o.ttnNumber === ttn || o.ukrTtnNumber === ttn); if(m) return m; }
-  const pk = normPhoneKey(so.phone); if(!pk) return null;
-  const d = siteLocalDate(so.createdAt);
-  const c = free.filter(o => !isArchived(o) && o.status !== 'Скасовано' && normPhoneKey(o.phone) === pk && Math.abs(daysBetween(o.date, d) || daysBetween(d, o.date)) <= 2);
-  return c.length === 1 ? c[0] : null;
-}
-// якщо два пристрої все ж створили те саме замовлення сайту — лишаємо старіше
-function dedupeSiteOrders(){
-  const seenIds = new Map(); const drop = new Set();
-  orders.slice().sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0)).forEach(o => {
-    if(!o.siteId) return;
-    if(seenIds.has(o.siteId)){ if(o.siteImported) drop.add(o); }
-    else seenIds.set(o.siteId, o);
-  });
-  if(drop.size) orders = orders.filter(o => !drop.has(o));
-  return drop.size;
-}
-
-// кнопка в шапці: показує результат прямо на кнопці й спливаючим повідомленням
-async function siteImportFromHeader(){
-  const b = document.getElementById('siteImportBtn');
-  const c = siteSyncCfg();
-  if(!c.url){ alert('Спершу вкажіть адресу посередника: «Налаштування» → «🌐 Замовлення з сайту».'); return; }
-  if(siteSyncBusy) return;
-  if(b){ b.disabled = true; b.textContent = '🌐 Завантажую…'; }
-  const before = orders.length;
-  try{ await runSiteImport(true); }
-  finally{ if(b){ b.disabled = false; b.textContent = '🌐 З сайту'; } }
-  const added = orders.length - before;
-  showUndoToast(c.lastMsg || 'Готово', false);
-  if(added > 0){ try{ showSection('orders'); resetOrderFilters(); renderOrders(); }catch(e){} }
-}
-async function runSiteImport(manual){
-  const c = siteSyncCfg();
-  if(siteSyncBusy) return;
-  if(!c.url){ if(manual) setSiteSyncStatus('Вкажіть адресу посередника.'); return; }
-  if(!manual && !c.enabled) return;
-  if(sessionLocked){ if(manual) setSiteSyncStatus('Ця вкладка неактивна — завантаження робить активна вкладка/пристрій.'); return; }
-  if(!fbConnected){ if(manual) setSiteSyncStatus('Немає підключення до бази.'); return; }
-  siteSyncBusy = true;
-  try{
-    // перший запуск — лише замовлення, змінені за останні 3 дні (а не вся історія сайту)
-    const since = c.since || new Date(Date.now() - 3 * 86400000).toISOString();
-    let cursor = null, serverTime = null, fetched = [];
-    for(let page = 0; page < 20; page++){
-      const q = cursor ? `cursor=${encodeURIComponent(cursor)}&limit=200` : `updatedSince=${encodeURIComponent(since)}&limit=200`;
-      const d = await siteApiGet('/orders?' + q);
-      if(!serverTime) serverTime = d.serverTime;
-      fetched = fetched.concat(d.data || []);
-      if(!(d.page && d.page.hasMore && d.page.nextCursor)) break;
-      cursor = d.page.nextCursor;
-    }
-    const toCreate = [];
-    let updated = 0, linked = 0, created = 0;
-    fetched.forEach(so => {
-      let o = orders.find(x => x.siteId === so.id);
-      if(!o && siteOrderReady(so)){
-        const m = findLocalMatchForSite(so);
-        if(m){ m.siteId = so.id; m.siteNo = so.no || ''; m.fromSite = true; o = m; linked++; }
-      }
-      if(o){
-        let ch = false;
-        if(siteSetTtn(o, so)) ch = true;
-        if(o.siteImported && siteBackfill(o, so)) ch = true;
-        if((so.removed || so.status === 'cancelled') && !o.shipped && !o.ttnNumber && !o.ukrTtnNumber && o.status !== 'Скасовано'){
-          o.status = 'Скасовано'; o.notes = (o.notes ? o.notes + '\n' : '') + '⚠️ На сайті замовлення скасовано' + (so.removed ? ' (оплата не відбулась)' : ''); ch = true;
-        }
-        if(so.payStatus === 'paid' && !o.paid){ o.paid = true; o.codAmount = ''; ch = true; }
-        if(so.version) o.siteVersion = so.version;
-        if(ch) updated++;
-      } else if(siteOrderReady(so)) toCreate.push(so);
-    });
-    if(toCreate.length) await resolveSiteKits(toCreate);
-    toCreate.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).forEach(so => {
-      if(orders.some(x => x.siteId === so.id)) return;
-      const o = newOrderDefaults(allocOrderId());
-      siteFillOrder(o, so);
-      orders.push(o);
-      ensureClientForOrder(o);
-      autoUpdateWeightSilently(o.id);
-      created++;
-    });
-    // замовлення, яким бракує імені/телефону/адреси, дочитуємо поштучно (до 20 за раз) — дані підтягнуться,
-    // щойно в адмінці сайту ключу дозволять ці поля
-    let filled = 0, stillMissing = 0;
-    const fetchedIds = new Set(fetched.map(x => x.id));
-    for(const o of orders.filter(siteOrderIncomplete).slice(0, 20)){
-      if(fetchedIds.has(o.siteId) && !siteOrderIncomplete(o)) continue;
-      try{
-        const d = await siteApiGet('/orders/' + encodeURIComponent(o.siteId));
-        const so = d.data || d;
-        if(so && siteBackfill(o, so)) filled++;
-        if(siteOrderIncomplete(o)) stillMissing++;
-      }catch(e){ if(e.status === 429) break; }
-    }
-    if(filled) updated += filled;
-    dedupeSiteOrders();
-    if(serverTime) c.since = serverTime;
-    const parts = [];
-    if(created) parts.push(`нових: ${created}`);
-    if(linked) parts.push(`прив'язано до наявних: ${linked}`);
-    if(updated) parts.push(`оновлено: ${updated}`);
-    let msg = parts.length ? 'З сайту — ' + parts.join(', ') : 'З сайту: нових замовлень немає';
-    if(stillMissing) msg += `. ⚠️ Сайт не передає ім'я/телефон/адресу (${stillMissing} замовл.) — дозвольте ці поля ключу в адмінці сайту, розділ «API»`;
-    setSiteSyncStatus(msg);
-    if(created || updated || linked){
-      renderOrders(); renderOrdersSummary();
-      if(created && !manual) showUndoToast(`🌐 З сайту додано замовлень: ${created}`, false);
-    }
-    scheduleSave();
-  }catch(err){
-    setSiteSyncStatus('Помилка завантаження з сайту: ' + err.message);
-    console.warn('[site import]', err);
-  }finally{
-    siteSyncBusy = false;
-  }
 }
 </script>
 </body>
