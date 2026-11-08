@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.20 · 08.11.2026 14:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.23 · 08.11.2026 15:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6740,7 +6740,7 @@ function renderSmsDayReport(){
     return head + `<div class="wh-row" style="grid-template-columns:28px 120px 1fr 120px 140px 1fr 1.3fr 100px;${bad?'background:rgba(180,60,40,0.07);':''}">
       <div>${selOk ? `<input type="checkbox" data-smsid="${o.id}" data-g="${grp}" ${smsSel.has(o.id)?'checked':''} onchange="smsSelToggle(${o.id}, this.checked)">` : ''}</div>
       <div class="cv" style="color:${col};font-weight:600;">${mark}</div>
-      <div>${escapeAttr(o.customer||'Без імені')}</div>
+      <div><a href="#" onclick="goToOrder(${o.id});return false;" title="Відкрити замовлення" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">${escapeAttr(o.customer||'Без імені')}</a></div>
       <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.phone||'—')}</div>
       <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber||o.ukrTtnNumber||'—')}</div>
       <div class="hint" style="color:${bad?'var(--danger)':'inherit'};">${escapeAttr(note)}</div>
@@ -14107,7 +14107,13 @@ function orderIssues(o){
   if(o.ttnNumber && !o.ukrStatusText && o.shipped && !o.delivered && String(o.npStatusCode||'') === '1'){
     out.push({sev:1, text:'Стоїть «Відправлено», а НП каже: ТТН створено, посилку ще не прийнято', fix:'Передай посилку в НП. Якщо її ще не віддали, зніми галочку «Відправлено».'});
   }
-  if(o.ttnNumber && num(o.ttnNumber).length !== 14) out.push({sev:1, text:`Номер ТТН НП «${o.ttnNumber}» не має 14 цифр`, fix:'Перевір номер.'});
+  if(o.ttnNumber && num(o.ttnNumber).length === 13){
+    const isUp = o.deliveryMethod === 'Укрпошта';
+    out.push({sev:1, text:`Номер Укрпошти (${o.ttnNumber}, 13 цифр) записано в полі Нової Пошти`,
+      fix: isUp ? 'У замовленні Укрпошта, але номер лежить у полі НП, тому статуси Укрпошти за ним не оновлюються. Кнопка перенесе його в поле Укрпошти.' : 'Це номер Укрпошти, а спосіб доставки в замовленні інший. Перевір замовлення.',
+      fixKind: isUp ? 'ttnmove' : undefined});
+  }
+  else if(o.ttnNumber && num(o.ttnNumber).length !== 14) out.push({sev:1, text:`Номер ТТН НП «${o.ttnNumber}» не має 14 цифр`, fix:'Перевір номер.'});
   if(o.ukrTtnNumber && num(o.ukrTtnNumber).length !== 13) out.push({sev:1, text:`Номер ТТН Укрпошти «${o.ukrTtnNumber}» не має 13 цифр`, fix:'Перевір номер.'});
   const cb = o.cbReceipt;
   if(cb && (cb.state === 'error' || cb.state === 'unknown')){
@@ -14261,16 +14267,17 @@ function renderAttention(){
   box.style.display = '';
   const rows = list.map(it => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border-soft);flex-wrap:wrap;">
     <span style="flex:0 0 auto;">${it.sev >= 2 ? '🔴' : '🟡'}</span>
-    <div style="flex:1 1 260px;min-width:0;"><div><strong>№${it.o.id} ${escapeHtml(it.o.customer || 'без імені')}</strong>: ${escapeHtml(it.text)}</div>
+    <div style="flex:1 1 260px;min-width:0;"><div><strong><a href="#" onclick="goToOrder(${it.o.id});return false;" title="Відкрити замовлення" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">№${it.o.id} ${escapeHtml(it.o.customer || 'без імені')}</a></strong>: ${escapeHtml(it.text)}</div>
     <div class="hint" style="margin-top:2px;">${escapeHtml(it.fix || '')}</div></div>
     <button class="btn btn-sm" onclick="attentionOpen(${it.o.id})">Відкрити</button>
     ${it.logIdx !== undefined ? `<button class="btn btn-sm" onclick="resolveOrderError(${it.o.id},${it.logIdx})">Вирішено</button>` : ''}
     ${it.ackKind === 'payer' ? `<button class="btn btn-sm" title="Не змінювати. Повідомлення зʼявиться знову, лише якщо щось зміниться" onclick="attentionAckPayer(${it.o.id},'${it.ackKey}')">Залишити як є</button>` : ''}
+    ${it.fixKind === 'ttnmove' ? `<button class="btn btn-sm" onclick="attentionFixTtnMove(${it.o.id})">Виправити</button>` : ''}
     ${it.fixKind === 'payer' ? `<button class="btn btn-sm" onclick="attentionFixPayer(${it.o.id},${it.fixTo})">Виправити</button>` : ''}
   </div>`).join('');
   const payRows = pays.map(({p, cands}) => `<div style="padding:8px 0;border-top:1px solid var(--border-soft);">
     <div>💰 <strong>Надходження ${fmt(p.amount)} грн</strong> · ${escapeHtml(new Date(p.time*1000).toLocaleString('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))} · від «${escapeHtml(p.counter || p.desc || '—')}»${p.comment ? ' · «' + escapeHtml(p.comment) + '»' : ''}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${cands.map(c => `<button class="btn btn-sm" onclick="monoApply('${p.id}',${c.o.id})">${c.score > 0 ? '★ ' : ''}№${c.o.id} ${escapeHtml(c.o.customer || 'без імені')}: позначити оплаченим</button>`).join('')}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${cands.map(c => `<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-soft);border-radius:8px;padding:3px 6px;">${c.score > 0 ? '★ ' : ''}<a href="#" onclick="goToOrder(${c.o.id});return false;" title="Відкрити замовлення" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">№${c.o.id} ${escapeHtml(c.o.customer || 'без імені')}</a><button class="btn btn-sm" onclick="monoApply('${p.id}',${c.o.id})">позначити оплаченим</button></span>`).join('')}
     <button class="btn btn-sm" onclick="monoDismiss('${p.id}')">Не стосується замовлень</button></div></div>`).join('');
   box.innerHTML = `<div style="border:1px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:1rem;background:var(--surface);">
     <div style="font-weight:600;color:var(--danger);">⚠️ Потребує уваги: ${list.length + pays.length}</div>${payRows}${rows}</div>`;
@@ -14282,6 +14289,14 @@ function attentionFixPayer(id, toUs){
   o.payerType = toUs ? 'Відправник' : 'Отримувач';
   o.payerAuto = !!toUs; o.payerManual = false; o.payerAck = '';
   syncPayerUi(o); renderOrders(); scheduleSave(); renderAttention();
+}
+function attentionFixTtnMove(id){
+  const o = orderById(id); if(!o) return;
+  const n = o.ttnNumber;
+  if(!confirm(`Замовлення №${id} ${o.customer || ''}:\nномер ${n} перенесеться з поля Нової Пошти в поле Укрпошти.\nДані НП (ref, статус НП) у цьому замовленні очистяться.\n\nВиправити?`)) return;
+  if(!o.ukrTtnNumber) o.ukrTtnNumber = n;
+  o.ttnNumber = ''; o.ttnRef = ''; o.npStatusText = ''; o.npStatusCode = '';
+  renderOrders(); renderOrdersSummary(); scheduleSave(); renderAttention();
 }
 function attentionOpen(id){
   const o = orderById(id); if(!o) return;
