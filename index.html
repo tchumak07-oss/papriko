@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.19 · 08.11.2026 14:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.20 · 08.11.2026 14:25</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1744,6 +1744,21 @@
         <button class="btn btn-sm" onclick="cbTestConnection()">Перевірити з'єднання</button>
       </div>
       <div class="hint" id="cbStatus" style="margin-top:6px;"></div>
+    </div></div>
+
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="catalog-group-title">💰 Monobank: виявлення оплат</div>
+      <p class="hint" style="margin:0 0 8px;">Програма читає виписку рахунку ФОП (лише читання, гроші переказати не може) і підказує, до якого замовлення належить надходження. Нічого не ставиться автоматично: у «Потребує уваги» з'явиться кнопка «позначити оплаченим», яку підтверджуєш ти. Токен: api.monobank.ua.</p>
+      <div class="delivery-grid">
+        <div><label>Токен Monobank (X-Token)</label><input type="password" id="monoToken" placeholder="токен з api.monobank.ua"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin-top:8px;"><input type="checkbox" id="monoOn" onchange="monoSaveSettings(false)" style="width:auto;accent-color:var(--saffron);"><span>Перевіряти автоматично кожні 5 хвилин, поки програма відкрита</span></label>
+      <div class="fb-row" style="margin-top:10px;">
+        <button class="btn btn-sm btn-primary" onclick="monoSaveSettings(true)">Зберегти</button>
+        <button class="btn btn-sm" onclick="monoTest()">Перевірити з'єднання</button>
+        <button class="btn btn-sm" onclick="monoSync(true)">Перевірити оплати зараз</button>
+      </div>
+      <div class="hint" id="monoStatus" style="margin-top:6px;"></div>
     </div></div>
 
     <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
@@ -6209,6 +6224,7 @@ async function testSmsTemplate(id){
 }
 function renderAppSettings(){
   if(typeof renderCheckboxSettings === 'function') renderCheckboxSettings();
+  if(typeof renderMonoSettings === 'function') renderMonoSettings();
   [['setTplShipped'], ['setTplArrived'], ['setTplReminder']].forEach(([id]) => { const e = document.getElementById(id); if(e && document.activeElement !== e){ e.value = smsTplVar(id); smsTplPreview(id); } });
   const c = document.getElementById('setAutoSmsArrived'); if(c) c.checked = !!appSettings.autoSmsArrived;
   const c2 = document.getElementById('setAutoSmsShipped'); if(c2) c2.checked = !!appSettings.autoSmsShipped;
@@ -14111,6 +14127,118 @@ function orderIssues(o){
   (o.errLog || []).forEach((e, i) => { if(e.open) out.push({sev:2, text:`${e.src}: ${e.msg}`, fix: e.hint || 'Виправ і повтори дію.', logIdx:i}); });
   return out;
 }
+/* ---------- Monobank (ФОП): виявлення оплат за випискою, лише читання ---------- */
+function monoSt(){ if(!appSettings.mono) appSettings.mono = {}; const m = appSettings.mono; if(!Array.isArray(m.seen)) m.seen = []; if(!Array.isArray(m.pending)) m.pending = []; if(m.on === undefined) m.on = true; return m; }
+function monoSaveSettings(showMsg){
+  const m = monoSt(), g = id => document.getElementById(id);
+  const t = g('monoToken').value.trim();
+  if(t !== (m.token || '')){ m.accountId = ''; }
+  m.token = t; m.on = g('monoOn').checked;
+  if(showMsg) g('monoStatus').textContent = 'Збережено.';
+  scheduleSave();
+}
+function renderMonoSettings(){
+  const m = monoSt(), g = id => document.getElementById(id); if(!g('monoToken')) return;
+  g('monoToken').value = m.token || ''; g('monoOn').checked = !!m.on;
+}
+let monoBusy = false, monoLastCall = 0;
+async function monoApi(path){
+  const m = monoSt();
+  let res;
+  try{ res = await fetch('https://api.monobank.ua' + path, {headers:{'X-Token': m.token}}); }
+  catch(e){ const er = new Error('Браузер не пустив запит до Monobank (обмеження CORS). Потрібен посередник — скажи мені.'); er.cors = true; throw er; }
+  if(res.status === 429) throw new Error('Monobank просить зачекати хвилину (ліміт запитів). Спробуй ще раз пізніше.');
+  const txt = await res.text(); let data; try{ data = JSON.parse(txt); }catch(e){ data = null; }
+  if(!res.ok) throw new Error((data && (data.errorDescription || data.errText)) || ('Monobank: помилка ' + res.status));
+  return data;
+}
+async function monoTest(){
+  const st = document.getElementById('monoStatus'); monoSaveSettings(false);
+  const m = monoSt(); if(!m.token){ st.textContent = 'Спочатку встав токен.'; return; }
+  st.textContent = 'Перевіряю…';
+  try{
+    const ci = await monoApi('/personal/client-info');
+    const accs = (ci.accounts || []);
+    const pick = accs.find(a => a.type === 'fop' && a.currencyCode === 980) || accs.find(a => a.currencyCode === 980) || accs[0];
+    if(pick){ m.accountId = pick.id; }
+    scheduleSave();
+    st.innerHTML = `✓ З'єднано${ci.name ? ': ' + escapeHtml(ci.name) : ''}. Рахунки (${accs.length}): ` + accs.map(a => `${escapeHtml(a.type || '')} ${a.currencyCode === 980 ? 'UAH' : a.currencyCode}${a.id === m.accountId ? ' <b>(слідкую за цим)</b>' : ''}`).join('; ');
+  }catch(e){ st.textContent = 'Помилка: ' + e.message; }
+}
+async function monoSync(manual){
+  const m = monoSt(), st = document.getElementById('monoStatus');
+  if(!m.token || (!manual && !m.on)) return;
+  if(monoBusy) return;
+  if(Date.now() - monoLastCall < 65000){ if(manual && st) st.textContent = 'Ліміт Monobank: один запит на хвилину. Спробуй за хвилину.'; return; }
+  monoBusy = true; monoLastCall = Date.now();
+  try{
+    if(!m.accountId){
+      const ci = await monoApi('/personal/client-info'); const accs = ci.accounts || [];
+      const pick = accs.find(a => a.type === 'fop' && a.currencyCode === 980) || accs.find(a => a.currencyCode === 980) || accs[0];
+      if(!pick) throw new Error('У Monobank не знайдено рахунків');
+      m.accountId = pick.id;
+      await new Promise(r => setTimeout(r, 61000)); monoLastCall = Date.now();
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const from = m.lastTs ? Math.max(m.lastTs - 3600, now - 31*86400) : now - 3*86400;
+    const items = await monoApi(`/personal/statement/${m.accountId}/${from}/${now}`);
+    let added = 0, maxTs = m.lastTs || 0;
+    (items || []).forEach(it => {
+      maxTs = Math.max(maxTs, it.time || 0);
+      if(!(it.amount > 0) || m.seen.includes(it.id)) return;
+      m.seen.push(it.id);
+      m.pending.push({id: it.id, time: it.time, amount: it.amount / 100, desc: it.description || '', comment: it.comment || '', counter: it.counterName || '', done: false});
+      added++;
+    });
+    m.lastTs = maxTs || now;
+    if(m.seen.length > 400) m.seen = m.seen.slice(-400);
+    m.pending = m.pending.filter(p => !p.done && p.time > now - 14*86400).slice(-200);
+    if(st) st.textContent = `Перевірено ${new Date().toLocaleTimeString('uk-UA')}: нових надходжень ${added}.`;
+    scheduleSave(); renderAttention();
+  }catch(e){
+    if(st) st.textContent = 'Помилка: ' + e.message;
+    if(manual && !(st && st.offsetParent)) alert('Monobank: ' + e.message);
+  }finally{ monoBusy = false; }
+}
+function monoNorm(s){ return String(s||'').toLowerCase().replace(/[ʼ'’`]/g,'').replace(/ё/g,'е').replace(/ґ/g,'г'); }
+function monoMatches(){
+  const m = monoSt(); if(!m.pending.length) return [];
+  const open = orders.filter(o => !isArchived(o) && !o.paid && !o.npReturned);
+  const out = [];
+  m.pending.forEach(p => {
+    if(p.done) return;
+    const text = monoNorm(p.counter + ' ' + p.desc + ' ' + p.comment);
+    const digits = text.replace(/\D/g, '');
+    const cands = [];
+    open.forEach(o => {
+      let total = 0; try{ total = calcOrder(o).total; }catch(e){}
+      const cod = Number(o.codAmount) || 0;
+      if(!(Math.abs(total - p.amount) < 0.5 || (cod > 0 && Math.abs(cod - p.amount) < 0.5))) return;
+      const toks = monoNorm(o.customer).split(/[^a-zа-яіїє]+/).filter(t => t.length >= 3);
+      let score = toks.filter(t => text.includes(t.slice(0, Math.max(4, t.length - 2)))).length;
+      const ph = String(o.phone||'').replace(/\D/g,'').slice(-9);
+      if(ph.length === 9 && digits.includes(ph)) score += 2;
+      cands.push({o, score});
+    });
+    if(cands.length){ cands.sort((a, b) => b.score - a.score); out.push({p, cands: cands.slice(0, 4)}); }
+  });
+  return out;
+}
+function monoApply(pid, orderId){
+  const m = monoSt(), p = m.pending.find(x => x.id === pid), o = orderById(orderId); if(!p || !o) return;
+  if(!confirm(`Позначити замовлення №${o.id} ${o.customer || ''} оплаченим?\n\nНадходження: ${fmt(p.amount)} грн, ${new Date(p.time*1000).toLocaleString('uk-UA')}\nВід: ${p.counter || p.desc || '—'}${p.comment ? '\nКоментар: ' + p.comment : ''}`)) return;
+  o.monoPaymentId = p.id; p.done = true;
+  toggleOrderPaid(orderId, true);
+  renderAttention();
+}
+function monoDismiss(pid){ const p = monoSt().pending.find(x => x.id === pid); if(p){ p.done = true; scheduleSave(); renderAttention(); } }
+function monoStart(){
+  setTimeout(() => monoSync(false), 9000);
+  setInterval(() => monoSync(false), 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) monoSync(false); });
+}
+monoStart();
+
 function attentionList(){
   const list = [];
   const act = orders.filter(o => !isArchived(o));
@@ -14128,7 +14256,8 @@ function attentionList(){
 function renderAttention(){
   const box = document.getElementById('attentionBox'); if(!box) return;
   let list; try{ list = attentionList(); }catch(e){ box.innerHTML = ''; return; }
-  if(!list.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  let pays = []; try{ pays = monoMatches(); }catch(e){}
+  if(!list.length && !pays.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
   box.style.display = '';
   const rows = list.map(it => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border-soft);flex-wrap:wrap;">
     <span style="flex:0 0 auto;">${it.sev >= 2 ? '🔴' : '🟡'}</span>
@@ -14139,8 +14268,12 @@ function renderAttention(){
     ${it.ackKind === 'payer' ? `<button class="btn btn-sm" title="Не змінювати. Повідомлення зʼявиться знову, лише якщо щось зміниться" onclick="attentionAckPayer(${it.o.id},'${it.ackKey}')">Залишити як є</button>` : ''}
     ${it.fixKind === 'payer' ? `<button class="btn btn-sm" onclick="attentionFixPayer(${it.o.id},${it.fixTo})">Виправити</button>` : ''}
   </div>`).join('');
+  const payRows = pays.map(({p, cands}) => `<div style="padding:8px 0;border-top:1px solid var(--border-soft);">
+    <div>💰 <strong>Надходження ${fmt(p.amount)} грн</strong> · ${escapeHtml(new Date(p.time*1000).toLocaleString('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))} · від «${escapeHtml(p.counter || p.desc || '—')}»${p.comment ? ' · «' + escapeHtml(p.comment) + '»' : ''}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${cands.map(c => `<button class="btn btn-sm" onclick="monoApply('${p.id}',${c.o.id})">${c.score > 0 ? '★ ' : ''}№${c.o.id} ${escapeHtml(c.o.customer || 'без імені')}: позначити оплаченим</button>`).join('')}
+    <button class="btn btn-sm" onclick="monoDismiss('${p.id}')">Не стосується замовлень</button></div></div>`).join('');
   box.innerHTML = `<div style="border:1px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:1rem;background:var(--surface);">
-    <div style="font-weight:600;color:var(--danger);">⚠️ Потребує уваги: ${list.length}</div>${rows}</div>`;
+    <div style="font-weight:600;color:var(--danger);">⚠️ Потребує уваги: ${list.length + pays.length}</div>${payRows}${rows}</div>`;
 }
 function attentionAckPayer(id, key){ const o = orderById(id); if(!o) return; o.payerAck = key; scheduleSave(); renderAttention(); }
 function attentionFixPayer(id, toUs){
