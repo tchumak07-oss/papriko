@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.17 · 08.11.2026 13:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.19 · 08.11.2026 14:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -14097,6 +14097,17 @@ function orderIssues(o){
   if(cb && (cb.state === 'error' || cb.state === 'unknown')){
     out.push({sev:2, text: cb.state === 'unknown' ? 'Чек Checkbox: відповіді не було, чек міг створитись' : 'Чек Checkbox не пробито' + (cb.error ? ': ' + cb.error : ''), fix:'Перевір кабінет Checkbox і натисни «Чек Checkbox» ще раз, якщо чека нема.'});
   }
+  // платник доставки: «з сайту» і сума ≥ порогу → за наш рахунок; інакше — ні (ручний вибір не чіпаємо)
+  const th = Number(appSettings.freeShipThreshold) || 0;
+  if(th && o.deliveryMethod !== 'Самовивіз' && !o.delivered && !o.npReturned){
+    const total = calcOrder(o).total, onUs = o.payerType === 'Відправник', want = !!o.fromSite && total >= th;
+    if(want !== onUs && o.payerAck !== (onUs ? 'us' : 'rcv') + '|' + (want ? 'us' : 'rcv')){
+      out.push(want
+        ? {sev:1, text:`З сайту, сума ${fmt(total)} грн (поріг ${fmt(th)}), а доставка не за наш рахунок`, fixKind:'payer', fixTo:true, ackKind:'payer', ackKey:'rcv|us'}
+        : {sev:1, text: o.fromSite ? `Доставка за наш рахунок, а сума ${fmt(total)} грн менша за поріг ${fmt(th)}` : 'Доставка за наш рахунок, хоча замовлення не з сайту', fixKind:'payer', fixTo:false, ackKind:'payer', ackKey:'us|rcv'});
+      if(hasTtn){ const last = out[out.length-1]; last.fix = 'ТТН уже створена, платник у ній не зміниться. Видали ТТН і створи нову, якщо треба виправити.'; delete last.fixKind; last.ackKind = 'payer'; last.ackKey = onUs ? 'us|rcv' : 'rcv|us'; }
+    }
+  }
   (o.errLog || []).forEach((e, i) => { if(e.open) out.push({sev:2, text:`${e.src}: ${e.msg}`, fix: e.hint || 'Виправ і повтори дію.', logIdx:i}); });
   return out;
 }
@@ -14125,9 +14136,19 @@ function renderAttention(){
     <div class="hint" style="margin-top:2px;">${escapeHtml(it.fix || '')}</div></div>
     <button class="btn btn-sm" onclick="attentionOpen(${it.o.id})">Відкрити</button>
     ${it.logIdx !== undefined ? `<button class="btn btn-sm" onclick="resolveOrderError(${it.o.id},${it.logIdx})">Вирішено</button>` : ''}
+    ${it.ackKind === 'payer' ? `<button class="btn btn-sm" title="Не змінювати. Повідомлення зʼявиться знову, лише якщо щось зміниться" onclick="attentionAckPayer(${it.o.id},'${it.ackKey}')">Залишити як є</button>` : ''}
+    ${it.fixKind === 'payer' ? `<button class="btn btn-sm" onclick="attentionFixPayer(${it.o.id},${it.fixTo})">Виправити</button>` : ''}
   </div>`).join('');
   box.innerHTML = `<div style="border:1px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:1rem;background:var(--surface);">
     <div style="font-weight:600;color:var(--danger);">⚠️ Потребує уваги: ${list.length}</div>${rows}</div>`;
+}
+function attentionAckPayer(id, key){ const o = orderById(id); if(!o) return; o.payerAck = key; scheduleSave(); renderAttention(); }
+function attentionFixPayer(id, toUs){
+  const o = orderById(id); if(!o) return;
+  if(!confirm(`Замовлення №${id} ${o.customer || ''}:\n${toUs ? 'доставка буде ЗА НАШ РАХУНОК (платник — відправник).' : 'доставка буде за рахунок отримувача.'}\n\nВиправити?`)) return;
+  o.payerType = toUs ? 'Відправник' : 'Отримувач';
+  o.payerAuto = !!toUs; o.payerManual = false; o.payerAck = '';
+  syncPayerUi(o); renderOrders(); scheduleSave(); renderAttention();
 }
 function attentionOpen(id){
   const o = orderById(id); if(!o) return;
