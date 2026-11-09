@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.31 · 09.11.2026 13:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.32 · 09.11.2026 15:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -11205,6 +11205,7 @@ const AUTO_IMPORT_NOTE_PREFIX = 'Імпортовано автоматично';
 function orderCollapsedHintHtml(o){
   const parts = [o.date || '', `${o.items.length} поз.`, deliverySummaryText(o)];
   if(o.stockDeducted) parts.push('✓ списано');
+  if(o.counterpartyId){ const cp = counterpartyById(o.counterpartyId); parts.push('🏢 безнал' + (cp ? ': ' + cp.name : '')); }
   if(o.notes && !o.notes.startsWith(AUTO_IMPORT_NOTE_PREFIX)) parts.push('💬 ' + o.notes);
   const text = parts.filter(Boolean).join(' · ');
   return `<span class="hint" title="${escapeAttr(text)}">${escapeAttr(text)}</span>`;
@@ -14281,7 +14282,7 @@ async function monoSync(manual){
       maxTs = Math.max(maxTs, it.time || 0);
       if(!(it.amount > 0) || m.seen.includes(it.id)) return;
       m.seen.push(it.id);
-      m.pending.push({id: it.id, time: it.time, amount: it.amount / 100, desc: it.description || '', comment: it.comment || '', counter: it.counterName || '', done: false});
+      m.pending.push({id: it.id, time: it.time, amount: it.amount / 100, desc: it.description || '', comment: it.comment || '', counter: it.counterName || '', edrpou: it.counterEdrpou || '', iban: it.counterIban || '', done: false});
       added++;
     });
     m.lastTs = maxTs || now;
@@ -14314,6 +14315,14 @@ function monoMatches(){
       let score = toks.filter(t => text.includes(t.slice(0, Math.max(4, t.length - 2)))).length;
       const ph = String(o.phone||'').replace(/\D/g,'').slice(-9);
       if(ph.length === 9 && digits.includes(ph)) score += 2;
+      // безнал: збіг ЄДРПОУ/ІПН контрагента замовлення з відправником платежу, або його назви в призначенні
+      const cp = o.counterpartyId ? counterpartyById(o.counterpartyId) : null;
+      if(cp){
+        const codes = [cp.edrpou, cp.ipn].map(x => String(x||'').replace(/\D/g,'')).filter(x => x.length >= 8);
+        if(codes.some(cd => cd === String(p.edrpou||'').replace(/\D/g,'') || digits.includes(cd))) score += 3;
+        const ct = monoNorm(cp.name).split(/[^a-z0-9]+/).filter(t => t.length >= 4);
+        if(ct.some(t => text.includes(t))) score += 1;
+      }
       if(amountOk || score >= 1) cands.push({o, score, amountOk, total});
     });
     // платіж показуємо завжди, коли є хоч якийсь кандидат (за сумою або за іменем); завжди можна вручну обрати інше замовлення
@@ -16804,6 +16813,7 @@ function waybillFromOrder(id){
   invoiceDraftItems = o.items.map(it => { const k = kitById(it.kitId); return {name: k ? k.name : '(товар)', unit:'шт', qty: it.qty, price: it.price}; });
   document.getElementById('invoiceBuyerName').value = o.customer || '';
   document.getElementById('invoiceBuyerPhone').value = o.phone || '';
+  if(o.counterpartyId){ const sel = document.getElementById('invoiceCounterparty'); if(sel) sel.value = o.counterpartyId; }
   document.getElementById('invoiceUnloadPoint').value = unloadPointFromOrder(o);
   document.getElementById('invoiceDate').value = o.date || todayStr();
   document.getElementById('invoiceDiscountType').value = (o.discountType === 'percent' || o.discountType === 'amount') ? o.discountType : 'none';
@@ -16892,15 +16902,17 @@ function waybillDocFromOrder(o){
   const dVal = o.discountValue || 0;
   const {discount, total} = calcInvoiceDiscount(subtotal, dType, dVal);
   const seller = {name:sellerName, edrpou:sellerEdrpou, ipn:sellerIpn, address:sellerAddress, bankName:sellerBankName, iban:sellerIban, phone:sellerPhone};
-  const buyer = {name:o.customer||'', edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'', phone:o.phone||''};
+  const cp = o.counterpartyId ? counterpartyById(o.counterpartyId) : null;
+  const buyer = cp ? {name:cp.name, edrpou:cp.edrpou||'', ipn:cp.ipn||'', address:cp.address||'', contactPerson:cp.contactPerson||'', contactPhone:cp.contactPhone||'', phone:cp.phone||o.phone||''}
+                   : {name:o.customer||'', edrpou:'', ipn:'', address:'', contactPerson:'', contactPhone:'', phone:o.phone||''};
   let inv = invoices.find(i => i.docType === 'waybill' && String(i.orderId) === String(o.id));
   if(inv){
     Object.assign(inv, {unloadPoint: unloadPointFromOrder(o), subtotal, discountType:dType, discountValue:dVal, discount, total, seller, buyer, items, editedAt:new Date().toISOString()});
-    inv.counterpartyId = null;
+    inv.counterpartyId = cp ? cp.id : null;
   } else {
     inv = {id: nextInvoiceId++, docType:'waybill', unloadPoint: unloadPointFromOrder(o), orderId:o.id, number: nextDocNumber('waybill'),
       date: o.date || todayStr(), dueDate:'', notes:`Замовлення: ${o.customer || '#' + o.id}`, total, subtotal, discountType:dType, discountValue:dVal, discount,
-      counterpartyId:null, seller, buyer, items, createdAt:new Date().toISOString()};
+      counterpartyId: cp ? cp.id : null, seller, buyer, items, createdAt:new Date().toISOString()};
     invoices.push(inv);
   }
   renderInvoicesHistory();
@@ -16918,6 +16930,11 @@ function orderDocChoose(id){
   m.innerHTML = `<div class="catalog-panel" style="max-width:380px;width:100%;padding:20px;">
     <div style="font-family:'Fraunces',serif;font-size:18px;margin-bottom:4px;">Накладна клієнту</div>
     <div class="hint" style="margin-bottom:14px;">${escapeHtml(o.customer||'Без імені')} · ${fmt(calcOrder(o).total)} грн${ex ? '<br>Накладну № '+ex.number+' уже створено — вона оновиться з поточного замовлення.' : ''}</div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;color:var(--text-muted);">Одержувач документа</label>
+      <select id="orderDocCp" style="width:100%;"><option value="">Фізособа (як у замовленні)</option>${[...counterparties].sort((a,b)=>a.name.localeCompare(b.name)).map(c => `<option value="${c.id}" ${String(o.counterpartyId||'')===String(c.id)?'selected':''}>🏢 ${escapeHtml(c.name)}${c.edrpou ? ' · ' + escapeHtml(c.edrpou) : ''}</option>`).join('')}</select>
+      <div class="hint" style="margin-top:4px;">Юр. особа або ФОП, оплата безготівково. Контрагентів додають у розділі «Контрагенти». Вибір запам'ятається в замовленні, а оплату за ЄДРПОУ програма впізнає в Monobank.</div>
+    </div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       <button class="btn btn-primary" id="orderDocXlsx">📊 Завантажити в Excel</button>
       <button class="btn" id="orderDocPdf">🖨 PDF (друк)</button>
@@ -16928,9 +16945,10 @@ function orderDocChoose(id){
   const close = () => m.remove();
   m.addEventListener('mousedown', e => { if(e.target === m) close(); });
   document.getElementById('orderDocCancel').onclick = close;
-  document.getElementById('orderDocXlsx').onclick = () => { const inv = waybillDocFromOrder(o); close(); exportInvoiceExcel(inv); };
-  document.getElementById('orderDocPdf').onclick = () => { const inv = waybillDocFromOrder(o); close(); openInvoiceWindow(inv); };
-  document.getElementById('orderDocForm').onclick = () => { close(); waybillFromOrder(o.id); };
+  const saveCp = () => { const v = document.getElementById('orderDocCp').value; o.counterpartyId = v ? Number(v) : null; o.cashless = !!v; scheduleSave(); renderOrders(); };
+  document.getElementById('orderDocXlsx').onclick = () => { saveCp(); const inv = waybillDocFromOrder(o); close(); exportInvoiceExcel(inv); };
+  document.getElementById('orderDocPdf').onclick = () => { saveCp(); const inv = waybillDocFromOrder(o); close(); openInvoiceWindow(inv); };
+  document.getElementById('orderDocForm').onclick = () => { saveCp(); close(); waybillFromOrder(o.id); };
 }
 
 // копія наявного рахунку/накладної: підвантажує всі дані у форму як НОВИЙ документ (новий номер, сьогоднішня дата)
