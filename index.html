@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.30 · 09.11.2026 12:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.31 · 09.11.2026 13:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -7513,8 +7513,11 @@ function setTodayShipmentsPeriod(kind){
 // дата відправки: коли замовлення вперше стало «Відправлено» (stampShippedDates), інакше дата позначки пакувальника, інакше дата створення
 function isShippedAny(o){
   if(o.shipped) return true;
-  const c = String(o.npStatusCode || '');
-  return !!(c && !['1','2','3'].includes(c)) || !!(o.ukrStatusText && !/створ|очіку/i.test(o.ukrStatusText) && o.ukrTtnNumber && (o.ukrShipmentUuid || o.ukrStatusText));
+  // за статусом перевізника: усе, крім «створено, ще не передано / видалено / не знайдено»
+  const np = String(o.npStatusText || ''), c = String(o.npStatusCode || '');
+  if(c ? !['1','2','3'].includes(c) : (np && !/ще не надав|не надав до відправки|самостійно створив|видалено|не знайден/i.test(np))) return true;
+  const up = String(o.ukrStatusText || '');
+  return !!(up && !/створ|очіку|зареєстр|не знайден/i.test(up));
 }
 function shipDateOf(o){ return o.shippedDate || (o.shippedMarkAt ? String(o.shippedMarkAt).slice(0, 10) : '') || o.date || ''; }
 function stampShippedDates(){
@@ -7522,7 +7525,11 @@ function stampShippedDates(){
   const baseline = !appSettings.shipStampInit;
   orders.forEach(o => {
     if(!isShippedAny(o)){ if(o.shippedDate && !o.delivered) { o.shippedDate = ''; o.shippedDateGuess = false; } return; }
-    if(o.shippedDate) return;
+    if(o.shippedDate){
+      // міграція з v0.86.29: дата = створення без підтвердження → вважаємо припущенням
+      if(o.shippedDateGuess === undefined) o.shippedDateGuess = !o.shippedMarkAt && o.shippedDate === o.date && o.date !== todayStr();
+      return;
+    }
     if(o.shippedMarkAt) o.shippedDate = String(o.shippedMarkAt).slice(0, 10);
     else if(baseline){ o.shippedDate = o.date || ''; o.shippedDateGuess = true; }
     else o.shippedDate = todayStr();
@@ -7613,7 +7620,8 @@ function renderTodayShipmentsModal(){
   const guessHtml = (() => {
     if(!document.getElementById('tsFilterShippedOn').checked) return '';
     const inList = new Set(list.map(o => o.id));
-    const g = orders.filter(o => o.shippedDateGuess && isShippedAny(o) && !o.delivered && !o.npReturned && !inList.has(o.id));
+    const lim = new Date(); lim.setDate(lim.getDate() - 4); const limS = lim.toISOString().slice(0, 10);
+    const g = orders.filter(o => o.shippedDateGuess && isShippedAny(o) && !o.delivered && !o.npReturned && !inList.has(o.id) && String(o.date || '') >= limS);
     if(!g.length) return '';
     return `<div style="margin-top:14px;padding:10px 14px;border:1px dashed var(--border);border-radius:8px;"><div class="hint" style="margin-bottom:6px;">Відправлені раніше за це оновлення: точної дати відправки немає (показана дата створення). Якщо який з них пішов у обраний період, натисни «Відправлено сьогодні».</div>` + g.map(o => `<div style="display:flex;gap:8px;align-items:center;padding:4px 0;flex-wrap:wrap;"><span style="flex:1 1 220px;">№${o.id} ${escapeAttr(o.customer||'Без імені')} <span class="hint">· створено ${escapeAttr(o.date||'')} · ${escapeAttr(o.npStatusText||o.ukrStatusText||'')}</span></span><button class="btn btn-sm" onclick="setShipDateToday(${o.id})">Відправлено сьогодні</button><button class="btn btn-sm" onclick="dropShipGuess(${o.id})">Дата правильна</button></div>`).join('') + '</div>';
   })();
