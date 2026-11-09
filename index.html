@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.29 · 09.11.2026 12:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.30 · 09.11.2026 12:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -7511,15 +7511,21 @@ function setTodayShipmentsPeriod(kind){
 }
 
 // дата відправки: коли замовлення вперше стало «Відправлено» (stampShippedDates), інакше дата позначки пакувальника, інакше дата створення
+function isShippedAny(o){
+  if(o.shipped) return true;
+  const c = String(o.npStatusCode || '');
+  return !!(c && !['1','2','3'].includes(c)) || !!(o.ukrStatusText && !/створ|очіку/i.test(o.ukrStatusText) && o.ukrTtnNumber && (o.ukrShipmentUuid || o.ukrStatusText));
+}
 function shipDateOf(o){ return o.shippedDate || (o.shippedMarkAt ? String(o.shippedMarkAt).slice(0, 10) : '') || o.date || ''; }
 function stampShippedDates(){
   // проставляє дату першої відправки. Для вже відправлених до цього оновлення — дата позначки пакувальника чи створення (щоб не стали «сьогоднішніми»)
   const baseline = !appSettings.shipStampInit;
   orders.forEach(o => {
-    if(!o.shipped){ if(o.shippedDate && !o.delivered) o.shippedDate = ''; return; }
+    if(!isShippedAny(o)){ if(o.shippedDate && !o.delivered) { o.shippedDate = ''; o.shippedDateGuess = false; } return; }
     if(o.shippedDate) return;
     if(o.shippedMarkAt) o.shippedDate = String(o.shippedMarkAt).slice(0, 10);
-    else o.shippedDate = baseline ? (o.date || '') : todayStr();
+    else if(baseline){ o.shippedDate = o.date || ''; o.shippedDateGuess = true; }
+    else o.shippedDate = todayStr();
   });
   appSettings.shipStampInit = true;
 }
@@ -7573,7 +7579,7 @@ function getFilteredShipments(){
     }
 
     // «Відправлені в цей період» — за ДАТОЮ ВІДПРАВКИ (коли посилку передали перевізнику), а не за датою створення замовлення
-    if(fShippedOn && o.shipped){
+    if(fShippedOn && isShippedAny(o)){
       const sts = dateSortValue(shipDateOf(o));
       if(sts >= fromTs && sts <= toTs) return true;
     }
@@ -7604,6 +7610,13 @@ function renderTodayShipmentsModal(){
         + `У т.ч. <strong>лише післяплата</strong> (буде/було переказано перевізником): <strong style="color:var(--cardamom);">${fmt(codTotal)} грн</strong> (${codList.length} відправлень). Передоплачені замовлення сюди не входять.`;
     }
   }
+  const guessHtml = (() => {
+    if(!document.getElementById('tsFilterShippedOn').checked) return '';
+    const inList = new Set(list.map(o => o.id));
+    const g = orders.filter(o => o.shippedDateGuess && isShippedAny(o) && !o.delivered && !o.npReturned && !inList.has(o.id));
+    if(!g.length) return '';
+    return `<div style="margin-top:14px;padding:10px 14px;border:1px dashed var(--border);border-radius:8px;"><div class="hint" style="margin-bottom:6px;">Відправлені раніше за це оновлення: точної дати відправки немає (показана дата створення). Якщо який з них пішов у обраний період, натисни «Відправлено сьогодні».</div>` + g.map(o => `<div style="display:flex;gap:8px;align-items:center;padding:4px 0;flex-wrap:wrap;"><span style="flex:1 1 220px;">№${o.id} ${escapeAttr(o.customer||'Без імені')} <span class="hint">· створено ${escapeAttr(o.date||'')} · ${escapeAttr(o.npStatusText||o.ukrStatusText||'')}</span></span><button class="btn btn-sm" onclick="setShipDateToday(${o.id})">Відправлено сьогодні</button><button class="btn btn-sm" onclick="dropShipGuess(${o.id})">Дата правильна</button></div>`).join('') + '</div>';
+  })();
   if(list.length === 0){
     tableEl.innerHTML = `<div class="comp-empty">Нічого не знайдено за ${from===to ? from : from+' — '+to} із цими фільтрами.</div>`;
   } else {
@@ -7631,8 +7644,11 @@ function renderTodayShipmentsModal(){
       `;
     }).join('');
   }
+  if(guessHtml) tableEl.innerHTML += guessHtml;
 }
 
+function setShipDateToday(id){ const o = orderById(id); if(!o) return; o.shippedDate = todayStr(); o.shippedDateGuess = false; scheduleSave(); renderTodayShipmentsModal(); }
+function dropShipGuess(id){ const o = orderById(id); if(!o) return; o.shippedDateGuess = false; scheduleSave(); renderTodayShipmentsModal(); }
 function closeTodayShipmentsModal(){
   document.getElementById('todayShipmentsModal').style.display = 'none';
 }
