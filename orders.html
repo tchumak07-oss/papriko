@@ -426,7 +426,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.38 · 09.11.2026 18:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.39 · 09.11.2026 18:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2220,7 +2220,7 @@ const HARDCODED_FIREBASE_CONFIG = {
    Запобіжники: замовлення прибирається з основного документа ЛИШЕ коли архівний документ його місяця
    підтверджено записаний і збігається з поточним станом (хеш); якщо архів не вдалось прочитати/записати —
    нічого не виноситься; архівні документи програма ніколи не видаляє. */
-const ARCHIVE_AGE_DAYS = 45;
+const ARCHIVE_AGE_DAYS = 14;
 let archiveOk = false;            // архів успішно прочитано (інакше функція вимкнена)
 let archiveWarned = false;
 let archiveCache = [];            // об'єкти замовлень, що живуть в архіві (посилання на ті ж об'єкти з orders)
@@ -2978,6 +2978,10 @@ function showDbSizeDetails(){
   const auxPct = Math.round(s.aux.total / FIRESTORE_DOC_LIMIT * 100);
   let msg = `Основний документ: ${fmtKb(s.main.total)} з 1024 КБ (${mainPct}%)\n` + s.main.parts.slice(0, 6).map(line).join('\n');
   msg += `\n\nДокумент складу: ${fmtKb(s.aux.total)} з 1024 КБ (${auxPct}%)\n` + s.aux.parts.map(line).join('\n');
+  const fin = orders.filter(o => o.paid && o.delivered && !o.keepActive);
+  const finOld = fin.filter(o => /^\d{4}-\d{2}-\d{2}/.test(o.date || '') && (Date.now() - Date.parse(o.date)) / 864e5 > ARCHIVE_AGE_DAYS);
+  const nodate = orders.filter(o => !/^\d{4}-\d{2}-\d{2}/.test(o.date || '')).length;
+  msg += `\n\nАрхів: ${archiveOk ? 'підключено' : 'НЕ підключено'}; усього замовлень ${orders.length}; оплачені+доставлені ${fin.length}; з них старші за ${ARCHIVE_AGE_DAYS} дн. ${finOld.length}; без дати ${nodate}; у архіві зараз ${orders.filter(o => archiveKeys.has(orderKey(o))).length}; архівних документів ${Object.keys(archiveHash).length}.`;
   const worst = Math.max(mainPct, auxPct);
   if(worst >= 85) msg += '\n\n⚠ База майже заповнена: найближчим часом збереження може перестати працювати. Напишіть мені — винесемо старі замовлення в архівні документи.';
   else if(worst >= 70) msg += '\n\nБаза заповнена більш ніж на 70% — варто планувати винесення старих замовлень в архів.';
