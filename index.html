@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.28 · 08.11.2026 22:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.29 · 09.11.2026 12:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -903,6 +903,7 @@
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterAll" onchange="onTsFilterAllChange()" style="width:auto;accent-color:var(--saffron);"> Всі</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterUnshipped" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Створені, не відправлені</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterShipped" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Створені і відправлені</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" title="Відправлені саме в обраний період, незалежно від дати створення замовлення"><input type="checkbox" id="tsFilterShippedOn" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Відправлені в цей період (за датою відправки)</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterInTransit" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> В дорозі</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterAtBranch" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> На відділенні, ще не забрали</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="tsFilterDelivered" onchange="onTsFilterSpecificChange()" style="width:auto;accent-color:var(--saffron);"> Доставлені</label>
@@ -2364,6 +2365,7 @@ function applyRemoteAuxData(data){
 function scheduleSave(){
   if(sessionLocked) return; // цю вкладку витіснено іншою активною — не пишемо в базу
   if(!fbConnected || !fbDocRef) return;
+  try{ stampShippedDates(); }catch(e){}
   clearTimeout(fbSaveTimer);
   fbSaveTimer = setTimeout(() => {
     fbSaveTimer = null;
@@ -2388,7 +2390,7 @@ function scheduleSave(){
             // вкладка/пристрій рахує окремо й незалежно); на uid-позбавлені старі записи — за id.
             const lo = orders.find(o => (o.uid && ro.uid) ? o.uid === ro.uid : o.id === ro.id);
             if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
-            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','shipConfirmed']
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','shippedDate','shipConfirmed']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
@@ -7402,7 +7404,7 @@ function duplicateOrder(sourceId){
   copy.sendToTelegram = true;
   copy.errLog = [];
   copy.sendSms = false;
-  ['ukrRecipientUuid','ukrStatusText','deliveredDate','atBranchSince','branchReminderSentDate','packedTs','packedBy','shippedBy','shippedMarkAt','labelPrintedAt','labelPrintedBy','codPaymentDate','codReceivedAmount','deliveryCost'].forEach(f => { if(f in copy) copy[f] = ''; });
+  ['ukrRecipientUuid','ukrStatusText','deliveredDate','atBranchSince','branchReminderSentDate','packedTs','packedBy','shippedBy','shippedMarkAt','shippedDate','labelPrintedAt','labelPrintedBy','codPaymentDate','codReceivedAmount','deliveryCost'].forEach(f => { if(f in copy) copy[f] = ''; });
   copy.shipConfirmed = false; copy.labelPrinted = false; copy.npReturned = false; copy.keepActive = false;
   delete copy.cbReceipt; delete copy.pkText; delete copy.pkShipped; delete copy.pkDelivered; delete copy.pkReturned; delete copy.pkAt;
   orders.push(copy);
@@ -7431,6 +7433,7 @@ function onTsFilterAllChange(){
   if(document.getElementById('tsFilterAll').checked){
     document.getElementById('tsFilterUnshipped').checked = false;
     document.getElementById('tsFilterShipped').checked = false;
+    document.getElementById('tsFilterShippedOn').checked = false;
     document.getElementById('tsFilterInTransit').checked = false;
     document.getElementById('tsFilterAtBranch').checked = false;
     document.getElementById('tsFilterDelivered').checked = false;
@@ -7443,6 +7446,7 @@ function onTsFilterAllChange(){
 function onTsFilterSpecificChange(){
   const anyChecked = document.getElementById('tsFilterUnshipped').checked
     || document.getElementById('tsFilterShipped').checked
+    || document.getElementById('tsFilterShippedOn').checked
     || document.getElementById('tsFilterInTransit').checked
     || document.getElementById('tsFilterAtBranch').checked
     || document.getElementById('tsFilterDelivered').checked
@@ -7460,6 +7464,7 @@ async function openTodayShipmentsModal(){
   document.getElementById('tsFilterAll').checked = true;
   document.getElementById('tsFilterUnshipped').checked = false;
   document.getElementById('tsFilterShipped').checked = false;
+  document.getElementById('tsFilterShippedOn').checked = false;
   document.getElementById('tsFilterInTransit').checked = false;
   document.getElementById('tsFilterAtBranch').checked = false;
   document.getElementById('tsFilterDelivered').checked = false;
@@ -7505,6 +7510,19 @@ function setTodayShipmentsPeriod(kind){
   renderTodayShipmentsModal();
 }
 
+// дата відправки: коли замовлення вперше стало «Відправлено» (stampShippedDates), інакше дата позначки пакувальника, інакше дата створення
+function shipDateOf(o){ return o.shippedDate || (o.shippedMarkAt ? String(o.shippedMarkAt).slice(0, 10) : '') || o.date || ''; }
+function stampShippedDates(){
+  // проставляє дату першої відправки. Для вже відправлених до цього оновлення — дата позначки пакувальника чи створення (щоб не стали «сьогоднішніми»)
+  const baseline = !appSettings.shipStampInit;
+  orders.forEach(o => {
+    if(!o.shipped){ if(o.shippedDate && !o.delivered) o.shippedDate = ''; return; }
+    if(o.shippedDate) return;
+    if(o.shippedMarkAt) o.shippedDate = String(o.shippedMarkAt).slice(0, 10);
+    else o.shippedDate = baseline ? (o.date || '') : todayStr();
+  });
+  appSettings.shipStampInit = true;
+}
 // повертає {orders, from, to} — відфільтровані відправки за поточними полями модалки (період + чекбокси статусів)
 function getFilteredShipments(){
   const from = document.getElementById('tsPeriodFrom').value || todayStr();
@@ -7518,9 +7536,10 @@ function getFilteredShipments(){
   const fAtBranch = document.getElementById('tsFilterAtBranch').checked;
   const fDelivered = document.getElementById('tsFilterDelivered').checked;
   const fPickedUp = document.getElementById('tsFilterPickedUp').checked;
+  const fShippedOn = document.getElementById('tsFilterShippedOn').checked;
   const fPaid = document.getElementById('tsFilterPaid').checked;
   const fReturned = document.getElementById('tsFilterReturned').checked;
-  const anyStatusChecked = fUnshipped || fShipped || fInTransit || fAtBranch || fDelivered || fPickedUp || fPaid || fReturned;
+  const anyStatusChecked = fUnshipped || fShipped || fShippedOn || fInTransit || fAtBranch || fDelivered || fPickedUp || fPaid || fReturned;
 
   const fCarrierNp = document.getElementById('tsFilterCarrierNp').checked;
   const fCarrierUkr = document.getElementById('tsFilterCarrierUkr').checked;
@@ -7553,6 +7572,11 @@ function getFilteredShipments(){
       return pickupTs >= fromTs && pickupTs <= toTs;
     }
 
+    // «Відправлені в цей період» — за ДАТОЮ ВІДПРАВКИ (коли посилку передали перевізнику), а не за датою створення замовлення
+    if(fShippedOn && o.shipped){
+      const sts = dateSortValue(shipDateOf(o));
+      if(sts >= fromTs && sts <= toTs) return true;
+    }
     const ts = dateSortValue(o.date);
     const dateOk = ts >= fromTs && ts <= toTs;
     if(!dateOk) return false;
@@ -7591,7 +7615,7 @@ function renderTodayShipmentsModal(){
       }).join(', ');
       const transitLabel = isAtBranchAwaitingPickup(o) ? 'на відділенні' : (isInTransitOnly(o) ? 'в дорозі' : '');
       const isRet = !!(o.npReturned || o.status === 'Повернено');
-      const statusText = [o.paid?'Оплачено':'', isRet ? 'Повернення' : transitLabel, (!isRet && o.delivered)?'Доставлено':''].filter(Boolean).join(', ') || o.status;
+      const statusText = [o.paid?'Оплачено':'', o.shipped ? 'відпр. ' + shipDateOf(o).slice(5).split('-').reverse().join('.') : '', isRet ? 'Повернення' : transitLabel, (!isRet && o.delivered)?'Доставлено':''].filter(Boolean).join(', ') || o.status;
       const pk = !!o.packed && !o.shipped;
       return `
         <div class="wh-row" style="grid-template-columns:36px 90px 1fr 1fr 90px 100px 130px 1fr;${pk?'background:rgba(45,212,191,0.16);box-shadow:inset 3px 0 0 #2dd4bf;':''}">
