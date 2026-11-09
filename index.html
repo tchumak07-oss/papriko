@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.26 · 08.11.2026 15:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.28 · 08.11.2026 22:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -14246,7 +14246,9 @@ async function monoSync(manual){
     if(manual && !(st && st.offsetParent)) alert('Monobank: ' + e.message);
   }finally{ monoBusy = false; }
 }
-function monoNorm(s){ return String(s||'').toLowerCase().replace(/[ʼ'’`]/g,'').replace(/ё/g,'е').replace(/ґ/g,'г'); }
+const MONO_TR = {а:'a',б:'b',в:'v',г:'h',ґ:'g',д:'d',е:'e',є:'ie',ж:'zh',з:'z',и:'y',і:'i',ї:'i',й:'i',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'kh',ц:'ts',ч:'ch',ш:'sh',щ:'shch',ю:'iu',я:'ia',ь:'',ы:'y',э:'e',ё:'io'};
+// все в латиницю (укр. транслітерація) і y→i, щоб «Kravchenko Valentyna» == «Кравченко Валентина»
+function monoNorm(s){ return String(s||'').toLowerCase().replace(/[ʼ'’`]/g,'').replace(/[а-яіїєґёыэ]/g, c => MONO_TR[c] !== undefined ? MONO_TR[c] : c).replace(/y/g,'i'); }
 function monoMatches(){
   const m = monoSt(); if(!m.pending.length) return [];
   const open = orders.filter(o => !isArchived(o) && !o.paid && !o.npReturned);
@@ -14259,23 +14261,51 @@ function monoMatches(){
     open.forEach(o => {
       let total = 0; try{ total = calcOrder(o).total; }catch(e){}
       const cod = Number(o.codAmount) || 0;
-      if(!(Math.abs(total - p.amount) < 0.5 || (cod > 0 && Math.abs(cod - p.amount) < 0.5))) return;
-      const toks = monoNorm(o.customer).split(/[^a-zа-яіїє]+/).filter(t => t.length >= 3);
+      const amountOk = Math.abs(total - p.amount) < 0.5 || (cod > 0 && Math.abs(cod - p.amount) < 0.5);
+      const toks = monoNorm(o.customer).split(/[^a-z]+/).filter(t => t.length >= 3);
       let score = toks.filter(t => text.includes(t.slice(0, Math.max(4, t.length - 2)))).length;
       const ph = String(o.phone||'').replace(/\D/g,'').slice(-9);
       if(ph.length === 9 && digits.includes(ph)) score += 2;
-      cands.push({o, score});
+      if(amountOk || score >= 1) cands.push({o, score, amountOk, total});
     });
-    if(cands.length){ cands.sort((a, b) => b.score - a.score); out.push({p, cands: cands.slice(0, 4)}); }
+    // платіж показуємо завжди, коли є хоч якийсь кандидат (за сумою або за іменем); завжди можна вручну обрати інше замовлення
+    if(cands.length){ cands.sort((a, b) => ((b.amountOk && b.score) ? 1000 : 0) + b.score * 10 + (b.amountOk ? 1 : 0) - (((a.amountOk && a.score) ? 1000 : 0) + a.score * 10 + (a.amountOk ? 1 : 0))); out.push({p, cands: cands.slice(0, 4)}); }
   });
   return out;
 }
 function monoApply(pid, orderId){
   const m = monoSt(), p = m.pending.find(x => x.id === pid), o = orderById(orderId); if(!p || !o) return;
-  if(!confirm(`Позначити замовлення №${o.id} ${o.customer || ''} оплаченим?\n\nНадходження: ${fmt(p.amount)} грн, ${new Date(p.time*1000).toLocaleString('uk-UA')}\nВід: ${p.counter || p.desc || '—'}${p.comment ? '\nКоментар: ' + p.comment : ''}`)) return;
+  let tot = 0; try{ tot = calcOrder(o).total; }catch(e){}
+  const diff = Math.abs(tot - p.amount) >= 0.5 ? `\n\n⚠️ Сума замовлення ${fmt(tot)} грн, а надійшло ${fmt(p.amount)} грн.` : '';
+  if(!confirm(`Позначити замовлення №${o.id} ${o.customer || ''} оплаченим?${diff}\n\nНадходження: ${fmt(p.amount)} грн, ${new Date(p.time*1000).toLocaleString('uk-UA')}\nВід: ${p.counter || p.desc || '—'}${p.comment ? '\nКоментар: ' + p.comment : ''}`)) return;
   o.monoPaymentId = p.id; p.done = true;
   toggleOrderPaid(orderId, true);
   renderAttention();
+}
+function monoPick(pid){
+  const p = monoSt().pending.find(x => x.id === pid); if(!p) return;
+  const open = orders.filter(o => !isArchived(o) && !o.paid && !o.npReturned).sort((a, b) => b.id - a.id);
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border-soft);border-radius:12px;max-width:560px;width:100%;max-height:80vh;display:flex;flex-direction:column;padding:14px;">
+    <div style="font-weight:600;margin-bottom:6px;">Підв'язати надходження ${fmt(p.amount)} грн від «${escapeHtml(p.counter || p.desc || '—')}»</div>
+    <input type="text" id="monoPickQ" placeholder="Пошук: номер, ім'я, телефон" style="margin-bottom:8px;">
+    <div id="monoPickList" style="overflow:auto;flex:1;"></div>
+    <div style="text-align:right;margin-top:8px;"><button class="btn btn-sm" id="monoPickClose">Закрити</button></div></div>`;
+  document.body.appendChild(ov);
+  const list = ov.querySelector('#monoPickList'), q = ov.querySelector('#monoPickQ');
+  const draw = () => {
+    const t = monoNorm(q.value.trim());
+    const rows = open.filter(o => !t || monoNorm(o.customer).includes(t) || String(o.id).includes(t) || String(o.phone||'').replace(/\D/g,'').includes(t.replace(/\D/g,'') || '§')).slice(0, 40);
+    list.innerHTML = rows.map(o => { let tot = 0; try{ tot = calcOrder(o).total; }catch(e){} const ok = Math.abs(tot - p.amount) < 0.5;
+      return `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--border-soft);">
+        <div style="flex:1;min-width:0;">№${o.id} ${escapeHtml(o.customer || 'без імені')}<div class="hint">${escapeHtml(o.date || '')} · ${fmt(tot)} грн${ok ? ' ✓ сума збігається' : ''}</div></div>
+        <button class="btn btn-sm" data-oid="${o.id}">Обрати</button></div>`; }).join('') || '<div class="hint">Нічого не знайдено</div>';
+  };
+  q.oninput = draw; draw(); q.focus();
+  list.onclick = e => { const b = e.target.closest('button[data-oid]'); if(!b) return; ov.remove(); monoApply(pid, Number(b.dataset.oid)); };
+  ov.querySelector('#monoPickClose').onclick = () => ov.remove();
 }
 function monoDismiss(pid){ const p = monoSt().pending.find(x => x.id === pid); if(p){ p.done = true; scheduleSave(); renderAttention(); } }
 function monoStart(){
@@ -14323,8 +14353,8 @@ function renderAttention(){
   </div>`).join('');
   const payRows = pays.map(({p, cands}) => `<div style="padding:8px 0;border-top:1px solid var(--border-soft);">
     <div>💰 <strong>Надходження ${fmt(p.amount)} грн</strong> · ${escapeHtml(new Date(p.time*1000).toLocaleString('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))} · від «${escapeHtml(p.counter || p.desc || '—')}»${p.comment ? ' · «' + escapeHtml(p.comment) + '»' : ''}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${cands.map(c => `<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-soft);border-radius:8px;padding:3px 6px;">${c.score > 0 ? '★ ' : ''}<a href="#" onclick="goToOrder(${c.o.id});return false;" title="Відкрити замовлення" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">№${c.o.id} ${escapeHtml(c.o.customer || 'без імені')}</a><button class="btn btn-sm" onclick="monoApply('${p.id}',${c.o.id})">позначити оплаченим</button></span>`).join('')}
-    <button class="btn btn-sm" onclick="monoDismiss('${p.id}')">Не стосується замовлень</button></div></div>`).join('');
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${cands.map(c => `<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-soft);border-radius:8px;padding:3px 6px;">${c.score > 0 ? '★ ' : ''}<a href="#" onclick="goToOrder(${c.o.id});return false;" title="Відкрити замовлення" style="color:inherit;text-decoration:underline dotted;cursor:pointer;">№${c.o.id} ${escapeHtml(c.o.customer || 'без імені')}</a><button class="btn btn-sm" onclick="monoApply('${p.id}',${c.o.id})">позначити оплаченим</button>${c.amountOk ? '' : `<span class="hint">(сума замовлення ${fmt(c.total)} грн)</span>`}</span>`).join('')}
+    <button class="btn btn-sm" onclick="monoPick('${p.id}')">Інше замовлення…</button><button class="btn btn-sm" onclick="monoDismiss('${p.id}')">Не стосується замовлень</button></div></div>`).join('');
   const sysRows = sys.map(x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border-soft);flex-wrap:wrap;"><span>🔴</span>
     <div style="flex:1 1 260px;min-width:0;"><div>${escapeHtml(x.text)}</div>${x.fix ? `<div class="hint" style="margin-top:2px;">${escapeHtml(x.fix)}</div>` : ''}</div>
     ${x.skipIdx !== undefined ? `<button class="btn btn-sm" onclick="tgSkippedOpen(${x.skipIdx})">Розпізнати вручну</button><button class="btn btn-sm" onclick="tgSkippedDrop(${x.skipIdx})">Прибрати</button>` : ''}</div>`).join('');
@@ -16982,7 +17012,7 @@ async function resolveSiteKits(list){
 }
 function siteFillOrder(o, so){
   o.fromSite = true; o.siteImported = true;
-  if(!o.ttnTelegramNotified) o.sendToTelegram = false; // про замовлення з сайту в Telegram уже сповістив бот сайту
+  o.sendToTelegram = false; o.siteTgPending = true; // у Telegram відправляє сама автоматика після створення (див. siteTgFlush)
   o.siteId = so.id; o.siteNo = so.no || ''; o.siteVersion = so.version || 0;
   o.customer = so.name || (so.phone ? 'Клієнт ' + so.phone : '');
   o.phone = sitePhone(so.phone);
@@ -17075,6 +17105,22 @@ async function siteImportFromHeader(){
   showUndoToast(c.lastMsg || 'Готово', false);
   if(added > 0){ try{ showSection('orders'); resetOrderFilters(); renderOrders(); }catch(e){} }
 }
+const siteTgInFlight = new Set();
+async function siteTgFlush(){
+  // автоматично шле в Telegram усі щойно створені з сайту замовлення; невдалі лишаються «в черзі» і пробуються при наступному запуску
+  if(!tgBotToken || !tgChatId) return;
+  const pend = orders.filter(o => o.siteTgPending && !o.ttnTelegramNotified && !siteTgInFlight.has(o.uid)).slice(0, 8);
+  for(const o of pend){
+    siteTgInFlight.add(o.uid);
+    try{
+      const res = await notifyTelegramShipment(o);
+      if(res && res.ok){ o.siteTgPending = false; o.ttnTelegramNotified = true; errOk(o, 'Telegram'); }
+      else logOrderError(o, 'Telegram', (res && res.error) || 'невідома помилка');
+    }catch(e){ logOrderError(o, 'Telegram', e.message); }
+    finally{ siteTgInFlight.delete(o.uid); }
+  }
+  if(pend.length){ scheduleSave(); try{ renderOrders(); }catch(e){} }
+}
 async function runSiteImport(manual){
   const c = siteSyncCfg();
   if(siteSyncBusy) return;
@@ -17153,6 +17199,7 @@ async function runSiteImport(manual){
       if(created && !manual) showUndoToast(`🌐 З сайту додано замовлень: ${created}`, false);
     }
     scheduleSave();
+    await siteTgFlush();
   }catch(err){
     setSiteSyncStatus('Помилка завантаження з сайту: ' + err.message);
     console.warn('[site import]', err);
