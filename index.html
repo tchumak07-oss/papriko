@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.35 · 09.11.2026 16:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.36 · 09.11.2026 16:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -14390,6 +14390,9 @@ function attentionList(){
   list.sort((a,b) => b.sev - a.sev);
   return list;
 }
+let attentionOpen_ = true;
+try{ attentionOpen_ = localStorage.getItem('attentionOpen') !== '0'; }catch(e){}
+function attentionToggle(){ attentionOpen_ = !attentionOpen_; try{ localStorage.setItem('attentionOpen', attentionOpen_ ? '1' : '0'); }catch(e){} renderAttention(); }
 let monoBoxOpen = false;
 try{ monoBoxOpen = localStorage.getItem('monoBoxOpen') === '1'; }catch(e){}
 function monoBoxToggle(){ monoBoxOpen = !monoBoxOpen; try{ localStorage.setItem('monoBoxOpen', monoBoxOpen ? '1' : '0'); }catch(e){} renderMonoBox(); }
@@ -14432,7 +14435,7 @@ function renderAttention(){
     <div style="flex:1 1 260px;min-width:0;"><div>${escapeHtml(x.text)}</div>${x.fix ? `<div class="hint" style="margin-top:2px;">${escapeHtml(x.fix)}</div>` : ''}</div>
     ${x.skipIdx !== undefined ? `<button class="btn btn-sm" onclick="tgSkippedOpen(${x.skipIdx})">Розпізнати вручну</button><button class="btn btn-sm" onclick="tgSkippedDrop(${x.skipIdx})">Прибрати</button>` : ''}</div>`).join('');
   box.innerHTML = `<div style="border:1px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:1rem;background:var(--surface);">
-    <div style="font-weight:600;color:var(--danger);">⚠️ Потребує уваги: ${list.length + sys.length}</div>${sysRows}${rows}</div>`;
+    <div style="cursor:pointer;font-weight:600;color:var(--danger);display:flex;justify-content:space-between;align-items:center;" onclick="attentionToggle()"><span>⚠️ Потребує уваги: ${list.length + sys.length}</span><span>${attentionOpen_ ? '▾' : '▸'}</span></div>${attentionOpen_ ? sysRows + rows : ''}</div>`;
 }
 function tgSkippedOpen(i){
   const x = (appSettings.tgSkipped || [])[i]; if(!x) return;
