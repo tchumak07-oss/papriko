@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.34 · 09.11.2026 16:00</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.35 · 09.11.2026 16:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1499,6 +1499,7 @@
 
     <div class="fb-row" style="margin-top:14px;">
       <button class="btn btn-primary btn-sm" id="invoiceSubmitBtn" onclick="generateInvoice()">Сформувати рахунок (друк / PDF)</button>
+      <button class="btn btn-sm" id="invoiceSaveBtn" onclick="generateInvoice('save')" title="Зберегти документ у списку без відкриття друку та без Excel">💾 Лише зберегти (без друку)</button>
       <button class="btn btn-sm" id="invoiceExcelBtn" onclick="generateInvoice('excel')">📊 Сформувати в Excel</button>
       <button class="btn btn-sm" onclick="clearInvoiceDraft()">Очистити</button>
     </div>
@@ -12501,7 +12502,9 @@ function generateInvoice(fmt){
   clearInvoiceDraft();
   renderInvoicesHistory();
   scheduleSave();
-  if(fmt === 'excel') exportInvoiceExcel(inv); else openInvoiceWindow(inv);
+  if(inv.orderId && cp){ const ord = orderById(inv.orderId); if(ord){ ord.counterpartyId = cp.id; ord.cashless = true; try{ renderOrders(); }catch(e){} } }
+  if(fmt === 'save') showUndoToast(`✓ Збережено: ${(inv.docType||'invoice')==='waybill' ? 'накладна' : 'рахунок'} № ${inv.number}`, false);
+  else if(fmt === 'excel') exportInvoiceExcel(inv); else openInvoiceWindow(inv);
 }
 
 // підвантажує вже сформований рахунок назад у форму вище для правки (напр. виправити назву SKU, номер чи дату) —
