@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.36 · 09.11.2026 16:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.38 · 09.11.2026 17:50</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2174,9 +2174,138 @@ const HARDCODED_FIREBASE_CONFIG = {
   measurementId: "G-0TVB3MWWS4"
 };
 
-function buildStatePayload(){
+/* ---------- АРХІВ СТАРИХ ЗАМОВЛЕНЬ (окремі документи Firestore) ----------
+   Ліміт 1 МіБ діє на ОДИН документ (однаково на безкоштовному й платному тарифі), тому старі
+   завершені замовлення (оплачені + доставлені, старші за ARCHIVE_AGE_DAYS) зберігаються в окремих
+   документах spice-app/archive-YYYY-MM. У пам'яті програми всі замовлення лишаються в масиві orders —
+   звіти, пошук, клієнти працюють як раніше.
+   Запобіжники: замовлення прибирається з основного документа ЛИШЕ коли архівний документ його місяця
+   підтверджено записаний і збігається з поточним станом (хеш); якщо архів не вдалось прочитати/записати —
+   нічого не виноситься; архівні документи програма ніколи не видаляє. */
+const ARCHIVE_AGE_DAYS = 45;
+let archiveOk = false;            // архів успішно прочитано (інакше функція вимкнена)
+let archiveWarned = false;
+let archiveCache = [];            // об'єкти замовлень, що живуть в архіві (посилання на ті ж об'єкти з orders)
+const archiveKeys = new Set();    // ключі замовлень, які ми бачили/записали в архіві
+const archiveHash = {};           // місяць -> хеш того, що ми востаннє записали/прочитали
+function orderKey(o){ return o.uid ? 'u:' + o.uid : 'i:' + o.id; }
+function cyrb53(str){
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for(let i = 0; i < str.length; i++){ const ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36) + ':' + str.length;
+}
+function archiveHashList(list){ return cyrb53(JSON.stringify(list)); }
+function isOffloadable(o){
+  if(!archiveOk) return false;
+  if(!(o.paid && o.delivered) || o.keepActive) return false;
+  if(!/^\d{4}-\d{2}-\d{2}/.test(o.date || '')) return false;
+  const t = Date.parse(o.date);
+  return !isNaN(t) && (Date.now() - t) / 864e5 > ARCHIVE_AGE_DAYS;
+}
+function archiveGroups(){
+  const g = {};
+  orders.forEach(o => { if(isOffloadable(o)) (g[o.date.slice(0, 7)] = g[o.date.slice(0, 7)] || []).push(o); });
+  Object.keys(g).forEach(m => g[m].sort((a, b) => orderKey(a) < orderKey(b) ? -1 : 1));
+  return g;
+}
+function archiveDirty(){
+  if(!archiveOk) return false;
+  const g = archiveGroups();
+  return Object.keys(g).some(m => archiveHash[m] !== archiveHashList(g[m]));
+}
+// замовлення для ОСНОВНОГО документа: без тих, що надійно лежать в архіві
+function mainOrders(){
+  if(!archiveOk) return orders;
+  const g = archiveGroups(), clean = new Set();
+  Object.keys(g).forEach(m => {
+    if(archiveHash[m] === archiveHashList(g[m])) g[m].forEach(o => { if(archiveKeys.has(orderKey(o))) clean.add(orderKey(o)); });
+  });
+  return clean.size ? orders.filter(o => !clean.has(orderKey(o))) : orders;
+}
+function refreshArchiveCache(){ archiveCache = orders.filter(o => archiveKeys.has(orderKey(o)) && isOffloadable(o)); }
+function appendArchivedToOrders(){
+  if(!archiveCache.length) return;
+  const have = new Set(orders.map(orderKey));
+  archiveCache.forEach(o => { if(!have.has(orderKey(o))){ orders.push(o); have.add(orderKey(o)); } });
+}
+function archiveWarn(msg){
+  console.warn('Archive:', msg);
+  if(!archiveWarned){ archiveWarned = true; setSyncBadge('warn', 'Архів старих замовлень: ' + msg); }
+}
+async function loadArchives(){
+  archiveOk = false;
+  try{
+    const FP = firebase.firestore.FieldPath;
+    const qs = await fbDb.collection('spice-app').where(FP.documentId(), '>=', 'archive-').where(FP.documentId(), '<', 'archive.').get();
+    const have = new Set(orders.map(orderKey));
+    const loaded = {};
+    qs.forEach(d => {
+      const m = d.id.replace(/^archive-/, '');
+      const arr = Array.isArray(d.data().orders) ? d.data().orders : [];
+      loaded[m] = arr;
+      arr.forEach(ro => {
+        const k = orderKey(ro);
+        archiveKeys.add(k);
+        if(!have.has(k)){ have.add(k); orders.push(ro); } // якщо є й в основному — перемагає основний
+      });
+    });
+    archiveOk = true;
+    const g = archiveGroups();
+    Object.keys(loaded).forEach(m => {
+      const arr = loaded[m].slice().sort((a, b) => orderKey(a) < orderKey(b) ? -1 : 1);
+      if(archiveHashList(g[m] || []) === archiveHashList(arr)) archiveHash[m] = archiveHashList(arr);
+      else if(archiveHash[m] === undefined) archiveHash[m] = '?'; // відомий документ, потребує перезапису
+    });
+    refreshArchiveCache();
+  }catch(e){
+    archiveOk = false;
+    archiveWarn('не вдалось прочитати (' + (e && e.message || e) + '). Старі замовлення можуть не показуватись — перевірте права Firestore для документів archive-*.');
+  }
+}
+async function syncArchives(){
+  if(!archiveOk) return;
+  const g = archiveGroups();
+  const months = new Set([...Object.keys(g), ...Object.keys(archiveHash)]);
+  for(const m of months){
+    const list = g[m] || [];
+    if(!list.length && archiveHash[m] === undefined) continue;
+    const h = archiveHashList(list);
+    if(archiveHash[m] === h) continue;
+    const ref = fbDb.collection('spice-app').doc('archive-' + m);
+    try{
+      const res = await fbDb.runTransaction(async t => {
+        const snap = await t.get(ref);
+        const remote = snap.exists && Array.isArray(snap.data().orders) ? snap.data().orders : [];
+        const mine = new Set(list.map(orderKey)), mem = new Set(orders.map(orderKey));
+        const out = [], dropped = [];
+        remote.forEach(ro => {
+          const k = orderKey(ro);
+          if(mine.has(k)) return;                 // замінюємо нашою версією
+          if(mem.has(k)){ dropped.push(k); return; } // у нас вона є, але вже не «архівна» — живе в основному
+          if(archiveKeys.has(k)){ dropped.push(k); return; } // ми знали її в архіві, а в пам'яті немає — видалена
+          out.push(ro);                           // чужа (з іншого пристрою) — зберігаємо
+        });
+        list.forEach(o => out.push(o));
+        if(JSON.stringify(out).length > 900 * 1024) throw new Error('місячний архів задовгий');
+        t.set(ref, {orders: out, updatedAt: new Date().toISOString()});
+        return {dropped};
+      });
+      res.dropped.forEach(k => archiveKeys.delete(k));
+      list.forEach(o => archiveKeys.add(orderKey(o)));
+      archiveHash[m] = h;
+    }catch(e){
+      archiveWarn('не вдалось записати ' + m + ' (' + (e && e.message || e) + '). Дані не втрачено — лишились в основному документі.');
+    }
+  }
+  refreshArchiveCache();
+}
+function archivePre(){ return syncArchives().catch(e => archiveWarn('помилка синхронізації (' + (e && e.message || e) + ')')); }
+
+function buildStatePayload(full){
   const payload = {
-    catalog, kits, orders, clients, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
+    catalog, kits, orders: full === true ? orders : mainOrders(), clients, cashTransactions, counterparties, supplierOrder, supplierOrderHistory, npApiKey, ocrApiKey, npSender, tgBotToken, tgChatId, telegramNotificationsEnabled,
     ukrBearer, ukrToken, ukrProxyUrl, ukrTrackingBearer, ukrSender, smsToken, smsSender, smsTemplate, smsArrivedTemplate, smsBranchReminderTemplate, appSettings, anthropicApiKey,
     invoices, sellerName, sellerEdrpou, sellerIpn, sellerAddress, sellerBankName, sellerIban, sellerMfo, sellerPhone,
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, receipts, nextReceiptId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
@@ -2208,6 +2337,7 @@ function applyRemoteData(data){
   catalog = data.catalog || [];
   kits = data.kits || [];
   orders = data.orders || [];
+  appendArchivedToOrders();
   // старі замовлення, позначені прапорцем повернення ще до появи статусу «Повернено» в списку —
   // підтягуємо їм статус заднім числом, інакше фільтр за статусом їх не знаходить.
   orders.forEach(o => { if(o.npReturned && o.status !== 'Скасовано' && o.status !== 'Повернено') o.status = 'Повернено'; });
@@ -2382,7 +2512,7 @@ function scheduleSave(){
     // навмисно НЕ auxDocRef (рух товарів/кеш міст). Збереження aux робиться окремо, нижче, і НЕ
     // блокує збереження основних даних, якщо з якоїсь причини (напр. застарілі правила безпеки
     // Firestore, які ще не дозволяють новий документ "aux") aux недоступний.
-    fbDb.runTransaction(t => {
+    archivePre().then(() => fbDb.runTransaction(t => {
       return t.get(fbDocRef).then(snap => {
         const remote = snap.exists ? snap.data() : null;
         if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
@@ -2403,7 +2533,7 @@ function scheduleSave(){
         t.set(fbDocRef, payload);
         return payload;
       });
-    }).then(payload => {
+    })).then(payload => {
       lastKnownRemoteUpdatedAt = payload.updatedAt;
       setSyncBadge('on', 'Синхронізовано');
       updateDbSizeMeter();
@@ -2471,8 +2601,9 @@ function doConnect(config){
           const payload = buildStatePayload();
           return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; });
         }
-      }).then(() => {
+      }).then(() => loadArchives()).then(() => {
         fbConnected = true;
+        setTimeout(() => { if(archiveDirty()) scheduleSave(); }, 3000);
         setSyncBadge('on', 'Синхронізовано');
         updateDbSizeMeter();
         setTimeout(() => runAutoSyncDelivery('start'), 4000);
@@ -2547,7 +2678,7 @@ function doConnect(config){
           // це як істину — відновлюємо ці замовлення локально й одразу перезаписуємо сервер правильною версією.
           // Порівнюємо по КОЖНІЙ парі окремо: якщо в ОБОХ (і локального, і віддаленого запису) є uid —
           // звіряємо за ним, інакше — за числовим id. Так старі записи без uid не дають хибних спрацювань.
-          const rescuedOrders = orders.filter(o => !remoteOrders.some(ro => (o.uid && ro.uid) ? ro.uid === o.uid : ro.id === o.id));
+          const rescuedOrders = orders.filter(o => !archiveCache.includes(o) && !remoteOrders.some(ro => (o.uid && ro.uid) ? ro.uid === o.uid : ro.id === o.id));
           applyRemoteData(remoteData);
           lastKnownRemoteUpdatedAt = remoteData.updatedAt || null;
           if(rescuedOrders.length){
@@ -2835,7 +2966,7 @@ function renderBackupInfo(){
 }
 
 function exportBackup(){
-  const data = buildStatePayload();
+  const data = buildStatePayload(true);
   data.stockMovements = stockMovements;
   data.npCityOblastCache = npCityOblastCache;
   delete data.activeSessionId;
@@ -14286,12 +14417,12 @@ async function monoSync(manual){
       maxTs = Math.max(maxTs, it.time || 0);
       if(!(it.amount > 0) || m.seen.includes(it.id)) return;
       m.seen.push(it.id);
-      m.pending.push({id: it.id, time: it.time, amount: it.amount / 100, desc: it.description || '', comment: it.comment || '', counter: it.counterName || '', edrpou: it.counterEdrpou || '', iban: it.counterIban || '', done: false});
+      m.pending.push({id: it.id, time: it.time, amount: it.amount / 100, desc: String(it.description || '').slice(0, 90), comment: String(it.comment || '').slice(0, 90), counter: String(it.counterName || '').slice(0, 60), edrpou: it.counterEdrpou || '', done: false});
       added++;
     });
     m.lastTs = maxTs || now;
-    if(m.seen.length > 400) m.seen = m.seen.slice(-400);
-    m.pending = m.pending.filter(p => !p.done && p.time > now - 14*86400).slice(-200);
+    if(m.seen.length > 150) m.seen = m.seen.slice(-150);
+    m.pending = m.pending.filter(p => !p.done && p.time > now - 10*86400).slice(-60);
     if(st) st.textContent = `Перевірено ${new Date().toLocaleTimeString('uk-UA')}: нових надходжень ${added}.`;
     scheduleSave(); renderAttention();
   }catch(e){
