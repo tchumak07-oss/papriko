@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.38 · 09.11.2026 17:50</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.38 · 09.11.2026 18:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2230,9 +2230,11 @@ function appendArchivedToOrders(){
   const have = new Set(orders.map(orderKey));
   archiveCache.forEach(o => { if(!have.has(orderKey(o))){ orders.push(o); have.add(orderKey(o)); } });
 }
+let archiveFailNow = false;
 function archiveWarn(msg){
   console.warn('Archive:', msg);
-  if(!archiveWarned){ archiveWarned = true; setSyncBadge('warn', 'Архів старих замовлень: ' + msg); }
+  archiveFailNow = true;
+  setSyncBadge('warn', 'Архів старих замовлень: ' + msg);
 }
 async function loadArchives(){
   archiveOk = false;
@@ -2266,6 +2268,7 @@ async function loadArchives(){
 }
 async function syncArchives(){
   if(!archiveOk) return;
+  archiveFailNow = false;
   const g = archiveGroups();
   const months = new Set([...Object.keys(g), ...Object.keys(archiveHash)]);
   for(const m of months){
@@ -2535,7 +2538,7 @@ function scheduleSave(){
       });
     })).then(payload => {
       lastKnownRemoteUpdatedAt = payload.updatedAt;
-      setSyncBadge('on', 'Синхронізовано');
+      if(!archiveFailNow) setSyncBadge('on', 'Синхронізовано');
       updateDbSizeMeter();
       // aux — окремо й best-effort, поза транзакцією: якщо недоступний (права доступу тощо),
       // це НЕ повинно заважати збереженню основних даних вище (товари/замовлення вже збережено).
