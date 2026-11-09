@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.32 · 09.11.2026 15:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.33 · 09.11.2026 15:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -16933,7 +16933,15 @@ function orderDocChoose(id){
     <div style="margin-bottom:12px;">
       <label style="font-size:12px;color:var(--text-muted);">Одержувач документа</label>
       <select id="orderDocCp" style="width:100%;"><option value="">Фізособа (як у замовленні)</option>${[...counterparties].sort((a,b)=>a.name.localeCompare(b.name)).map(c => `<option value="${c.id}" ${String(o.counterpartyId||'')===String(c.id)?'selected':''}>🏢 ${escapeHtml(c.name)}${c.edrpou ? ' · ' + escapeHtml(c.edrpou) : ''}</option>`).join('')}</select>
-      <div class="hint" style="margin-top:4px;">Юр. особа або ФОП, оплата безготівково. Контрагентів додають у розділі «Контрагенти». Вибір запам'ятається в замовленні, а оплату за ЄДРПОУ програма впізнає в Monobank.</div>
+      <button class="btn btn-sm" type="button" id="orderDocNewCpBtn" style="margin-top:6px;">＋ Новий контрагент</button>
+      <div id="orderDocNewCp" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--border);border-radius:8px;">
+        <input type="text" id="ncpName" placeholder="Назва (ТОВ ... / ФОП ...) *" style="margin-bottom:6px;">
+        <div style="display:flex;gap:6px;margin-bottom:6px;"><input type="text" id="ncpEdrpou" placeholder="ЄДРПОУ"><input type="text" id="ncpIpn" placeholder="ІПН (якщо є)"></div>
+        <input type="text" id="ncpAddress" placeholder="Адреса" style="margin-bottom:6px;">
+        <div style="display:flex;gap:6px;margin-bottom:6px;"><input type="text" id="ncpPerson" placeholder="Контактна особа"><input type="text" id="ncpPhone" placeholder="Телефон"></div>
+        <button class="btn btn-sm btn-primary" type="button" id="ncpSave">Додати й обрати</button>
+      </div>
+      <div class="hint" style="margin-top:4px;">Юр. особа або ФОП, оплата безготівково. Вибір запам'ятається в замовленні, а оплату за ЄДРПОУ програма впізнає в Monobank.</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       <button class="btn btn-primary" id="orderDocXlsx">📊 Завантажити в Excel</button>
@@ -16945,6 +16953,27 @@ function orderDocChoose(id){
   const close = () => m.remove();
   m.addEventListener('mousedown', e => { if(e.target === m) close(); });
   document.getElementById('orderDocCancel').onclick = close;
+  document.getElementById('orderDocNewCpBtn').onclick = () => {
+    const box = document.getElementById('orderDocNewCp'); box.style.display = box.style.display === 'none' ? '' : 'none';
+    const n = document.getElementById('ncpName'); if(!n.value) n.value = o.customer || ''; document.getElementById('ncpPhone').value = document.getElementById('ncpPhone').value || o.phone || '';
+  };
+  document.getElementById('ncpSave').onclick = () => {
+    const g = id => (document.getElementById(id).value || '').trim();
+    const name = g('ncpName'); if(!name){ alert('Впишіть назву контрагента.'); return; }
+    const edr = g('ncpEdrpou').replace(/\s/g, '');
+    if(edr && !/^\d{8}$|^\d{10}$/.test(edr) && !confirm('ЄДРПОУ зазвичай 8 цифр (ІПН ФОП — 10). Додати як є?')) return;
+    const dup = counterparties.find(c => c.name.toLowerCase() === name.toLowerCase() || (edr && String(c.edrpou||'').replace(/\s/g,'') === edr));
+    if(dup){ alert(`Такий контрагент уже є: «${dup.name}». Оберіть його зі списку.`); document.getElementById('orderDocCp').value = String(dup.id); return; }
+    const id = nextCounterpartyId++;
+    const cp = newCounterpartyDefaults(id, name, g('ncpPhone'));
+    cp.edrpou = edr; cp.ipn = g('ncpIpn'); cp.address = g('ncpAddress'); cp.contactPerson = g('ncpPerson'); cp.contactPhone = g('ncpPhone');
+    counterparties.push(cp);
+    const sel = document.getElementById('orderDocCp');
+    const opt = document.createElement('option'); opt.value = String(id); opt.textContent = '🏢 ' + name + (edr ? ' · ' + edr : ''); sel.appendChild(opt); sel.value = String(id);
+    document.getElementById('orderDocNewCp').style.display = 'none';
+    try{ renderCounterparties(); renderCashCounterpartySelect(); }catch(e){}
+    scheduleSave();
+  };
   const saveCp = () => { const v = document.getElementById('orderDocCp').value; o.counterpartyId = v ? Number(v) : null; o.cashless = !!v; scheduleSave(); renderOrders(); };
   document.getElementById('orderDocXlsx').onclick = () => { saveCp(); const inv = waybillDocFromOrder(o); close(); exportInvoiceExcel(inv); };
   document.getElementById('orderDocPdf').onclick = () => { saveCp(); const inv = waybillDocFromOrder(o); close(); openInvoiceWindow(inv); };
