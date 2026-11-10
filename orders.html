@@ -426,7 +426,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.41 · 10.11.2026 16:45</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.44 · 10.11.2026 20:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2643,6 +2643,11 @@ function doConnect(config){
           return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; });
         }
       }).then(() => loadArchives()).then(() => {
+        // дублікати замовлень з сайту (їх могла створити стара версія, що не бачила архіву) — прибираємо
+        try{
+          const dd = dedupeSiteOrders();
+          if(dd){ console.warn('Прибрано дублікатів замовлень з сайту:', dd); setTimeout(() => { try{ renderOrders(); renderOrdersSummary(); showUndoToast('Прибрано дублікатів замовлень з сайту: ' + dd, false); }catch(e){} scheduleSave(); }, 1500); }
+        }catch(e){ console.warn('dedupe error', e); }
         fbConnected = true;
         setTimeout(() => { if(archiveDirty()) scheduleSave(); }, 3000);
         setSyncBadge('on', 'Синхронізовано');
@@ -14596,6 +14601,44 @@ function renderMonoBox(){
   mb.innerHTML = `<div style="border:1px solid var(--saffron);border-radius:10px;padding:8px 14px;margin-bottom:1rem;background:var(--surface);">
     <div style="cursor:pointer;font-weight:600;color:var(--saffron);display:flex;justify-content:space-between;align-items:center;" onclick="monoBoxToggle()"><span>💰 Надходження Monobank до розбору: ${pays.length}</span><span>${monoBoxOpen ? '▾' : '▸'}</span></div>${monoBoxOpen ? payRows : ''}</div>`;
 }
+/* ---------- дублікати замовлень з сайту (повторний імпорт старих замовлень) ---------- */
+function dupNameKey(o){ return String(o.customer || '').toLowerCase().replace(/[^a-zа-яіїєґ0-9]+/g, ''); }
+const dupOrig = new Map();
+function dupCandidates(){
+  dupOrig.clear();
+  const byKey = new Map();
+  orders.forEach(x => {
+    if(!(x.shipped || x.delivered || x.ttnNumber || x.ukrTtnNumber)) return;
+    const n = dupNameKey(x); if(!n) return;
+    let t = 0; try{ t = Math.round(calcOrder(x).total || 0); }catch(e){}
+    const k = n + '|' + t;
+    if(!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(x);
+  });
+  const res = [];
+  orders.forEach(o => {
+    if(o.shipped || o.delivered || o.ttnNumber || o.ukrTtnNumber || o.packed) return;
+    if(o.status === 'Скасовано' || o.status === 'Повернено') return;
+    const n = dupNameKey(o); if(!n) return;
+    let t = 0; try{ t = Math.round(calcOrder(o).total || 0); }catch(e){}
+    const list = byKey.get(n + '|' + t); if(!list) return;
+    const od = Date.parse(o.date);
+    const orig = list.find(x => x !== o && (isNaN(od) || isNaN(Date.parse(x.date)) || Math.abs(Date.parse(x.date) - od) <= 864e5));
+    if(orig){ dupOrig.set(o, orig.id); res.push(o); }
+  });
+  return res;
+}
+function dupRemove(){
+  const c = dupCandidates();
+  if(!c.length){ renderAttention(); return; }
+  const sample = c.slice(0, 6).map(o => `№${o.id} ${o.customer || ''} (${String(o.date || '').slice(0, 10)}) ← оригінал №${dupOrig.get(o)}`).join('\n');
+  if(!confirm(`Буде видалено ${c.length} дублікатів замовлень — це замовлення без ТТН і без відправлення, для яких уже є таке саме відправлене/доставлене (те саме ім'я та сума, та сама дата).\n\nНаприклад:\n${sample}\n\nОригінали не чіпаються. Рекомендую спершу зробити «⬇ Зберегти копію». Видалити?`)) return;
+  const set = new Set(c);
+  orders = orders.filter(o => !set.has(o));
+  renderOrders(); renderOrdersSummary(); renderAttention(); scheduleSave();
+  showUndoToast('Видалено дублікатів: ' + c.length, false);
+}
+
 function renderAttention(){
   const box = document.getElementById('attentionBox'); if(!box) return;
   try{ renderMonoBox(); }catch(e){}
@@ -14606,6 +14649,7 @@ function renderAttention(){
     if(tgPollInfo.locked) sys.push({text:'Telegram не слухається: ця вкладка не активна (програма відкрита ще десь)', fix:'Замовлення з сайту потрапляють лише у вкладку, яка зараз головна. Онови сторінку тут або закрий програму на іншому пристрої.'});
     else if(tgPollInfo.err) sys.push({text:'Telegram не віддає повідомлення: ' + tgPollInfo.err, fix:'Нові замовлення з сайту не надходять. Якщо там «Conflict» чи «webhook» — Telegram слухає ще хтось інший (інший пристрій чи сервіс). Перевір токен бота в налаштуваннях.'});
   }
+  try{ const dn = dupCandidates().length; if(dn) sys.push({text:`Знайдено ${dn} імовірних дублікатів замовлень`, fix:'Це «нові» замовлення без ТТН, для яких уже є таке саме відправлене (ім\'я, сума, дата збігаються). Схоже, повторний імпорт старих замовлень. Кнопка видалить лише дублікати.', dup:true}); }catch(e){}
   (appSettings.tgSkipped || []).forEach((x, i) => sys.push({text:'У Telegram було повідомлення, схоже на замовлення, але позиції не розпізнано (' + new Date(x.t).toLocaleString('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '): «' + x.text.slice(0, 90).replace(/\s+/g,' ') + '…»', fix:'', skipIdx:i}));
   if(!list.length && !sys.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
   box.style.display = '';
@@ -14621,6 +14665,7 @@ function renderAttention(){
   </div>`).join('');
   const sysRows = sys.map(x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border-soft);flex-wrap:wrap;"><span>🔴</span>
     <div style="flex:1 1 260px;min-width:0;"><div>${escapeHtml(x.text)}</div>${x.fix ? `<div class="hint" style="margin-top:2px;">${escapeHtml(x.fix)}</div>` : ''}</div>
+    ${x.dup ? `<button class="btn btn-sm" onclick="dupRemove()">Видалити дублікати</button>` : ''}
     ${x.skipIdx !== undefined ? `<button class="btn btn-sm" onclick="tgSkippedOpen(${x.skipIdx})">Розпізнати вручну</button><button class="btn btn-sm" onclick="tgSkippedDrop(${x.skipIdx})">Прибрати</button>` : ''}</div>`).join('');
   box.innerHTML = `<div style="border:1px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:1rem;background:var(--surface);">
     <div style="cursor:pointer;font-weight:600;color:var(--danger);display:flex;justify-content:space-between;align-items:center;" onclick="attentionToggle()"><span>⚠️ Потребує уваги: ${list.length + sys.length}</span><span>${attentionOpen_ ? '▾' : '▸'}</span></div>${attentionOpen_ ? sysRows + rows : ''}</div>`;
