@@ -426,7 +426,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.39 · 09.11.2026 18:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.41 · 10.11.2026 16:45</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -11800,7 +11800,19 @@ function hasActiveOrderFilter(){
   return !!(searchEl && searchEl.value.trim());
 }
 
+// обгортка: перемальовка списку замовлень (фонова синхронізація, Monobank, Telegram тощо) не повинна
+// «з'їдати» вибраний, але ще не доданий товар і введену кількість у рядку «Оберіть набір/товар…»
 function renderOrders(){
+  const keep = {};
+  try{
+    document.querySelectorAll('[id^="order-item-select-"],[id^="order-item-qty-"]').forEach(el => { if(el.value) keep[el.id] = el.value; });
+  }catch(e){}
+  _renderOrdersImpl();
+  try{
+    Object.keys(keep).forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = keep[id]; });
+  }catch(e){}
+}
+function _renderOrdersImpl(){
   const list = document.getElementById('orderList');
   const active = orders.filter(o => !isArchived(o));
   const searching = hasActiveOrderFilter();
@@ -16815,6 +16827,7 @@ function renderReceipts(){
     let hint = '';
     if(posted && l.newCost !== undefined) hint = `собівартість ${r4(l.prevCost)} → <b>${r4(l.newCost)}</b> грн/${k ? escapeHtml(k.c.unit) : ''}`;
     else if(k && k.baseQty > 0) hint = (k.basePrice > 0 ? `собівартість ${r4(k.c.cost)} → <b>${r4(receiptNewCost(k.c, k.baseQty, k.basePrice, r.costMethod))}</b> грн/${escapeHtml(k.c.unit)}` : 'ціни немає — собівартість не зміниться') + ` · на склад +${fmt1(k.baseQty)} ${escapeHtml(k.c.unit)}`;
+    else if(k) hint = `поточна собівартість ${r4(k.c.cost)} грн/${escapeHtml(k.c.unit)} · на складі ${fmt1(computeBalance('catalog', k.c.id))} ${escapeHtml(k.c.unit)}`;
     const unmatched = !l.catalogId && l.name;
     return `<div class="rc-row">
       <div>
