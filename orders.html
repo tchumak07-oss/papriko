@@ -66,6 +66,12 @@
   .section-title{font-family:'Fraunces',serif;font-size:17px;font-weight:600;margin:2.5rem 0 1rem;display:flex;align-items:baseline;justify-content:space-between;gap:.6rem;flex-wrap:wrap;}
   .section-title .n{color:var(--text-faint);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:400;}
   .section-title .btns{display:flex;gap:8px;flex-wrap:wrap;}
+  .moreMenu{position:relative;}
+  .moreMenu summary{list-style:none;cursor:pointer;}
+  .moreMenu summary::-webkit-details-marker{display:none;}
+  .moreMenuPanel{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:290px;max-width:92vw;display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--surface,#241c15);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
+  .moreMenuPanel .btn{text-align:left;}
+  .moreMenuPanel .mmGroup{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint,#8a7d6c);margin:6px 2px 0;}
 
   button{font-family:'Inter',sans-serif;cursor:pointer;}
   .btn{background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-size:13px;font-weight:500;padding:8px 14px;border-radius:7px;}
@@ -426,7 +432,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.48 · 11.11.2026 12:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.49 · 11.11.2026 16:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -807,21 +813,28 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
     <span class="btns">
       <button class="btn btn-sm" onclick="openPackListModal()">📦 Що зібрати</button>
       <button class="btn btn-sm" onclick="openTodayShipmentsModal()">Звіт по відправленнях</button>
-      <button class="btn btn-sm" onclick="openTrackLookupModal()">Перевірити трек-номер</button>
-      <button class="btn btn-sm" onclick="openNpImportModal()">Синхронізувати кабінет НП</button>
-      <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Відправити в Telegram відправлення за сьогодні</button>
       <button class="btn btn-sm" onclick="sendSmsToTodayClients()">✉ SMS відправленим сьогодні</button>
-      <button class="btn btn-sm" onclick="document.getElementById('orderScreenshotInput').click()">Розпізнати замовлення зі скріншота</button>
-      <button class="btn btn-sm" onclick="toggleOrderTextForm()">📋 Розпізнати замовлення з тексту</button>
-      <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити замовлення з Excel</button>
-      <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звірити звіт доставки з НП (Excel)</button>
-      <button class="btn btn-sm" onclick="document.getElementById('ukrPaymentsInput').click()">Завантажити реєстр оплат Укрпошти (Excel)</button>
-      <button class="btn btn-sm" onclick="document.getElementById('monoPaymentsInput').click()">Завантажити виписку Monobank (Excel)</button>
-      <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + сума)</button>
-      <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з усіх відправлених</button>
-      <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано» з замовлень</button>
-      <button class="btn btn-sm" id="syncAllNpBtn" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button>
-      <button class="btn btn-sm" onclick="syncAllUkrStatuses()">Синхронізувати статуси з Укрпоштою</button>
+      <button class="btn btn-sm" onclick="sendTodayShipmentsToTelegram()">Telegram: відправлення за сьогодні</button>
+      <button class="btn btn-sm" id="syncAllBtn" onclick="syncAllStatuses()">🔄 Оновити всі статуси</button>
+      <details class="moreMenu" id="ordersMoreMenu">
+        <summary class="btn btn-sm">Ще ▾</summary>
+        <div class="moreMenuPanel" onclick="setTimeout(() => { const d = document.getElementById('ordersMoreMenu'); if(d) d.open = false; }, 150)">
+          <div class="mmGroup">Створити замовлення</div>
+          <button class="btn btn-sm" onclick="document.getElementById('orderScreenshotInput').click()">Розпізнати зі скріншота</button>
+          <button class="btn btn-sm" onclick="toggleOrderTextForm()">📋 Розпізнати з тексту</button>
+          <button class="btn btn-sm" onclick="document.getElementById('ordersExcelInput').click()">Завантажити з Excel</button>
+          <button class="btn btn-sm" onclick="openNpImportModal()">Додати ТТН з кабінету НП</button>
+          <div class="mmGroup">Звірка й оплати</div>
+          <button class="btn btn-sm" onclick="openTrackLookupModal()">Перевірити трек-номер</button>
+          <button class="btn btn-sm" onclick="document.getElementById('deliveryReportInput').click()">Звіт доставки НП (Excel)</button>
+          <button class="btn btn-sm" onclick="document.getElementById('ukrPaymentsInput').click()">Реєстр оплат Укрпошти (Excel)</button>
+          <button class="btn btn-sm" onclick="document.getElementById('monoPaymentsInput').click()">Виписка Monobank (Excel)</button>
+          <div class="mmGroup">Службове</div>
+          <button class="btn btn-sm" onclick="removeDuplicateOrders()">Видалити дублікати (клієнт + сума)</button>
+          <button class="btn btn-sm" onclick="deductStockForAllShipped()">Списати інгредієнти з відправлених</button>
+          <button class="btn btn-sm" onclick="syncQtyFromOrders()">Перерахувати «Кількість продано»</button>
+        </div>
+      </details>
     </span>
   </div>
 
@@ -10617,6 +10630,23 @@ async function syncAllNpStatusesQuiet(){
   }
 }
 
+async function syncAllStatuses(){
+  const btn = document.getElementById('syncAllBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Оновлюю…'; }
+  try{
+    const [np, ukr] = await Promise.all([syncAllNpStatusesQuiet(), syncAllUkrStatusesQuiet()]);
+    renderOrders(); renderOrdersSummary(); scheduleSave();
+    const tsModal = document.getElementById('todayShipmentsModal');
+    if(tsModal && tsModal.style.display !== 'none') renderTodayShipmentsModal();
+    const part = (n, r, skip) => r.skipped ? n + ': ' + skip : (!r.ok ? n + ': помилка — ' + r.error : n + ': перевірено ' + r.checked);
+    const ret = (np.returned || 0) + (ukr.returned || 0);
+    showUndoToast('Статуси оновлено. ' + part('НП', np, 'ключ не вказано') + ' · ' + part('Укрпошта', ukr, 'Bearer не вказано') + (ret ? ' · ⚠ повернень: ' + ret : ''), false);
+  }catch(e){
+    alert('Помилка оновлення статусів: ' + (e && e.message || e));
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '🔄 Оновити всі статуси'; }
+  }
+}
 async function syncAllNpStatuses(){
   if(!npApiKey){ alert('Спочатку вкажіть API-ключ Нової Пошти.'); return; }
   const withTtn = orders.filter(o => o.ttnNumber && !isArchived(o));
