@@ -308,9 +308,9 @@ function isArchived(o){ return !o.keepActive && (!!o.manualArchive || (!!o.paid 
 // Свідомо НЕ чіпаємо npStatusText/shipped/delivered основної програми, щоб не зламати її SMS і сповіщення про зміну статусу.
 function carrierSeen(o){ return !!(o.pkShipped || o.pkDelivered); }
 function isReturnedAny(o){ return !!(o.npReturned || o.status === 'Повернено' || o.pkReturned); }
-function isActiveUnshipped(o){ return !o.shipped && !o.delivered && !carrierSeen(o) && !isArchived(o) && !isReturnedAny(o); }
+function isActiveUnshipped(o){ return !o.shipped && !o.packerSent && !o.delivered && !carrierSeen(o) && !isArchived(o) && !isReturnedAny(o); }
 // наборщик натиснув «Відправлено», але НП/УП ще не підтвердили реальним статусом — лишається у списку «Замовлення»
-function isPending(o){ return !!o.shipped && !!o.shippedBy && !o.shipConfirmed && !carrierSeen(o) && !o.delivered; }
+function isPending(o){ return !!o.packerSent && !o.shipped && !o.shipConfirmed && !carrierSeen(o) && !o.delivered; }
 /* Перевізника визначаємо і за номером ТТН: у Нової Пошти 14 цифр, в Укрпошти 13. Буває, що в замовленні
    вказано «Нова Пошта», а номер вписано від Укрпошти (або навпаки) — тоді довіряємо номеру. */
 function digitsOf(v){ return String(v || '').replace(/\D/g, ''); }
@@ -723,7 +723,7 @@ function renderOrders(){
 function canShip(o){ return o.deliveryMethod === 'Самовивіз' || !!stickerKind(o); }
 function shipBtn(o){
   if(isPending(o)){
-    const hrs = o.shippedMarkAt ? (Date.now() - Date.parse(o.shippedMarkAt)) / 3600000 : 0;
+    const hrs = o.packerSentAt ? (Date.now() - Date.parse(o.packerSentAt)) / 3600000 : 0;
     return `<div style="margin-top:8px;color:${hrs > 24 ? 'var(--danger)' : 'var(--saffron)'};font-size:14px;font-weight:600;">${hrs > 24 ? '⚠ Позначено відправленим, але перевізник не підтвердив (понад добу). Перевірте, чи справді відправлено.' : '🚚 Позначено відправленим — чекає підтвердження НП/УП. В архів перейде, коли перевізник підтвердить.'}</div><button class="btn unpack" ${busyUid === uidOf(o) ? 'disabled' : ''} onclick="setShipped('${esc(uidOf(o))}', false)">Скасувати відправлення</button>`;
   }
   if(!canShip(o)) return '<div class="muted" style="margin-top:6px;">Відправити можна після створення ТТН.</div>';
@@ -739,13 +739,13 @@ function carrierStatus(o){
   if(isReturnedAny(o)) return {t: '⟲ Повернення', c: 'var(--danger)'};
   if(o.delivered || o.pkDelivered) return {t: '✓ Доставлено' + (o.paid ? ' · оплачено' : ''), c: 'var(--green)'};
   const real = o.npStatusText || o.ukrStatusText || o.pkText || '';
-  if(o.shipConfirmed || carrierSeen(o) || (real && !o.shippedBy)) return {t: '✓ Відправлено' + (real ? ' · ' + real : ''), c: 'var(--green)'};
-  if(o.shippedBy){
-    const hrs = o.shippedMarkAt ? (Date.now() - Date.parse(o.shippedMarkAt)) / 3600000 : 0;
+  if(o.shipConfirmed || carrierSeen(o) || o.shipped) return {t: '✓ Відправлено' + (real ? ' · ' + real : ''), c: 'var(--green)'};
+  if(o.packerSent){
+    const hrs = o.packerSentAt ? (Date.now() - Date.parse(o.packerSentAt)) / 3600000 : 0;
     return hrs > 24 ? {t: '⚠ Позначено відправленим, але перевізник не підтвердив (понад добу). Перевірте, чи справді відправлено.', c: 'var(--danger)'}
                     : {t: '⏳ Позначено відправленим — чекає підтвердження перевізника', c: 'var(--muted)'};
   }
-  return {t: 'Відправлено', c: 'var(--green)'};
+  return {t: 'Ще не відправлено перевізником', c: 'var(--muted)'};
 }
 function renderArchive(){
   const q = ($('qa').value || '').trim().toLowerCase();
@@ -762,7 +762,7 @@ function renderArchive(){
   $('archList').innerHTML = list.map(o => {
     const uid = uidOf(o);
     const st = carrierStatus(o);
-    const canUndo = o.shipped && o.shippedBy && !o.shipConfirmed && !carrierSeen(o) && !o.delivered;
+    const canUndo = false;
     return `<div class="card">
       <div class="name">${esc(o.customer || 'Без імені')}</div>
       <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a> · ` : ''}${esc(ukDate(o.date))}</div>
@@ -882,12 +882,13 @@ function setShipped(uid, checked){
     if(i < 0) throw new Error('Замовлення не знайдено (його могли видалити)');
     const o = Object.assign({}, arr[i]);
     if(checked){
-      if(o.shipped) throw new Error('Це замовлення вже позначене відправленим');
-      o.shipped = true; o.shippedBy = 'наборщик'; o.shippedMarkAt = new Date().toISOString(); o.shipConfirmed = false;
+      if(o.shipped || o.packerSent) throw new Error('Це замовлення вже позначене відправленим');
+      // власна відмітка наборщика: статус «відправлено» в основній програмі ставить лише перевізник (НП/УП)
+      o.packerSent = true; o.packerSentAt = new Date().toISOString();
     } else {
-      if(!o.shippedBy) throw new Error('Це відправлення відмітили не ви — скасувати може лише адміністратор');
-      if(o.shipConfirmed || o.delivered) throw new Error('Перевізник уже підтвердив відправлення — скасувати не можна');
-      o.shipped = false; o.shippedBy = ''; o.shippedMarkAt = ''; o.shipConfirmed = false;
+      if(!o.packerSent) throw new Error('Цього замовлення не було відмічено вами');
+      if(o.shipped || o.shipConfirmed || o.delivered) throw new Error('Перевізник уже підтвердив відправлення — скасувати не можна');
+      o.packerSent = false; o.packerSentAt = '';
     }
     arr[i] = o;
     t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});

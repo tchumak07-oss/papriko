@@ -426,7 +426,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.44 · 10.11.2026 20:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.47 · 11.11.2026 12:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2563,7 +2563,7 @@ function scheduleSave(){
             // вкладка/пристрій рахує окремо й незалежно); на uid-позбавлені старі записи — за id.
             const lo = orders.find(o => (o.uid && ro.uid) ? o.uid === ro.uid : o.id === ro.id);
             if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
-            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','shippedDate','shipConfirmed']
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','shipConfirmed']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
@@ -2644,6 +2644,7 @@ function doConnect(config){
         }
       }).then(() => loadArchives()).then(() => {
         // дублікати замовлень з сайту (їх могла створити стара версія, що не бачила архіву) — прибираємо
+        try{ const pm = migratePackerMarks(); if(pm){ console.warn('Відмітки наборщика перенесено:', pm); setTimeout(() => { try{ renderOrders(); renderOrdersSummary(); }catch(e){} scheduleSave(); }, 1500); } }catch(e){}
         try{
           const dd = dedupeSiteOrders();
           if(dd){ console.warn('Прибрано дублікатів замовлень з сайту:', dd); setTimeout(() => { try{ renderOrders(); renderOrdersSummary(); showUndoToast('Прибрано дублікатів замовлень з сайту: ' + dd, false); }catch(e){} scheduleSave(); }, 1500); }
@@ -7587,7 +7588,7 @@ function duplicateOrder(sourceId){
   copy.sendToTelegram = true;
   copy.errLog = [];
   copy.sendSms = false;
-  ['ukrRecipientUuid','ukrStatusText','deliveredDate','atBranchSince','branchReminderSentDate','packedTs','packedBy','shippedBy','shippedMarkAt','shippedDate','labelPrintedAt','labelPrintedBy','codPaymentDate','codReceivedAmount','deliveryCost'].forEach(f => { if(f in copy) copy[f] = ''; });
+  ['ukrRecipientUuid','ukrStatusText','deliveredDate','atBranchSince','branchReminderSentDate','packedTs','packedBy','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','labelPrintedAt','labelPrintedBy','codPaymentDate','codReceivedAmount','deliveryCost'].forEach(f => { if(f in copy) copy[f] = ''; });
   copy.shipConfirmed = false; copy.labelPrinted = false; copy.npReturned = false; copy.keepActive = false;
   delete copy.cbReceipt; delete copy.pkText; delete copy.pkShipped; delete copy.pkDelivered; delete copy.pkReturned; delete copy.pkAt;
   orders.push(copy);
@@ -7830,7 +7831,7 @@ function renderTodayShipmentsModal(){
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(c.total)} грн</div>
           <div>${carrierBadgeHtml(o)}</div>
           <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber||o.ukrTtnNumber||'—')}</div>
-          <div class="hint">${pk?'<span class="packed-badge">📦 Набрано</span> ':''}${escapeAttr(statusText)}</div>
+          <div class="hint">${pk?'<span class="packed-badge">📦 Набрано</span> ':''}${escapeAttr(statusText)}${(o.npStatusText||o.ukrStatusText) ? `<div style="opacity:.75;font-size:.85em;" title="Статус від перевізника">${escapeAttr(String(o.npStatusText||o.ukrStatusText).slice(0,60))}${o.shipConfirmed ? '' : (o.shippedBy ? ' · відмітив ' + escapeAttr(o.shippedBy) : '')}</div>` : (o.shippedBy ? `<div style="opacity:.75;font-size:.85em;">відмітив ${escapeAttr(o.shippedBy)}</div>` : '')}</div>
         </div>
       `;
     }).join('');
@@ -8667,7 +8668,7 @@ function toggleOrderShipped(id, checked){
   const o = orderById(id);
   if(!o) return;
   o.shipped = checked;
-  if(!checked){ o.shippedBy = ''; o.shippedMarkAt = ''; o.shipConfirmed = false; }
+  if(!checked){ o.shippedBy = ''; o.shippedMarkAt = ''; o.shipConfirmed = false; o.packerSent = false; o.packerSentAt = ''; }
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -10494,7 +10495,7 @@ function applyNpStatus(o, statusItem){
   const wasReturned = o.npReturned;
   const wasPaid = o.paid;
   const wasCompleted = o.delivered && o.paid;
-  if(statusItem.StatusCode && statusItem.StatusCode !== '1'){
+  if(statusItem.StatusCode && !['1','2','3'].includes(String(statusItem.StatusCode).trim())){
     o.shipped = true;
     o.shipConfirmed = true; // перевізник підтвердив, що посилка реально пішла
   }
@@ -11281,8 +11282,8 @@ function packedToggleHtml(o){
 }
 // «відправлено» відмітив наборщик, а перевізник (НП/УП) ще не підтвердив реальним статусом
 function shippedByPackerBadge(o){
-  if(!o.shipped || !o.shippedBy || o.shipConfirmed || o.delivered) return '';
-  const hrs = o.shippedMarkAt ? (Date.now() - Date.parse(o.shippedMarkAt)) / 3600000 : 0;
+  if(!o.packerSent || o.shipped || o.shipConfirmed || o.delivered) return '';
+  const hrs = o.packerSentAt ? (Date.now() - Date.parse(o.packerSentAt)) / 3600000 : 0;
   const late = hrs > 24;
   return `<span class="status-badge" style="background:${late ? 'var(--danger)' : 'var(--surface-2)'};color:${late ? '#fff' : 'var(--text-muted)'};" title="Наборщик відмітив «відправлено», але ${o.deliveryMethod === 'Укрпошта' ? 'Укрпошта' : 'Нова Пошта'} ще не підтвердила реальним статусом${late ? ' — понад добу' : ''}">${late ? '⚠ перевізник не підтвердив' : '🚚 наборщик · чекає підтвердження'}</span>`;
 }
@@ -14601,6 +14602,20 @@ function renderMonoBox(){
   mb.innerHTML = `<div style="border:1px solid var(--saffron);border-radius:10px;padding:8px 14px;margin-bottom:1rem;background:var(--surface);">
     <div style="cursor:pointer;font-weight:600;color:var(--saffron);display:flex;justify-content:space-between;align-items:center;" onclick="monoBoxToggle()"><span>💰 Надходження Monobank до розбору: ${pays.length}</span><span>${monoBoxOpen ? '▾' : '▸'}</span></div>${monoBoxOpen ? payRows : ''}</div>`;
 }
+// Відмітка наборщика «відправлено» — це лише його власна позначка (packerSent). Статус «відправлено» ставить
+// лише перевізник. Старі відмітки наборщика (shipped=true, shippedBy='наборщик', без підтвердження) переносимо.
+function migratePackerMarks(){
+  let n = 0;
+  orders.forEach(o => {
+    if(o.shippedBy === 'наборщик' && o.shipped && !o.shipConfirmed && !o.delivered){
+      o.packerSent = true; o.packerSentAt = o.shippedMarkAt || '';
+      o.shipped = false; o.shippedBy = ''; o.shippedMarkAt = ''; o.shippedDate = ''; o.shippedDateGuess = false;
+      n++;
+    }
+  });
+  return n;
+}
+
 /* ---------- дублікати замовлень з сайту (повторний імпорт старих замовлень) ---------- */
 function dupNameKey(o){ return String(o.customer || '').toLowerCase().replace(/[^a-zа-яіїєґ0-9]+/g, ''); }
 const dupOrig = new Map();
