@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.51 · 11.11.2026 17:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.52 · 11.11.2026 17:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -448,7 +448,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       </div>
       <div class="hdr-tb-group hdr-tools-group">
         <span id="quickKitSlot"></span>
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted);cursor:pointer;" title="Раз на 30 хвилин (і при відкритті) застосунок сам звіряє ТТН з Новою поштою й Укрпоштою та пише в групу про повернення, прибуття на відділення й довге очікування"><input type="checkbox" id="autoSyncToggle" checked onchange="autoSyncEnabled=this.checked;scheduleSave();" style="width:auto;accent-color:var(--saffron);"> Автооновлення доставки</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted);cursor:pointer;" title="Раз на 10 хвилин (і при відкритті) застосунок сам звіряє ТТН з Новою поштою й Укрпоштою та пише в групу про повернення, прибуття на відділення й довге очікування"><input type="checkbox" id="autoSyncToggle" checked onchange="autoSyncEnabled=this.checked;scheduleSave();" style="width:auto;accent-color:var(--saffron);"> Автооновлення доставки</label>
         <span class="hint" id="autoSyncInfo" style="font-size:11px;"></span>
         <span class="hint" id="backupInfo" style="font-size:11px;"></span>
         <button class="btn-ghost" onclick="exportBackup()" title="Завантажити повну копію всіх даних файлом (містить також ключі/токени — зберігайте у безпечному місці)">⬇ Зберегти копію</button>
@@ -584,6 +584,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <button class="app-nav-btn" id="nav-clients" onclick="showSection('clients')"><span class="nav-icon">👥</span>Клієнти</button>
       <button class="app-nav-btn" id="nav-warehouse" style="display:none" onclick="showSection('warehouse')"><span class="nav-icon">🏬</span>Склад</button>
       <button class="app-nav-btn" id="nav-supplierorder" onclick="showSection('supplierorder')"><span class="nav-icon">📝</span>Замовлення постачальнику</button>
+      <button class="app-nav-btn" id="nav-log" style="display:none" onclick="showSection('log')"></button>
       <button class="app-nav-btn" id="nav-archive" style="display:none" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
       <button class="app-nav-btn" id="nav-cash" style="display:none" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
       <button class="app-nav-btn" id="nav-invoices" onclick="showSection('invoices')"><span class="nav-icon">🧮</span>Рахунки та накладні</button>
@@ -1563,6 +1564,18 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
   </div></div>
 
   </div><!-- /section-invoices -->
+
+  <div id="section-log" class="app-section">
+    <div class="section-title" style="margin-top:0;">Журнал дій</div>
+    <p class="hint" style="margin:0 0 12px;">Записуються зміни в замовленнях (оплата, відправка, статуси, ТТН, SMS, Telegram), нові й видалені замовлення, зміни кількості записів у касі, складі, клієнтах, товарах, а також помилки. «авто» — синхронізації, імпорт із сайту, Monobank; «вручну» — ваші дії. Зберігається до 3000 останніх записів.</p>
+    <div class="delivery-grid" style="margin-bottom:12px;">
+      <div><label>Пошук</label><input type="text" id="actLogQ" placeholder="ім'я, №, ТТН, подія…" oninput="renderActLog()"></div>
+      <div><label>Хто</label><select id="actLogWho" onchange="renderActLog()"><option value="">Усі</option><option value="авто">авто</option><option value="вручну">вручну</option></select></div>
+      <div><label>Період</label><select id="actLogPer" onchange="renderActLog()"><option value="today">Сьогодні</option><option value="7">7 днів</option><option value="">Увесь час</option></select></div>
+      <div style="display:flex;align-items:flex-end;"><button class="btn btn-sm" onclick="exportActLog()">⬇ CSV</button></div>
+    </div>
+    <div id="actLogTable"></div>
+  </div>
 
   <div id="section-settings" class="app-section">
     <div class="section-title" style="margin-top:0;">Налаштування</div>
@@ -2546,6 +2559,7 @@ function applyRemoteAuxData(data){
 }
 
 function scheduleSave(){
+  try{ actDiffSoon(); }catch(e){}
   if(sessionLocked) return; // цю вкладку витіснено іншою активною — не пишемо в базу
   if(!fbConnected || !fbDocRef) return;
   try{ stampShippedDates(); }catch(e){}
@@ -2659,6 +2673,7 @@ function doConnect(config){
           const dd = dedupeSiteOrders();
           if(dd){ console.warn('Прибрано дублікатів замовлень з сайту:', dd); setTimeout(() => { try{ renderOrders(); renderOrdersSummary(); showUndoToast('Прибрано дублікатів замовлень з сайту: ' + dd, false); }catch(e){} scheduleSave(); }, 1500); }
         }catch(e){ console.warn('dedupe error', e); }
+        try{ actRebase(); actLoad(); }catch(e){}
         fbConnected = true;
         setTimeout(() => { if(archiveDirty()) scheduleSave(); }, 3000);
         setSyncBadge('on', 'Синхронізовано');
@@ -10678,8 +10693,8 @@ let autoSyncEnabled = true;
 let autoSyncBaselineDone = false; // перший прохід — «тихий»: лише оновлює статуси, не засипає групу старими подіями
 let autoSyncRunning = false;
 let lastAutoSyncAt = 0;
-const AUTO_SYNC_MIN_GAP_MS = 15 * 60 * 1000;
-const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+const AUTO_SYNC_MIN_GAP_MS = 9 * 60 * 1000;
+const AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
 
 function setAutoSyncInfo(text){
   const el = document.getElementById('autoSyncInfo');
@@ -14802,10 +14817,10 @@ function syncQtyFromOrders(){
 /* ---------- navigation ---------- */
 
 // підрозділи, які показуються як вкладки всередині іншого розділу меню
-const NAV_GROUPS = {kitbuilder:'products', composition:'products', warehouse:'products', cash:'products', archive:'settings'};
+const NAV_GROUPS = {kitbuilder:'products', composition:'products', warehouse:'products', cash:'products', archive:'settings', log:'settings'};
 const SUB_TABS = {
   products: [['products','📦 Товари'],['kitbuilder','🧪 Конструктор наборів'],['composition','🏷️ Склад (етикетка)'],['warehouse','🏬 Склад'],['cash','💰 Каса']],
-  settings: [['settings','⚙️ Налаштування'],['archive','🗄️ Архів']]
+  settings: [['settings','⚙️ Налаштування'],['archive','🗄️ Архів'],['log','📜 Журнал']]
 };
 function buildSubTabs(){
   Object.keys(SUB_TABS).forEach(g => {
@@ -14817,7 +14832,7 @@ function buildSubTabs(){
     });
   });
 }
-const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','cash','invoices','reports','settings'];
+const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','log','cash','invoices','reports','settings'];
 function showSection(name){
   const navName = (NAV_GROUPS[name] || name);
   SECTIONS.forEach(s => {
@@ -14831,6 +14846,7 @@ function showSection(name){
   if(name === 'warehouse'){ renderBalances(); renderMovements(); renderInventory(); populateMovementItemSelect(); }
   if(name === 'supplierorder') renderSupplierOrder();
   if(name === 'archive') renderArchive();
+  if(name === 'log') renderActLog();
   if(name === 'cash') renderCash();
   if(name === 'invoices') initInvoicesSection();
   if(name === 'reports') renderReports();
@@ -16672,6 +16688,160 @@ function excelDateToStr(v){
   if(!isNaN(d2)) return d2.toISOString().slice(0,10);
   return '';
 }
+
+/* ---------- журнал дій ---------- */
+// Усі зміни в замовленнях і лічильники інших розділів порівнюються зі знімком; пишемо в окремий документ spice-app/log,
+// щоб не займати місце в основній базі. Хто: «вручну» (ви/наборщик) чи «авто» (синхронізації, імпорт, Monobank).
+var actLog = [], actLogDirty = false, actSnap = null, actDiffTimer = null, actSaveTimer = null, actLogLoaded = false;
+var ACT_LOG_MAX = 3000;
+function actKey(o){ return o.uid || ('id' + o.id); }
+function actTake(){
+  const m = new Map();
+  (orders || []).forEach(o => {
+    let tot = null;
+    try{ if(!isArchived(o)) tot = Math.round(calcOrder(o).total || 0); }catch(e){}
+    m.set(actKey(o), {id:o.id, c:o.customer||'', p:!!o.paid, s:!!o.shipped, d:!!o.delivered, r:!!o.npReturned, t:o.ttnNumber||'', u:o.ukrTtnNumber||'',
+      ns:o.npStatusText||'', us:o.ukrStatusText||'', st:o.status||'', pk:!!o.packed, lp:!!o.labelPrinted, sms:(o.smsLog||[]).length,
+      tg:!!o.ttnTelegramNotified, tot, it:(o.items||[]).length, ps:!!o.packerSent});
+  });
+  const cnt = {cash:(typeof cashTransactions!=='undefined'?cashTransactions.length:0), inv:(invoices||[]).length, stock:(stockMovements||[]).length,
+    cli:(clients||[]).length, cat:(catalog||[]).length, kit:(kits||[]).length, rec:(receipts||[]).length};
+  return {m, cnt};
+}
+function actAdd(who, ord, name, msg){
+  actLog.push({t:new Date().toISOString(), w:who, o:ord||'', n:name||'', m:msg});
+  if(actLog.length > ACT_LOG_MAX) actLog.splice(0, actLog.length - ACT_LOG_MAX);
+  actLogDirty = true;
+  clearTimeout(actSaveTimer); actSaveTimer = setTimeout(actPersist, 30000);
+}
+function actRebase(){ try{ actSnap = actTake(); }catch(e){ actSnap = null; } }
+function actDiff(who, label){
+  if(!actSnap){ actRebase(); return; }
+  let cur; try{ cur = actTake(); }catch(e){ return; }
+  const prev = actSnap.m;
+  cur.m.forEach((n, k) => {
+    const p = prev.get(k);
+    if(!p){ actAdd(who, n.id, n.c, '➕ Нове замовлення' + (n.tot != null ? ' · ' + n.tot + ' грн' : '')); return; }
+    const a = (m) => actAdd(who, n.id, n.c, m);
+    if(p.c !== n.c) a('✏️ Ім\'я змінено: ' + p.c + ' → ' + n.c);
+    if(!p.p && n.p) a('💰 Позначено оплаченим'); else if(p.p && !n.p) a('💰 Оплату знято');
+    if(!p.s && n.s) a('🚚 Відправлено'); else if(p.s && !n.s) a('🚚 Відмітку «відправлено» знято');
+    if(!p.d && n.d) a('✅ Доставлено'); else if(p.d && !n.d) a('✅ Відмітку «доставлено» знято');
+    if(!p.r && n.r) a('↩️ Повернення'); else if(p.r && !n.r) a('↩️ Відмітку повернення знято');
+    if(p.t !== n.t) a(n.t ? '📄 ТТН НП: ' + n.t : '📄 ТТН НП видалено (' + p.t + ')');
+    if(p.u !== n.u) a(n.u ? '📄 ТТН Укрпошти: ' + n.u : '📄 ТТН Укрпошти видалено (' + p.u + ')');
+    if(p.ns !== n.ns && n.ns) a('НП: ' + n.ns);
+    if(p.us !== n.us && n.us) a('Укрпошта: ' + n.us);
+    if(p.st !== n.st) a('Статус: ' + (p.st || '—') + ' → ' + (n.st || '—'));
+    if(!p.pk && n.pk) a('📦 Набрано'); else if(p.pk && !n.pk) a('📦 Відмітку «набрано» знято');
+    if(!p.ps && n.ps) a('🧑‍🏭 Наборщик відмітив «віддано перевізнику»'); else if(p.ps && !n.ps) a('🧑‍🏭 Відмітку наборщика знято');
+    if(!p.lp && n.lp) a('🖨 Наклейку надруковано');
+    if(n.sms > p.sms) a('✉ SMS клієнту надіслано');
+    if(!p.tg && n.tg) a('Telegram: сповіщення про ТТН надіслано');
+    if(p.tot != null && n.tot != null && p.tot !== n.tot) a('Сума змінилась: ' + p.tot + ' → ' + n.tot + ' грн');
+    if(p.it !== n.it) a('Позицій у замовленні: ' + p.it + ' → ' + n.it);
+  });
+  prev.forEach((p, k) => { if(!cur.m.has(k)) actAdd(who, p.id, p.c, '🗑 Замовлення видалено'); });
+  const names = {cash:'Каса: записів', inv:'Рахунки/накладні', stock:'Рух по складу', cli:'Клієнти', cat:'Інгредієнти/пакування', kit:'Товари/набори', rec:'Приходи'};
+  Object.keys(names).forEach(k => { const d = cur.cnt[k] - actSnap.cnt[k]; if(d) actAdd(who, '', '', names[k] + ': ' + (d > 0 ? '+' : '') + d); });
+  if(label) actAdd(who, '', '', label);
+  actSnap = cur;
+}
+function actDiffSoon(){ clearTimeout(actDiffTimer); actDiffTimer = setTimeout(() => { try{ actDiff('вручну'); }catch(e){} }, 1500); }
+function actWrap(name, who, label){
+  const f = window[name]; if(typeof f !== 'function') return;
+  window[name] = async function(){
+    try{ actDiff('вручну'); }catch(e){}
+    let r;
+    try{ r = await f.apply(this, arguments); return r; }
+    finally{ try{ actDiff(who, label || ''); }catch(e){} }
+  };
+}
+function actLogRef(){ return fbDocRef && fbDocRef.parent ? fbDocRef.parent.doc('log') : null; }
+function actPersist(){
+  if(!actLogDirty || typeof fbConnected === 'undefined' || !fbConnected || sessionLocked) return;
+  const ref = actLogRef(); if(!ref) return;
+  const mine = actLog.slice();
+  actLogDirty = false;
+  fbDb.runTransaction(t => t.get(ref).then(snap => {
+    const ex = (snap.exists && snap.data().entries) || [];
+    const seen = new Set(), all = [];
+    ex.concat(mine).forEach(e => { const k = e.t + '|' + e.o + '|' + e.m; if(!seen.has(k)){ seen.add(k); all.push(e); } });
+    all.sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
+    let out = all.slice(-ACT_LOG_MAX);
+    while(JSON.stringify(out).length > 700000) out = out.slice(Math.ceil(out.length / 10));
+    t.set(ref, {entries: out, updatedAt: new Date().toISOString()});
+    return out;
+  })).then(out => { actLog = out; }).catch(e => { actLogDirty = true; console.warn('Журнал: не вдалось записати', e && e.message); });
+}
+function actLoad(){
+  const ref = actLogRef(); if(!ref) return;
+  ref.get().then(snap => {
+    const ex = (snap.exists && snap.data().entries) || [];
+    const seen = new Set(), all = [];
+    ex.concat(actLog).forEach(e => { const k = e.t + '|' + e.o + '|' + e.m; if(!seen.has(k)){ seen.add(k); all.push(e); } });
+    all.sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
+    actLog = all.slice(-ACT_LOG_MAX); actLogLoaded = true;
+    if(document.getElementById('section-log') && document.getElementById('section-log').classList.contains('active')) renderActLog();
+  }).catch(e => console.warn('Журнал: не вдалось прочитати', e && e.message));
+}
+let actLogLimit = 300;
+function renderActLog(){
+  const box = document.getElementById('actLogTable'); if(!box) return;
+  const q = (document.getElementById('actLogQ').value || '').trim().toLowerCase();
+  const who = document.getElementById('actLogWho').value;
+  const per = document.getElementById('actLogPer').value;
+  let from = '';
+  if(per === 'today') from = todayStr();
+  else if(per === '7'){ const d = new Date(); d.setDate(d.getDate() - 7); from = d.toISOString().slice(0, 10); }
+  let list = actLog.slice().reverse().filter(e => (!who || e.w === who) && (!from || e.t.slice(0, 10) >= from)
+    && (!q || (e.n + ' ' + e.m + ' ' + e.o).toLowerCase().includes(q)));
+  const total = list.length;
+  list = list.slice(0, actLogLimit);
+  const fmtT = iso => { const d = new Date(iso); const z = n => String(n).padStart(2, '0'); return `${z(d.getDate())}.${z(d.getMonth()+1)} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`; };
+  box.innerHTML = list.length ? `<div class="hint" style="margin-bottom:6px;">Показано ${list.length} з ${total}</div>` + list.map(e => `<div style="display:grid;grid-template-columns:105px 62px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:13px;">
+      <span class="hint" style="font-family:'JetBrains Mono',monospace;">${fmtT(e.t)}</span>
+      <span style="color:${e.w === 'авто' ? 'var(--saffron)' : 'var(--text-muted)'};">${escapeHtml(e.w)}</span>
+      <span>${e.o ? `<a href="#" onclick="goToOrder(${Number(e.o) || 0});return false;" style="color:inherit;">№${escapeHtml(String(e.o))} ${escapeHtml(e.n)}</a> — ` : ''}${escapeHtml(e.m)}</span></div>`).join('')
+      + (total > list.length ? `<div style="margin-top:10px;"><button class="btn btn-sm" onclick="actLogLimit+=500;renderActLog()">Показати ще</button></div>` : '')
+    : '<div class="comp-empty">Записів немає.</div>';
+}
+function exportActLog(){
+  const rows = [['Час','Хто','№','Клієнт','Подія']].concat(actLog.slice().reverse().map(e => [e.t, e.w, e.o, e.n, e.m]));
+  const csv = '﻿' + rows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = 'zhurnal_' + todayStr() + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+}
+(function(){
+  const af = window.applyRemoteData;
+  if(typeof af === 'function') window.applyRemoteData = function(d){ const r = af.apply(this, arguments); try{ actRebase(); }catch(e){} return r; };
+  actWrap('syncAllNpStatuses', 'вручну', 'Оновлення статусів НП (вручну)');
+  actWrap('syncAllUkrStatuses', 'вручну', 'Оновлення статусів Укрпошти (вручну)');
+  actWrap('syncAllStatuses', 'вручну', 'Оновлення всіх статусів (вручну)');
+  actWrap('monoSync', 'авто', '');
+  actWrap('runSiteImport', 'авто', '');
+  actWrap('siteTgFlush', 'авто', '');
+  const ra = window.runAutoSyncDelivery;
+  if(typeof ra === 'function') window.runAutoSyncDelivery = async function(){
+    try{ actDiff('вручну'); }catch(e){}
+    const before = actLog.length;
+    await ra.apply(this, arguments);
+    try{ actDiff('авто'); const el = document.getElementById('autoSyncInfo'); if(el && el.textContent) actAdd('авто', '', '', '🔄 ' + el.textContent); }catch(e){}
+  };
+  const st = window.sendTelegramMessage;
+  if(typeof st === 'function') window.sendTelegramMessage = async function(text){
+    const r = await st.apply(this, arguments);
+    try{ actAdd(actWhoNow(), '', '', (r && r.ok ? '📨 Telegram надіслано: ' : '⚠ Telegram помилка (' + (r && r.error) + '): ') + String(text || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').slice(0, 90)); }catch(e){}
+    return r;
+  };
+  const le = window.logOrderError;
+  if(typeof le === 'function') window.logOrderError = function(o, src, msg){
+    try{ actAdd('авто', o && o.id, o && o.customer, '⚠ Помилка (' + src + '): ' + msg); }catch(e){}
+    return le.apply(this, arguments);
+  };
+  window.addEventListener('error', ev => { try{ actAdd('авто', '', '', '⚠ Помилка програми: ' + (ev.message || '')); }catch(e){} });
+})();
+function actWhoNow(){ return 'авто'; }
 
 /* ---------- init ---------- */
 buildSubTabs();
