@@ -388,7 +388,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.47 · 11.11.2026 12:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.48 · 11.11.2026 12:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -10091,7 +10091,7 @@ function parseFlexibleDateToIso(raw){
   const s = String(raw||'');
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+  m = s.match(/^(\d{2})[.\-](\d{2})[.\-](\d{4})/);
   if(m) return `${m[3]}-${m[2]}-${m[1]}`;
   return '';
 }
@@ -10460,6 +10460,10 @@ function applyNpStatus(o, statusItem){
   if(statusItem.StatusCode && !['1','2','3'].includes(String(statusItem.StatusCode).trim())){
     o.shipped = true;
     o.shipConfirmed = true; // перевізник підтвердив, що посилка реально пішла
+    // дата відправлення = коли перевізник вперше показав «відправлено»; ТТН не може піти раніше, ніж створена
+    if(!wasShipped){ o.shippedDate = todayStr(); o.shippedDateGuess = false; }
+    const _dc = parseFlexibleDateToIso(statusItem.DateCreated);
+    if(_dc && (!o.shippedDate || o.shippedDate < _dc || o.shippedDateGuess)){ o.shippedDate = _dc <= todayStr() ? _dc : todayStr(); o.shippedDateGuess = false; }
   }
   const statusLower = (o.npStatusText || '').toLowerCase();
   // Оплата: намагаємось зловити різні формулювання — і готівкову виплату післяплати,
