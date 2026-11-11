@@ -66,6 +66,10 @@
   .section-title{font-family:'Fraunces',serif;font-size:17px;font-weight:600;margin:2.5rem 0 1rem;display:flex;align-items:baseline;justify-content:space-between;gap:.6rem;flex-wrap:wrap;}
   .section-title .n{color:var(--text-faint);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:400;}
   .section-title .btns{display:flex;gap:8px;flex-wrap:wrap;}
+  .subTabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid var(--border-soft);}
+  .subTabs button{background:var(--surface);border:1px solid var(--border);color:var(--text-muted);font-family:'Inter',sans-serif;font-size:13px;font-weight:500;padding:7px 14px;border-radius:999px;cursor:pointer;}
+  .subTabs button:hover{color:var(--text);}
+  .subTabs button.active{background:var(--saffron);border-color:var(--saffron);color:#1a1410;font-weight:600;}
   .moreMenu{position:relative;}
   .moreMenu summary{list-style:none;cursor:pointer;}
   .moreMenu summary::-webkit-details-marker{display:none;}
@@ -278,13 +282,6 @@
     border-left:2px solid var(--saffron);padding-left:20px;
   }
   .app-nav-btn:nth-child(1){margin-left:0;}
-  .app-nav-btn:nth-child(2){margin-left:6px;}
-  .app-nav-btn:nth-child(3){margin-left:12px;}
-  .app-nav-btn:nth-child(4){margin-left:18px;}
-  .app-nav-btn:nth-child(5){margin-left:24px;}
-  .app-nav-btn:nth-child(6){margin-left:30px;}
-  .app-nav-btn:nth-child(7){margin-left:36px;}
-  .app-nav-btn:nth-child(8){margin-left:42px;}
   @media (max-width:820px){
     .hdr-top{flex-direction:column;align-items:stretch;}
     .hdr-toolbar{padding:8px 10px;margin-top:.7rem;}
@@ -394,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.49 · 11.11.2026 16:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.51 · 11.11.2026 17:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -544,13 +541,13 @@
     <nav class="app-sidebar">
       <button class="app-nav-btn" id="nav-orders" onclick="showSection('orders')"><span class="nav-icon">🧾</span>Замовлення</button>
       <button class="app-nav-btn" id="nav-products" onclick="showSection('products')"><span class="nav-icon">📦</span>Товари</button>
-      <button class="app-nav-btn" id="nav-kitbuilder" onclick="showSection('kitbuilder')"><span class="nav-icon">🧪</span>Конструктор наборів</button>
-      <button class="app-nav-btn" id="nav-composition" onclick="showSection('composition')"><span class="nav-icon">🏷️</span>Склад (етикетка)</button>
+      <button class="app-nav-btn" id="nav-kitbuilder" style="display:none" onclick="showSection('kitbuilder')"><span class="nav-icon">🧪</span>Конструктор наборів</button>
+      <button class="app-nav-btn" id="nav-composition" style="display:none" onclick="showSection('composition')"><span class="nav-icon">🏷️</span>Склад (етикетка)</button>
       <button class="app-nav-btn" id="nav-clients" onclick="showSection('clients')"><span class="nav-icon">👥</span>Клієнти</button>
-      <button class="app-nav-btn" id="nav-warehouse" onclick="showSection('warehouse')"><span class="nav-icon">🏬</span>Склад</button>
+      <button class="app-nav-btn" id="nav-warehouse" style="display:none" onclick="showSection('warehouse')"><span class="nav-icon">🏬</span>Склад</button>
       <button class="app-nav-btn" id="nav-supplierorder" onclick="showSection('supplierorder')"><span class="nav-icon">📝</span>Замовлення постачальнику</button>
-      <button class="app-nav-btn" id="nav-archive" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
-      <button class="app-nav-btn" id="nav-cash" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
+      <button class="app-nav-btn" id="nav-archive" style="display:none" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
+      <button class="app-nav-btn" id="nav-cash" style="display:none" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
       <button class="app-nav-btn" id="nav-invoices" onclick="showSection('invoices')"><span class="nav-icon">🧮</span>Рахунки та накладні</button>
       <button class="app-nav-btn" id="nav-reports" onclick="showSection('reports')"><span class="nav-icon">📊</span>Звіти</button>
       <button class="app-nav-btn" id="nav-settings" onclick="showSection('settings')"><span class="nav-icon">⚙️</span>Налаштування</button>
@@ -14766,12 +14763,30 @@ function syncQtyFromOrders(){
 
 /* ---------- navigation ---------- */
 
+// підрозділи, які показуються як вкладки всередині іншого розділу меню
+const NAV_GROUPS = {kitbuilder:'products', composition:'products', warehouse:'products', cash:'products', archive:'settings'};
+const SUB_TABS = {
+  products: [['products','📦 Товари'],['kitbuilder','🧪 Конструктор наборів'],['composition','🏷️ Склад (етикетка)'],['warehouse','🏬 Склад'],['cash','💰 Каса']],
+  settings: [['settings','⚙️ Налаштування'],['archive','🗄️ Архів']]
+};
+function buildSubTabs(){
+  Object.keys(SUB_TABS).forEach(g => {
+    SUB_TABS[g].forEach(([sec]) => {
+      const el = document.getElementById('section-' + sec); if(!el || el.querySelector(':scope > .subTabs')) return;
+      const bar = document.createElement('div'); bar.className = 'subTabs';
+      bar.innerHTML = SUB_TABS[g].map(([k, label]) => `<button type="button" data-sec="${k}" onclick="showSection('${k}')">${label}</button>`).join('');
+      el.insertBefore(bar, el.firstChild);
+    });
+  });
+}
 const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','cash','invoices','reports','settings'];
 function showSection(name){
+  const navName = (NAV_GROUPS[name] || name);
   SECTIONS.forEach(s => {
     document.getElementById('section-'+s).classList.toggle('active', s===name);
-    document.getElementById('nav-'+s).classList.toggle('active', s===name);
+    document.getElementById('nav-'+s).classList.toggle('active', s===navName);
   });
+  document.querySelectorAll('.subTabs button').forEach(b => b.classList.toggle('active', b.dataset.sec === name));
   if(name === 'kitbuilder') renderKitBuilder();
   if(name === 'composition') compInit();
   if(name === 'clients') renderClients();
@@ -16621,6 +16636,7 @@ function excelDateToStr(v){
 }
 
 /* ---------- init ---------- */
+buildSubTabs();
 showSection('orders');
 renderCatalog();
 renderKits();
