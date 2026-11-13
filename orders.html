@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.52 · 11.11.2026 17:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.54 · 13.11.2026 16:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1574,6 +1574,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div><label>Період</label><select id="actLogPer" onchange="renderActLog()"><option value="today">Сьогодні</option><option value="7">7 днів</option><option value="">Увесь час</option></select></div>
       <div style="display:flex;align-items:flex-end;"><button class="btn btn-sm" onclick="exportActLog()">⬇ CSV</button></div>
     </div>
+    <div id="actLogStatus" class="hint" style="margin-bottom:10px;"></div>
     <div id="actLogTable"></div>
   </div>
 
@@ -2034,7 +2035,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
   </div>
 
   <div class="section-title">
-    <span id="rb-undelivered-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-undelivered')">▸ Неотримані посилки (Нова Пошта)</span>
+    <span id="rb-undelivered-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-undelivered')">▸ Неотримані посилки (Нова Пошта + Укрпошта)</span>
     <span class="btns">
       <button class="btn btn-sm" onclick="syncAllNpStatuses()">Синхронізувати статуси з НП</button>
       <button class="btn btn-sm" onclick="exportUndeliveredReportExcel()">⬇ Excel</button>
@@ -13309,12 +13310,12 @@ function exportUndeliveredReportExcel(){
     sheetName: 'Неотримані',
     headers: [
       {header:'Відправлено', width:12}, {header:'Днів', width:8}, {header:'Клієнт', width:26},
-      {header:'Місто / відділення', width:28}, {header:'ТТН', width:16}, {header:'Статус НП', width:26}
+      {header:'Місто / відділення', width:28}, {header:'ТТН', width:20}, {header:'Статус перевізника', width:30}
     ],
-    rows: lastUndeliveredReportRows.map(({o, days}) => [
-      o.date||'', days, o.customer||'Без імені',
-      (o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : ''),
-      o.ttnNumber||'', o.npStatusText || 'статус не оновлювався'
+    rows: lastUndeliveredReportRows.map(({o, days, sent}) => [
+      sent||o.date||'', days, o.customer||'Без імені',
+      (o.ukrTtnNumber && !o.ttnNumber) ? (o.ukrOfficeDesc || o.ukrCity || o.city || '') : ((o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : '')),
+      (o.ttnNumber ? 'НП ' + o.ttnNumber : 'УП ' + (o.ukrTtnNumber||'')), (o.ttnNumber ? o.npStatusText : o.ukrStatusText) || 'статус не оновлювався'
     ]),
     rowStyleFn: (row, values, idx) => {
       const {days} = lastUndeliveredReportRows[idx];
@@ -14010,29 +14011,29 @@ function renderReports(){
   // ---- неотримані посилки НП (не залежить від фільтра періоду) ----
   const undeliveredEl = document.getElementById('reportUndelivered');
   if(undeliveredEl){
-    const undelivered = orders.filter(o => o.deliveryMethod==='Нова Пошта' && o.ttnNumber && o.shipped && !o.delivered);
+    const undelivered = orders.filter(o => (o.ttnNumber || o.ukrTtnNumber) && (o.shipped || isShippedAny(o)) && !o.delivered && !o.npReturned);
     const today = new Date();
     const withDays = undelivered.map(o => {
-      const sentDate = o.date ? new Date(o.date) : today;
-      const days = Math.max(0, Math.round((today - sentDate) / 86400000));
-      return {o, days};
+      const sentRaw = shipDateOf(o);
+      const days = sentRaw ? daysBetween(sentRaw, todayStr()) : 0;
+      return {o, days, sent: String(sentRaw || '').slice(0, 10)};
     }).sort((a,b) => b.days - a.days);
     lastUndeliveredReportRows = withDays; // для експорту в Excel
 
     if(withDays.length === 0){
       undeliveredEl.innerHTML = '<div class="comp-empty">Немає неотриманих посилок — усе, що відправлено через Нову Пошту, або ще їде без ТТН, або вже доставлено.</div>';
     } else {
-      undeliveredEl.innerHTML = withDays.map(({o, days}) => `
+      undeliveredEl.innerHTML = withDays.map(({o, days, sent}) => { const isUp = !o.ttnNumber && !!o.ukrTtnNumber || o.deliveryMethod === 'Укрпошта'; return `
         <div class="wh-row" style="grid-template-columns:90px 80px 1fr 1fr 130px 1fr 90px;">
-          <div class="hint">${o.date||''}</div>
+          <div class="hint">${sent||o.date||''}</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${days>=5?'var(--danger)':(days>=2?'var(--saffron)':'var(--text-muted)')};">${days}</div>
           <div>${escapeAttr(o.customer||'Без імені')}</div>
-          <div class="hint">${escapeAttr((o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : ''))}</div>
-          <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</div>
-          <div class="hint">${escapeAttr(o.npStatusText || 'статус не оновлювався')}</div>
-          <button class="btn btn-sm" onclick="syncNpStatus(${o.id})">Оновити</button>
+          <div class="hint">${escapeAttr(isUp ? (o.ukrOfficeDesc || o.ukrCity || o.city || '') : ((o.city||'') + (o.warehouseDesc ? ', '+o.warehouseDesc : '')))}</div>
+          <div class="hint" style="font-family:'JetBrains Mono',monospace;">${isUp ? 'УП ' : 'НП '}${escapeAttr(o.ttnNumber || o.ukrTtnNumber || '')}</div>
+          <div class="hint">${escapeAttr((isUp ? o.ukrStatusText : o.npStatusText) || 'статус не оновлювався')}</div>
+          <button class="btn btn-sm" onclick="${isUp ? 'syncUkrStatus' : 'syncNpStatus'}(${o.id})">Оновити</button>
         </div>
-      `).join('');
+      `; }).join('');
     }
   }
 
@@ -14689,6 +14690,14 @@ function dupCandidates(){
   });
   return res;
 }
+var LONG_PARCEL_DAYS = 5;
+function openStuckReport(){
+  showSection('reports');
+  const body = document.getElementById('rb-undelivered');
+  if(body && body.style.display === 'none') toggleReportBlock('rb-undelivered');
+  renderReports();
+  const t = document.getElementById('rb-undelivered-title'); if(t) t.scrollIntoView({behavior:'smooth', block:'start'});
+}
 function dupRemove(){
   const c = dupCandidates();
   if(!c.length){ renderAttention(); return; }
@@ -14710,6 +14719,16 @@ function renderAttention(){
     if(tgPollInfo.locked) sys.push({text:'Telegram не слухається: ця вкладка не активна (програма відкрита ще десь)', fix:'Замовлення з сайту потрапляють лише у вкладку, яка зараз головна. Онови сторінку тут або закрий програму на іншому пристрої.'});
     else if(tgPollInfo.err) sys.push({text:'Telegram не віддає повідомлення: ' + tgPollInfo.err, fix:'Нові замовлення з сайту не надходять. Якщо там «Conflict» чи «webhook» — Telegram слухає ще хтось інший (інший пристрій чи сервіс). Перевір токен бота в налаштуваннях.'});
   }
+  try{
+    const thr = LONG_PARCEL_DAYS, nowD = new Date();
+    const stuck = orders.filter(o => (o.ttnNumber || o.ukrTtnNumber) && (o.shipped || isShippedAny(o)) && !o.delivered && !o.npReturned)
+      .map(o => ({o, d: daysBetween(shipDateOf(o) || todayStr(), todayStr())}))
+      .filter(x => x.d >= thr).sort((a, b) => b.d - a.d);
+    if(stuck.length){
+      const np = stuck.filter(x => x.o.ttnNumber).length, up = stuck.length - np;
+      sys.push({text:`🐢 ${stuck.length} посилок довго не доходять (від ${thr} днів після відправлення): НП ${np}, Укрпошта ${up}`, fix:`Найдовша: ${stuck[0].o.customer || 'Без імені'} — ${stuck[0].d} дн. Повний список зі статусами — у Звітах → «Неотримані посилки».`, stuck:true});
+    }
+  }catch(e){}
   try{ const dn = dupCandidates().length; if(dn) sys.push({text:`Знайдено ${dn} імовірних дублікатів замовлень`, fix:'Це «нові» замовлення без ТТН, для яких уже є таке саме відправлене (ім\'я, сума, дата збігаються). Схоже, повторний імпорт старих замовлень. Кнопка видалить лише дублікати.', dup:true}); }catch(e){}
   (appSettings.tgSkipped || []).forEach((x, i) => sys.push({text:'У Telegram було повідомлення, схоже на замовлення, але позиції не розпізнано (' + new Date(x.t).toLocaleString('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '): «' + x.text.slice(0, 90).replace(/\s+/g,' ') + '…»', fix:'', skipIdx:i}));
   if(!list.length && !sys.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
@@ -14727,6 +14746,7 @@ function renderAttention(){
   const sysRows = sys.map(x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border-soft);flex-wrap:wrap;"><span>🔴</span>
     <div style="flex:1 1 260px;min-width:0;"><div>${escapeHtml(x.text)}</div>${x.fix ? `<div class="hint" style="margin-top:2px;">${escapeHtml(x.fix)}</div>` : ''}</div>
     ${x.dup ? `<button class="btn btn-sm" onclick="dupRemove()">Видалити дублікати</button>` : ''}
+    ${x.stuck ? `<button class="btn btn-sm" onclick="openStuckReport()">Відкрити список</button>` : ''}
     ${x.skipIdx !== undefined ? `<button class="btn btn-sm" onclick="tgSkippedOpen(${x.skipIdx})">Розпізнати вручну</button><button class="btn btn-sm" onclick="tgSkippedDrop(${x.skipIdx})">Прибрати</button>` : ''}</div>`).join('');
   box.innerHTML = `<div style="border:1px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:1rem;background:var(--surface);">
     <div style="cursor:pointer;font-weight:600;color:var(--danger);display:flex;justify-content:space-between;align-items:center;" onclick="attentionToggle()"><span>⚠️ Потребує уваги: ${list.length + sys.length}</span><span>${attentionOpen_ ? '▾' : '▸'}</span></div>${attentionOpen_ ? sysRows + rows : ''}</div>`;
@@ -16694,6 +16714,7 @@ function excelDateToStr(v){
 // щоб не займати місце в основній базі. Хто: «вручну» (ви/наборщик) чи «авто» (синхронізації, імпорт, Monobank).
 var actLog = [], actLogDirty = false, actSnap = null, actDiffTimer = null, actSaveTimer = null, actLogLoaded = false;
 var ACT_LOG_MAX = 3000;
+var actStatus = 'ще не завантажено';
 function actKey(o){ return o.uid || ('id' + o.id); }
 function actTake(){
   const m = new Map();
@@ -16772,7 +16793,7 @@ function actPersist(){
     while(JSON.stringify(out).length > 700000) out = out.slice(Math.ceil(out.length / 10));
     t.set(ref, {entries: out, updatedAt: new Date().toISOString()});
     return out;
-  })).then(out => { actLog = out; }).catch(e => { actLogDirty = true; console.warn('Журнал: не вдалось записати', e && e.message); });
+  })).then(out => { actLog = out; actStatus = 'збережено в базі (' + out.length + ' записів, ' + new Date().toTimeString().slice(0, 5) + ')'; }).catch(e => { actLogDirty = true; actStatus = 'НЕ вдалось записати в базу: ' + (e && e.message || e) + ' — перевірте правила Firestore для документа spice-app/log'; console.warn('Журнал: не вдалось записати', e && e.message); });
 }
 function actLoad(){
   const ref = actLogRef(); if(!ref) return;
@@ -16781,13 +16802,18 @@ function actLoad(){
     const seen = new Set(), all = [];
     ex.concat(actLog).forEach(e => { const k = e.t + '|' + e.o + '|' + e.m; if(!seen.has(k)){ seen.add(k); all.push(e); } });
     all.sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
-    actLog = all.slice(-ACT_LOG_MAX); actLogLoaded = true;
+    actLog = all.slice(-ACT_LOG_MAX); actLogLoaded = true; actStatus = 'завантажено з бази (' + actLog.length + ' записів)';
     if(document.getElementById('section-log') && document.getElementById('section-log').classList.contains('active')) renderActLog();
-  }).catch(e => console.warn('Журнал: не вдалось прочитати', e && e.message));
+  }).catch(e => { actStatus = 'НЕ вдалось прочитати з бази: ' + (e && e.message || e) + ' — перевірте правила Firestore для документа spice-app/log'; console.warn('Журнал: не вдалось прочитати', e && e.message); if(document.getElementById('actLogStatus')) renderActLog(); });
 }
 let actLogLimit = 300;
 function renderActLog(){
   const box = document.getElementById('actLogTable'); if(!box) return;
+  const st = document.getElementById('actLogStatus');
+  if(st){
+    const last = lastAutoSyncAt ? new Date(lastAutoSyncAt).toTimeString().slice(0, 5) : 'ще не було';
+    st.innerHTML = `Сховище журналу: ${escapeHtml(actStatus)}${actLogDirty ? ' · є незбережені записи' : ''}<br>Автооновлення статусів: ${autoSyncEnabled ? 'увімкнено' : 'вимкнено'} · останнє: ${last} · ключ НП: ${npApiKey ? 'є' : 'немає'} · токен Укрпошти: ${ukrBearer ? 'є' : 'немає'}${sessionLocked ? ' · <b>вкладка не активна (працює інша)</b>' : ''}`;
+  }
   const q = (document.getElementById('actLogQ').value || '').trim().toLowerCase();
   const who = document.getElementById('actLogWho').value;
   const per = document.getElementById('actLogPer').value;
