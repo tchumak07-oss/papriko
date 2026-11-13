@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.57 · 13.11.2026 16:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.58 · 13.11.2026 17:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2081,6 +2081,8 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
   <div id="rb-ttnrep" style="display:none;">
     <p class="hint" style="margin:-8px 0 14px;">Усі посилки НП і Укрпошти за ТТН. Натисніть на номер ТТН або ім'я, щоб відкрити замовлення. «Днів» — скільки посилка чекає у відділенні (від дати прибуття); для тих, що ще в дорозі, — скільки днів після відправлення. Не залежить від фільтра періоду.</p>
     <div class="fb-row" style="margin:0 0 12px;align-items:center;flex-wrap:wrap;gap:10px;">
+      <button class="btn btn-sm" id="ttnSmsBtn" onclick="ttnSendSms()" disabled>✉ SMS вибраним (за статусом ТТН)</button>
+      <span class="hint" id="ttnSelInfo"></span>
       <select id="ttnRepMode" onchange="renderTtnReport()" style="max-width:260px;">
         <option value="branch">Очікують на відділенні</option>
         <option value="transit">Ще в дорозі</option>
@@ -2092,7 +2094,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);white-space:nowrap;">від <input type="number" id="ttnRepMin" value="0" min="0" style="width:60px;" oninput="renderTtnReport()"> днів</label>
     </div>
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-      <div class="wh-row-head" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;"><div style="text-align:right;cursor:pointer;" data-ts="days" onclick="ttnSortBy('days')">Днів</div><div style="cursor:pointer;" data-ts="ttn" onclick="ttnSortBy('ttn')">ТТН</div><div style="text-align:right;cursor:pointer;" data-ts="total" onclick="ttnSortBy('total')">Сума</div><div style="cursor:pointer;" data-ts="name" onclick="ttnSortBy('name')">Клієнт</div><div>Телефон</div><div>Статус / відділення</div></div>
+      <div class="wh-row-head" style="grid-template-columns:30px 50px 190px 100px 1fr 120px 1fr;"><div><input type="checkbox" id="ttnSelAll" onchange="ttnToggleAll(this.checked)" title="Вибрати всі у списку" style="width:auto;"></div><div style="text-align:right;cursor:pointer;" data-ts="days" onclick="ttnSortBy('days')">Днів</div><div style="cursor:pointer;" data-ts="ttn" onclick="ttnSortBy('ttn')">ТТН</div><div style="text-align:right;cursor:pointer;" data-ts="total" onclick="ttnSortBy('total')">Сума</div><div style="cursor:pointer;" data-ts="name" onclick="ttnSortBy('name')">Клієнт</div><div>Телефон</div><div>Статус / відділення</div></div>
       <div id="ttnReportRows"></div>
     </div></div>
   </div>
@@ -13374,6 +13376,23 @@ function ttnReportRows(){
   return rows;
 }
 var ttnSort = {key:'days', dir:'desc'};
+var ttnSel = new Set();
+function ttnUpdateSel(){
+  const vis = lastTtnReportRows.map(r => r.o.id);
+  const n = vis.filter(id => ttnSel.has(id)).length;
+  const btn = document.getElementById('ttnSmsBtn'); if(btn) btn.disabled = n === 0;
+  const info = document.getElementById('ttnSelInfo'); if(info) info.textContent = n ? 'Вибрано: ' + n : '';
+  const all = document.getElementById('ttnSelAll'); if(all){ all.checked = vis.length > 0 && n === vis.length; all.indeterminate = n > 0 && n < vis.length; }
+}
+function ttnToggle(id, on){ if(on) ttnSel.add(id); else ttnSel.delete(id); ttnUpdateSel(); }
+function ttnToggleAll(on){ lastTtnReportRows.forEach(r => { if(on) ttnSel.add(r.o.id); else ttnSel.delete(r.o.id); }); renderTtnReport(); }
+async function ttnSendSms(){
+  const vis = new Set(lastTtnReportRows.map(r => r.o.id));
+  const chosen = orders.filter(o => ttnSel.has(o.id) && vis.has(o.id));
+  if(!chosen.length) return;
+  await smsSendToOrders(chosen, {emptyMsg:'Нікому надсилати: у вибраних немає телефону/ТТН або посилку вже отримано чи повернено.'});
+  renderTtnReport();
+}
 function ttnSortBy(key){
   if(ttnSort.key === key) ttnSort.dir = ttnSort.dir === 'desc' ? 'asc' : 'desc';
   else ttnSort = {key, dir: (key === 'name' || key === 'ttn') ? 'asc' : 'desc'};
@@ -13386,16 +13405,18 @@ function renderTtnReport(){
   });
   const box = document.getElementById('ttnReportRows'); if(!box) return;
   const rows = ttnReportRows(); lastTtnReportRows = rows;
-  if(!rows.length){ box.innerHTML = '<div class="comp-empty">Посилок за цими умовами немає.</div>'; return; }
+  if(!rows.length){ box.innerHTML = '<div class="comp-empty">Посилок за цими умовами немає.</div>'; ttnUpdateSel(); return; }
   const sum = rows.reduce((a, r) => a + r.total, 0);
-  box.innerHTML = rows.map(r => `<div class="wh-row" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;align-items:start;">
+  box.innerHTML = rows.map(r => `<div class="wh-row" style="grid-template-columns:30px 50px 190px 100px 1fr 120px 1fr;align-items:start;">
+      <div><input type="checkbox" ${ttnSel.has(r.o.id) ? 'checked' : ''} onchange="ttnToggle(${r.o.id}, this.checked)" style="width:auto;"></div>
       <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.days >= 5 ? 'var(--danger)' : (r.days >= 2 ? 'var(--saffron)' : 'var(--text-muted)')};" title="${r.kind === 'branch' ? 'у відділенні з ' : (r.kind === 'transit' ? 'відправлено ' : 'відправлено ')}${escapeAttr(r.from)}">${r.days}</div>
       <div><a href="#" onclick="goToOrder(${r.o.id});return false;" style="font-family:'JetBrains Mono',monospace;color:var(--saffron);">${r.isUp ? 'УП' : 'НП'} ${escapeAttr(r.ttn)}</a></div>
       <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.total)} грн</div>
       <div><a href="#" onclick="goToOrder(${r.o.id});return false;" style="color:inherit;">${escapeAttr(r.o.customer || 'Без імені')}</a></div>
       <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(r.o.phone || '—')}</div>
       <div class="hint">${escapeAttr(r.status)}${r.office ? '<br>' + escapeAttr(r.office) : ''}</div>
-    </div>`).join('') + `<div class="wh-row" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;border-top:1px solid var(--border);font-weight:600;"><div></div><div>Разом: ${rows.length}</div><div style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(sum)} грн</div><div></div><div></div><div></div></div>`;
+    </div>`).join('') + `<div class="wh-row" style="grid-template-columns:30px 50px 190px 100px 1fr 120px 1fr;border-top:1px solid var(--border);font-weight:600;"><div></div><div></div><div>Разом: ${rows.length}</div><div style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(sum)} грн</div><div></div><div></div><div></div></div>`;
+  ttnUpdateSel();
 }
 function exportTtnReportExcel(){
   const rows = lastTtnReportRows.length ? lastTtnReportRows : ttnReportRows();
