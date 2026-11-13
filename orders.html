@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.55 · 13.11.2026 16:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.56 · 13.11.2026 16:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2069,6 +2069,31 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
       <div class="wh-row-head" style="grid-template-columns:80px 100px 1fr 1fr 1fr 130px 1fr 160px;"><div>Днів</div><div>Дата прибуття</div><div>Клієнт</div><div>Телефон</div><div>Місто / відділення</div><div>ТТН</div><div>Статус</div><div></div></div>
       <div id="reportBranchWait"></div>
+    </div></div>
+  </div>
+
+  <div class="section-title">
+    <span id="rb-ttnrep-title" style="cursor:pointer;" onclick="toggleReportBlock('rb-ttnrep');renderTtnReport()">▸ Звіт по ТТН (сума, дні, перехід у замовлення)</span>
+    <span class="btns">
+      <button class="btn btn-sm" onclick="exportTtnReportExcel()">⬇ Excel</button>
+    </span>
+  </div>
+  <div id="rb-ttnrep" style="display:none;">
+    <p class="hint" style="margin:-8px 0 14px;">Усі посилки НП і Укрпошти за ТТН. Натисніть на номер ТТН або ім'я, щоб відкрити замовлення. «Днів» — скільки посилка чекає у відділенні (від дати прибуття); для тих, що ще в дорозі, — скільки днів після відправлення. Не залежить від фільтра періоду.</p>
+    <div class="fb-row" style="margin:0 0 12px;align-items:center;flex-wrap:wrap;gap:10px;">
+      <select id="ttnRepMode" onchange="renderTtnReport()" style="max-width:260px;">
+        <option value="branch">Очікують на відділенні</option>
+        <option value="transit">Ще в дорозі</option>
+        <option value="all">Усі неотримані (відділення + в дорозі)</option>
+        <option value="returned">Повернення</option>
+      </select>
+      <select id="ttnRepCarrier" onchange="renderTtnReport()" style="max-width:160px;"><option value="">НП + Укрпошта</option><option value="np">Нова Пошта</option><option value="up">Укрпошта</option></select>
+      <input type="text" id="ttnRepSearch" placeholder="ТТН, клієнт, телефон..." oninput="renderTtnReport()" style="max-width:240px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);white-space:nowrap;">від <input type="number" id="ttnRepMin" value="0" min="0" style="width:60px;" oninput="renderTtnReport()"> днів</label>
+    </div>
+    <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
+      <div class="wh-row-head" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;"><div style="text-align:right;">Днів</div><div>ТТН</div><div style="text-align:right;">Сума</div><div>Клієнт</div><div>Телефон</div><div>Статус / відділення</div></div>
+      <div id="ttnReportRows"></div>
     </div></div>
   </div>
 
@@ -13306,6 +13331,65 @@ function exportExpensesReportExcel(){
   });
 }
 
+var lastTtnReportRows = [];
+function ttnReportRows(){
+  const mode = (document.getElementById('ttnRepMode') || {}).value || 'branch';
+  const car = (document.getElementById('ttnRepCarrier') || {}).value || '';
+  const q = ((document.getElementById('ttnRepSearch') || {}).value || '').trim().toLowerCase();
+  const min = Number((document.getElementById('ttnRepMin') || {}).value) || 0;
+  const today = todayStr();
+  const rows = [];
+  orders.forEach(o => {
+    const ttn = o.ttnNumber || o.ukrTtnNumber; if(!ttn) return;
+    const isUp = !o.ttnNumber && !!o.ukrTtnNumber;
+    if(car === 'np' && isUp) return; if(car === 'up' && !isUp) return;
+    if(o.delivered) return;
+    const atBranch = isAtBranchAwaitingPickup(o);
+    const sent = o.shipped || isShippedAny(o);
+    let kind = '';
+    if(o.npReturned) kind = 'returned'; else if(atBranch) kind = 'branch'; else if(sent) kind = 'transit';
+    if(!kind) return;
+    if(mode === 'branch' && kind !== 'branch') return;
+    if(mode === 'transit' && kind !== 'transit') return;
+    if(mode === 'all' && kind === 'returned') return;
+    if(mode === 'returned' && kind !== 'returned') return;
+    const from = kind === 'branch' ? o.atBranchSince : shipDateOf(o);
+    const days = from ? daysBetween(from, today) : 0;
+    if(days < min) return;
+    if(q && !((o.customer || '') + ' ' + (o.phone || '') + ' ' + ttn).toLowerCase().includes(q)) return;
+    let total = 0; try{ total = calcOrder(o).total || 0; }catch(e){}
+    const status = (isUp ? o.ukrStatusText : o.npStatusText) || '—';
+    const office = isUp ? (o.ukrOfficeDesc || o.ukrCity || '') : ((o.city || '') + (o.warehouseDesc ? ', ' + o.warehouseDesc : ''));
+    rows.push({o, ttn, isUp, kind, days, from: String(from || '').slice(0, 10), total, status, office});
+  });
+  rows.sort((a, b) => b.days - a.days);
+  return rows;
+}
+function renderTtnReport(){
+  const box = document.getElementById('ttnReportRows'); if(!box) return;
+  const rows = ttnReportRows(); lastTtnReportRows = rows;
+  if(!rows.length){ box.innerHTML = '<div class="comp-empty">Посилок за цими умовами немає.</div>'; return; }
+  const sum = rows.reduce((a, r) => a + r.total, 0);
+  box.innerHTML = rows.map(r => `<div class="wh-row" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;align-items:start;">
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.days >= 5 ? 'var(--danger)' : (r.days >= 2 ? 'var(--saffron)' : 'var(--text-muted)')};" title="${r.kind === 'branch' ? 'у відділенні з ' : (r.kind === 'transit' ? 'відправлено ' : 'відправлено ')}${escapeAttr(r.from)}">${r.days}</div>
+      <div><a href="#" onclick="goToOrder(${r.o.id});return false;" style="font-family:'JetBrains Mono',monospace;color:var(--saffron);">${r.isUp ? 'УП' : 'НП'} ${escapeAttr(r.ttn)}</a></div>
+      <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.total)} грн</div>
+      <div><a href="#" onclick="goToOrder(${r.o.id});return false;" style="color:inherit;">${escapeAttr(r.o.customer || 'Без імені')}</a></div>
+      <div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeAttr(r.o.phone || '—')}</div>
+      <div class="hint">${escapeAttr(r.status)}${r.office ? '<br>' + escapeAttr(r.office) : ''}</div>
+    </div>`).join('') + `<div class="wh-row" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;border-top:1px solid var(--border);font-weight:600;"><div></div><div>Разом: ${rows.length}</div><div style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(sum)} грн</div><div></div><div></div><div></div></div>`;
+}
+function exportTtnReportExcel(){
+  const rows = lastTtnReportRows.length ? lastTtnReportRows : ttnReportRows();
+  if(!rows.length){ alert('Немає даних для експорту.'); return; }
+  exportStyledExcel({
+    downloadName: `zvit_ttn_${todayStr()}.xlsx`, sheetName: 'ТТН',
+    headers: [{header:'Днів', width:8}, {header:'Служба', width:10}, {header:'ТТН', width:20}, {header:'Сума, грн', width:12}, {header:'Клієнт', width:28}, {header:'Телефон', width:16}, {header:'Статус', width:30}, {header:'Відділення', width:34}],
+    rows: rows.map(r => [r.days, r.isUp ? 'УП' : 'НП', r.ttn, Math.round(r.total), r.o.customer || '', r.o.phone || '', r.status, r.office]),
+    rowStyleFn: (row, values, idx) => { const d = rows[idx].days; row.getCell(1).fill = d >= 5 ? XLS_RED : (d >= 2 ? XLS_YELLOW : XLS_GREEN); }
+  });
+}
+
 function exportUndeliveredReportExcel(){
   if(lastUndeliveredReportRows.length === 0){ alert('Немає неотриманих посилок для експорту.'); return; }
   exportStyledExcel({
@@ -14085,6 +14169,7 @@ function renderReports(){
   }
 
   renderSmsDayReport();
+  try{ renderTtnReport(); }catch(e){}
 
   // ---- повернення (для контролю повернення коштів) ----
   const returnedEl = document.getElementById('reportReturned');
