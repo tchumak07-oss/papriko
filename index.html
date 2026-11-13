@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.54 · 13.11.2026 16:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.55 · 13.11.2026 16:25</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -9353,7 +9353,10 @@ function applyUkrStatus(o, statusItem){
   // ставиться один раз при першому виявленні статусу "прибуло/очікує", і знімається,
   // якщо посилка більше не в цьому стані (видано, повернено тощо)
   if(isAtBranchAwaitingPickup(o)){
-    if(!o.atBranchSince) o.atBranchSince = todayStr();
+    // дата прибуття — з події Укрпошти, якщо вона її повертає; інакше день першого виявлення
+    const _ev = parseFlexibleDateToIso(statusItem.eventDate || statusItem.date || statusItem.eventDateTime || '');
+    if(_ev && _ev <= todayStr() && (!o.atBranchSince || _ev < o.atBranchSince)) o.atBranchSince = _ev;
+    else if(!o.atBranchSince) o.atBranchSince = todayStr();
     if(!wasAtBranch) maybeAutoArrivedSms(o);
   } else {
     o.atBranchSince = '';
@@ -10456,7 +10459,7 @@ async function cancelNpWaybill(orderId){
 // Розрізняє «на відділенні, ще не забрали» від «просто в дорозі» — за текстом останнього
 // відомого статусу (НП чи Укrpошта), який ми вже зберігаємо в кожному замовленні.
 function isAtBranchAwaitingPickup(o){
-  if(o.delivered || !o.shipped) return false;
+  if(o.delivered || !o.shipped || o.npReturned) return false; // повернення — не «очікує клієнта»
   // Нова Пошта: код 7 — «Прибув на відділення», 8 — «Прибув на відділення (поштомат)»
   const code = String(o.npStatusCode || '');
   if(!o.ukrStatusText && (code === '7' || code === '8')) return true;
