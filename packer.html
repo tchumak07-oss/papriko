@@ -93,6 +93,7 @@
         <button class="chip on" data-f="all" onclick="setFilter('all')">Усі</button>
         <button class="chip" data-f="todo" onclick="setFilter('todo')">Не зібрані</button>
         <button class="chip" data-f="done" onclick="setFilter('done')">Зібрані</button>
+        <button class="chip" data-f="printed" id="chipPrinted" onclick="setFilter('printed')">🖨 Роздруковані</button>
         <select id="sortSel" onchange="try{localStorage.setItem('packerSort',this.value)}catch(e){};renderOrders()">
           <option value="num">Сортування: за номером</option>
           <option value="carrier">За доставкою (УП, НП, самовивіз)</option>
@@ -615,7 +616,7 @@ async function printAllUp(){
   const q = ($('q').value || '').trim().toLowerCase();
   const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'up')
     .filter(o => !codBlocked(o) || (blockedN++, false))
-    .filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
+    .filter(o => filter === 'printed' ? !!o.labelPrinted : !o.labelPrinted).filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
     .filter(o => !q || [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
   if(blockedN) toast('Пропущено ' + blockedN + ' (оплачено, але в ТТН є контроль оплати), скажи адміну');
   if(!list.length){ toast('Немає накладних УП для друку'); return; }
@@ -642,7 +643,7 @@ function printAll(kind){
   const q = ($('q').value || '').trim().toLowerCase();
   const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'np')
     .filter(o => !codBlocked(o) || (blockedN++, false))
-    .filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
+    .filter(o => filter === 'printed' ? !!o.labelPrinted : !o.labelPrinted).filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
     .filter(o => !q || [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
   if(blockedN) toast('Пропущено ' + blockedN + ' (оплачено, але в ТТН є контроль оплати), скажи адміну');
   if(!list.length){ toast('Немає накладних НП для друку'); return; }
@@ -684,7 +685,11 @@ function renderOrders(){
   // стабільна нумерація: за датою й номером замовлення серед усіх не відправлених (фільтр її не змінює)
   base.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
   const numOf = new Map(base.map((o, i) => [o, i + 1]));
-  let list = base.filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed));
+  // роздруковані наклейки — в окремій папці, щоб не заважали в основному списку
+  const nPrinted = open.filter(o => o.labelPrinted).length;
+  if($('chipPrinted')) $('chipPrinted').textContent = '🖨 Роздруковані' + (nPrinted ? ' (' + nPrinted + ')' : '');
+  let list = filter === 'printed' ? base.filter(o => o.labelPrinted && !isPending(o))
+    : base.filter(o => (isPending(o) || !o.labelPrinted) && (filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed)));
   if(q){
     list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
   }
