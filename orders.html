@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.56 · 13.11.2026 16:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.57 · 13.11.2026 16:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2092,7 +2092,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);white-space:nowrap;">від <input type="number" id="ttnRepMin" value="0" min="0" style="width:60px;" oninput="renderTtnReport()"> днів</label>
     </div>
     <div class="catalog-panel" style="margin-bottom:2rem;"><div style="padding:14px 16px;">
-      <div class="wh-row-head" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;"><div style="text-align:right;">Днів</div><div>ТТН</div><div style="text-align:right;">Сума</div><div>Клієнт</div><div>Телефон</div><div>Статус / відділення</div></div>
+      <div class="wh-row-head" style="grid-template-columns:50px 190px 100px 1fr 120px 1fr;"><div style="text-align:right;cursor:pointer;" data-ts="days" onclick="ttnSortBy('days')">Днів</div><div style="cursor:pointer;" data-ts="ttn" onclick="ttnSortBy('ttn')">ТТН</div><div style="text-align:right;cursor:pointer;" data-ts="total" onclick="ttnSortBy('total')">Сума</div><div style="cursor:pointer;" data-ts="name" onclick="ttnSortBy('name')">Клієнт</div><div>Телефон</div><div>Статус / відділення</div></div>
       <div id="ttnReportRows"></div>
     </div></div>
   </div>
@@ -13362,10 +13362,28 @@ function ttnReportRows(){
     const office = isUp ? (o.ukrOfficeDesc || o.ukrCity || '') : ((o.city || '') + (o.warehouseDesc ? ', ' + o.warehouseDesc : ''));
     rows.push({o, ttn, isUp, kind, days, from: String(from || '').slice(0, 10), total, status, office});
   });
-  rows.sort((a, b) => b.days - a.days);
+  const k = ttnSort.key, dir = ttnSort.dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let r = 0;
+    if(k === 'total') r = a.total - b.total;
+    else if(k === 'ttn') r = String(a.ttn).localeCompare(String(b.ttn));
+    else if(k === 'name') r = String(a.o.customer || '').localeCompare(String(b.o.customer || ''), 'uk');
+    else r = a.days - b.days;
+    return r * dir || (b.days - a.days);
+  });
   return rows;
 }
+var ttnSort = {key:'days', dir:'desc'};
+function ttnSortBy(key){
+  if(ttnSort.key === key) ttnSort.dir = ttnSort.dir === 'desc' ? 'asc' : 'desc';
+  else ttnSort = {key, dir: (key === 'name' || key === 'ttn') ? 'asc' : 'desc'};
+  renderTtnReport();
+}
 function renderTtnReport(){
+  document.querySelectorAll('#rb-ttnrep [data-ts]').forEach(el => {
+    const base = el.textContent.replace(/ [▲▼]$/, '');
+    el.textContent = base + (el.dataset.ts === ttnSort.key ? (ttnSort.dir === 'desc' ? ' ▼' : ' ▲') : '');
+  });
   const box = document.getElementById('ttnReportRows'); if(!box) return;
   const rows = ttnReportRows(); lastTtnReportRows = rows;
   if(!rows.length){ box.innerHTML = '<div class="comp-empty">Посилок за цими умовами немає.</div>'; return; }
