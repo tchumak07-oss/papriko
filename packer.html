@@ -157,7 +157,7 @@ const FB_CONFIG = {
   appId: "1:17346760392:web:b8260e6b55de4881bcdffd"
 };
 let db, auth, docRef;
-let orders = [], kits = [], catalog = [];
+let orders = [], kits = [], catalog = [], clientsDb = [], cpDb = [];
 let cfg = {npApiKey:'', ukrProxyUrl:'', ukrToken:'', ukrBearer:'', ukrTrackingBearer:''};
 let filter = 'all', tab = 'orders';
 let busyUid = null;
@@ -288,6 +288,7 @@ function subscribe(){
     orders = Array.isArray(d.orders) ? d.orders : [];
     kits = Array.isArray(d.kits) ? d.kits : [];
     catalog = Array.isArray(d.catalog) ? d.catalog : [];
+    clientsDb = Array.isArray(d.clients) ? d.clients : []; cpDb = Array.isArray(d.counterparties) ? d.counterparties : [];
     cfg = {npApiKey: d.npApiKey || '', ukrProxyUrl: d.ukrProxyUrl || '', ukrToken: d.ukrToken || '', ukrBearer: d.ukrBearer || '', ukrTrackingBearer: d.ukrTrackingBearer || ''};
     setSync('ok', '● На звʼязку · останні зміни ' + new Date().toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'}));
     if(!seen) seen = loadSeen();
@@ -311,6 +312,13 @@ function carrierSeen(o){ return !!(o.pkShipped || o.pkDelivered); }
 function isReturnedAny(o){ return !!(o.npReturned || o.status === 'Повернено' || o.pkReturned); }
 function isActiveUnshipped(o){ return !o.shipped && !o.packerSent && !o.delivered && !carrierSeen(o) && !isArchived(o) && !isReturnedAny(o); }
 // наборщик натиснув «Відправлено», але НП/УП ще не підтвердили реальним статусом — лишається у списку «Замовлення»
+// назва юрособи / клієнта з бази — поруч з іменем у замовленні
+function baseNameTag(o){
+  const cp = o.counterpartyId ? cpDb.find(c => String(c.id) === String(o.counterpartyId)) : null;
+  const cl = !cp && o.clientId ? clientsDb.find(c => String(c.id) === String(o.clientId)) : null;
+  const nm = cp ? cp.name : (cl && String(cl.name || '').trim().toLowerCase() !== String(o.customer || '').trim().toLowerCase() ? cl.name : '');
+  return nm ? ` <span style="font-size:13px;font-weight:600;color:var(--saffron);">${cp ? '🏢 ' : '👤 '}${esc(nm)}</span>` : '';
+}
 function isPending(o){ return !!o.packerSent && !o.shipped && !o.shipConfirmed && !carrierSeen(o) && !o.delivered; }
 /* Перевізника визначаємо і за номером ТТН: у Нової Пошти 14 цифр, в Укрпошти 13. Буває, що в замовленні
    вказано «Нова Пошта», а номер вписано від Укрпошти (або навпаки) — тоді довіряємо номеру. */
@@ -709,7 +717,7 @@ function renderOrders(){
     const uid = o.uid || ('id' + o.id);
     const isNew = seen && !seen.has(uidOf(o));
     return `<div class="card${o.packed ? ' packed' : ''}${isNew ? ' isnew' : ''}"${isPending(o) ? ' style="border-color:var(--saffron);"' : ''}>
-      <div class="name"><span class="num">№${numOf.get(o)}</span> ${esc(o.customer || 'Без імені')}${isNew ? '<span class="newtag">НОВЕ</span>' : ''}</div>
+      <div class="name"><span class="num">№${numOf.get(o)}</span> ${esc(o.customer || 'Без імені')}${baseNameTag(o)}${isNew ? '<span class="newtag">НОВЕ</span>' : ''}</div>
       <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a>` : 'немає телефону'} · ${esc(ukDate(o.date))}</div>
       <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
       ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
