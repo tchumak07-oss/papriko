@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.70 · 14.11.2026 14:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.71 · 14.11.2026 14:25</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -15299,43 +15299,48 @@ function loRender(){
   const tot = loTotals(rows);
   body.innerHTML = `<div class="hint" style="margin-bottom:8px;">${per}. «Вистачить» — на скільки тижнів вистачить залишку при поточних продажах (червоним — менше тижня).</div>` + html +
     `<div class="catalog-panel"><div style="padding:12px 16px;">
-      <div style="font-weight:600;margin-bottom:6px;">Разом у замовлення</div>
-      ${tot.items.length ? tot.items.map(t => `<div>${escapeAttr(t.kit.name)} × <b>${t.qty}</b></div>`).join('') : '<div class="hint">Нічого замовляти не потрібно.</div>'}
+      <div style="font-weight:600;margin-bottom:6px;">Буде створено окремі замовлення по точках</div>
+      ${tot.stores.length ? tot.stores.map(st => `<div style="margin-bottom:4px;"><b>${escapeAttr(st.store)}</b>: ${st.items.map(t => escapeAttr(t.kit.name) + ' × ' + t.qty).join('; ')}</div>`).join('') : '<div class="hint">Нічого замовляти не потрібно.</div>'}
       ${tot.unmappedQty ? `<div class="hint" style="margin-top:6px;color:var(--danger);">Є позиції (${tot.unmappedQty} шт.), для яких не вибрано набір — вони не потраплять у замовлення.</div>` : ''}
-      <div style="margin-top:10px;"><button class="btn btn-primary" ${tot.items.length ? '' : 'disabled'} onclick="loCreateOrder()">Створити замовлення в «Замовленнях»</button></div>
+      <div style="margin-top:10px;"><button class="btn btn-primary" ${tot.stores.length ? '' : 'disabled'} onclick="loCreateOrder()">Створити замовлення (по одному на точку)</button></div>
     </div></div>`;
 }
-function loTotals(rows){
-  const by = new Map(); let unmappedQty = 0;
+// підсумок по кожній точці: {store, items:[{kit, qty}]}; unmappedQty — позиції без набору
+function loByStore(rows){
+  const stores = new Map(); let unmappedQty = 0;
   rows.forEach(r => {
-    if(!r.qty) return; const k = loKitFor(r.item) || null;
-    if(k === 'skip') return;
-    if(!k){ const sug = loSuggestKit(r.item); if(!sug){ unmappedQty += r.qty; return; } const e = by.get(sug.id) || {kit: sug, qty: 0, parts: []}; e.qty += r.qty; e.parts.push([r.store, r.qty]); by.set(sug.id, e); return; }
-    const e = by.get(k.id) || {kit: k, qty: 0, parts: []}; e.qty += r.qty; e.parts.push([r.store, r.qty]); by.set(k.id, e);
+    if(!r.qty) return;
+    let k = loKitFor(r.item); if(k === 'skip') return;
+    if(!k){ const sug = loSuggestKit(r.item); if(!sug){ unmappedQty += r.qty; return; } k = sug; }
+    const e = stores.get(r.store) || new Map(); const x = e.get(k.id) || {kit: k, qty: 0}; x.qty += r.qty; e.set(k.id, x); stores.set(r.store, e);
   });
-  return {items: [...by.values()], unmappedQty};
+  return {stores: [...stores.entries()].map(([store, m]) => ({store, items: [...m.values()]})), unmappedQty};
 }
+function loTotals(rows){ return loByStore(rows); }
 function loCreateOrder(){
   const cpId = document.getElementById('loCp').value; const cp = cpId ? counterpartyById(cpId) : null;
   if(!cp){ alert('Оберіть контрагента.'); return; }
-  const rows = loCompute(); const tot = loTotals(rows);
-  if(!tot.items.length){ alert('Нічого замовляти.'); return; }
+  const rows = loCompute(); const tot = loByStore(rows);
+  if(!tot.stores.length){ alert('Нічого замовляти.'); return; }
   if(tot.unmappedQty && !confirm(`Для ${tot.unmappedQty} шт. не вибрано набір — їх у замовлення не буде. Створити все одно?`)) return;
   // зберігаємо підказані відповідності, які користувач залишив
   const m = appSettings.legalMap || (appSettings.legalMap = {});
   rows.forEach(r => { if(!loKitFor(r.item)){ const s = loSuggestKit(r.item); if(s) m[loNorm(r.item)] = String(s.id); } });
   resetOrderFilters();
-  const id = allocOrderId(); const o = newOrderDefaults(id);
-  o.customer = cp.name; o.phone = cp.phone || cp.contactPhone || ''; o.counterpartyId = cp.id; o.cashless = true;
-  if(cp.priceType) o.priceType = cp.priceType;
-  o.sendToTelegram = false;
-  tot.items.forEach(t => o.items.push({kitId: t.kit.id, qty: t.qty, price: kitPriceFor(t.kit, o.priceType)}));
-  const split = {}; tot.items.forEach(t => t.parts.forEach(([st, q]) => { (split[st] = split[st] || []).push(`${t.kit.name} × ${q}`); }));
-  o.notes = 'Розбивка по точках:\n' + Object.keys(split).map(st => st + ': ' + split[st].join('; ')).join('\n');
-  orders.push(o);
-  try{ autoUpdateWeightSilently(id); }catch(e){}
+  let last = null;
+  // окреме замовлення на кожну точку: ім'я клієнта = назва точки, контрагент = юрособа
+  tot.stores.forEach(st => {
+    const id = allocOrderId(); const o = newOrderDefaults(id);
+    o.customer = st.store; o.phone = cp.phone || cp.contactPhone || ''; o.counterpartyId = cp.id; o.cashless = true;
+    if(cp.priceType) o.priceType = cp.priceType;
+    o.sendToTelegram = false;
+    st.items.forEach(t => o.items.push({kitId: t.kit.id, qty: t.qty, price: kitPriceFor(t.kit, o.priceType)}));
+    orders.push(o); last = id;
+    try{ autoUpdateWeightSilently(id); }catch(e){}
+  });
   scheduleSave();
-  showSection('orders'); renderOrders(); renderOrdersSummary(); scrollToOrderCard(id);
+  showSection('orders'); renderOrders(); renderOrdersSummary(); if(last) scrollToOrderCard(last);
+  showUndoToast(`Створено замовлень: ${tot.stores.length}`, false);
 }
 
 function showSection(name){
