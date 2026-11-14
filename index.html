@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.66 · 14.11.2026 12:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.67 · 14.11.2026 12:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -12792,7 +12792,7 @@ function buildInvoiceHtml(inv){
   <p class="notes">Сума прописом: ${escapeHtml(numberToUaWords(Math.round(inv.total)))}</p>
   ${inv.notes ? `<p class="notes">${escapeHtml(inv.notes)}</p>` : ''}
   ${isWb
-    ? `<div class="signature" style="display:flex;gap:40px;"><div style="flex:1;">Відпустив: ____________________ / Чумак Т.В. /</div><div style="flex:1;">Отримав: ____________________ / ${escapeHtml(inv.buyer.name || '________________')} /</div></div>
+    ? `<div class="signature" style="display:flex;gap:40px;"><div style="flex:1;">Відпустив: ____________________ / Чумак Т.В. /</div><div style="flex:1;">Отримав: ____________________ / ${escapeHtml(invRecipientLine(inv) || '________________')} /</div></div>
        <p class="notes" style="margin-top:20px;font-size:12px;color:#666;">Претензій щодо кількості та якості товару не маю.</p>`
     : `<p class="signature">Виконавець: ____________________ / Чумак Т.В. /</p>`}
 </body></html>`;
@@ -17643,7 +17643,7 @@ async function exportInvoiceExcel(inv){
   if(inv.notes) merge(r++, 'Примітка: ' + inv.notes);
   r++;
   if(isWb){
-    merge(r++, `Відпустив: ____________________ / Чумак Т.В. /          Отримав: ____________________ / ${inv.buyer && inv.buyer.name ? inv.buyer.name : ''} /`);
+    merge(r++, `Відпустив: ____________________ / Чумак Т.В. /          Отримав: ____________________ / ${invRecipientLine(inv)} /`);
     merge(r++, 'Претензій щодо кількості та якості товару не маю.', {font:{size:10,color:{argb:'FF666666'}}});
   } else {
     merge(r++, 'Виконавець: ____________________ / Чумак Т.В. /');
@@ -17658,6 +17658,13 @@ async function exportInvoiceExcel(inv){
 
 /* ---------- накладна прямо із замовлення (без переходу в меню «Накладні»): вибір Excel / PDF ---------- */
 // створює накладну із замовлення; якщо для цього замовлення вона вже є — оновлює її (той самий номер), без дублів
+// ім'я «Клієнта з бази» із замовлення, з якого зроблено документ (підпис «Отримав» внизу накладної)
+function invRecipientLine(inv){
+  const nm = (inv.buyer && inv.buyer.name) || '';
+  let cl = '';
+  try{ const o = inv.orderId ? orderById(inv.orderId) : null; const c = o && o.clientId ? clientById(parseInt(o.clientId, 10)) : null; cl = c ? String(c.name || '').trim() : ''; }catch(e){}
+  return cl && cl.toLowerCase() !== nm.trim().toLowerCase() ? (nm ? nm + ', ' + cl : cl) : nm;
+}
 function waybillDocFromOrder(o){
   const items = o.items.map(it => { const k = kitById(it.kitId); return {name: k ? k.name : '(товар)', unit:'шт', qty: it.qty, price: it.price}; });
   const subtotal = items.reduce((t,it) => t + (it.qty||0)*(it.price||0), 0);
