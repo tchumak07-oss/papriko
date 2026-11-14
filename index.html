@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.64 · 14.11.2026 11:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.65 · 14.11.2026 12:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -15029,7 +15029,7 @@ function showUnpaidOrders(){
   const toVal = (document.getElementById('ordersSummaryTo') || {}).value || '';
   const fromTs = fromVal ? dateSortValue(fromVal) : null, toTs = toVal ? dateSortValue(toVal) : null;
   const list = orders.filter(o => {
-    if(o.paid || o.status === 'Скасовано') return false;
+    if(o.paid || o.status === 'Скасовано' || isArchived(o)) return false;
     const ts = dateSortValue(o.date || '');
     if(fromTs !== null && ts < fromTs) return false;
     if(toTs !== null && ts > toTs) return false;
