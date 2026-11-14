@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.68 · 14.11.2026 13:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.69 · 14.11.2026 13:50</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -15285,7 +15285,8 @@ function loCompute(){
       const stock = stk[loNorm(item)] || 0, sold = sl[loNorm(item)] || 0;
       const rate = sold / weeks;
       let need = Math.max(0, Math.ceil(rate * (c.interval + c.prep + c.safety) / 7 - stock - 1e-9));
-      if(assort) need = Math.max(need, c.minShelf - stock);
+      // позиція з асортименту точки або та, що вже є в оборотці цієї точки, не має опускатися нижче мінімуму (навіть без продажів)
+      if(assort || (loNorm(item) in stk)) need = Math.max(need, c.minShelf - stock);
       const key = store + '||' + item;
       rows.push({store, item, key, stock, sold, rate, cover: rate > 0 ? stock / rate : null, need, qty: lo.overrides[key] !== undefined ? lo.overrides[key] : need});
     });
