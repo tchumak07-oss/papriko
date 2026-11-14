@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.60 · 13.11.2026 23:35</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.63 · 14.11.2026 11:35</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -8651,13 +8651,23 @@ async function resendShipmentNotifications(id){
   scheduleSave();
 }
 
+// видалене в програмі замовлення з сайту більше не підтягуємо з сайту
+function siteTombstone(list){
+  const a = Array.isArray(appSettings.siteDeletedIds) ? appSettings.siteDeletedIds : (appSettings.siteDeletedIds = []);
+  (list || []).forEach(o => { if(o && o.siteId && !a.includes(o.siteId)) a.push(o.siteId); });
+  if(a.length > 3000) a.splice(0, a.length - 3000);
+}
+function siteUntombstone(o){
+  if(o && o.siteId && Array.isArray(appSettings.siteDeletedIds)) appSettings.siteDeletedIds = appSettings.siteDeletedIds.filter(x => x !== o.siteId);
+}
 function removeOrder(id){
   const o = orderById(id);
   if(!o) return;
   if(!confirm(`Видалити замовлення «${o.customer || 'без імені'}» повністю (разом з даними доставки й ТТН)?`)) return;
   const removedOrder = o;
+  siteTombstone([o]);
   orders = orders.filter(o => o.id !== id);
-  pushUndo(`замовлення №${removedOrder.id} «${removedOrder.customer || 'без імені'}»`, () => { orders.push(removedOrder); });
+  pushUndo(`замовлення №${removedOrder.id} «${removedOrder.customer || 'без імені'}»`, () => { orders.push(removedOrder); siteUntombstone(removedOrder); });
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
@@ -8819,6 +8829,24 @@ function pullPreviousDeliveryData(orderId){
   scheduleSave();
 }
 
+// замовлення для юрособи: підставляємо назву, телефон і тип цін з картки контрагента
+function pickOrderCounterparty(orderId, cpId){
+  const o = orderById(orderId); if(!o) return;
+  o.counterpartyId = cpId || '';
+  const c = cpId ? counterpartyById(cpId) : null;
+  if(c){
+    o.customer = c.name;
+    const ph = c.phone || c.contactPhone || ''; if(ph) o.phone = ph;
+    if(c.priceType !== undefined && c.priceType !== '' && c.priceType !== (o.priceType || '')){
+      o.priceType = c.priceType;
+      if(o.items.length && confirm(`Для юрособи задано тип цін «${priceTypeName(o.priceType)}». Перерахувати ціни в позиціях цього замовлення?`)){
+        o.items.forEach(it => { const k = kitById(it.kitId); if(k) it.price = kitPriceFor(k, o.priceType); });
+        try{ autoUpdateCodAmountSilently(orderId); }catch(e){}
+      }
+    }
+  }
+  renderOrders(); renderOrdersSummary(); scheduleSave();
+}
 function pickOrderClient(orderId, clientId){
   const o = orderById(orderId);
   if(!o) return;
@@ -11836,6 +11864,7 @@ function bulkDeleteOrders(){
   if(selectedOrderIds.size === 0) return;
   const n = selectedOrderIds.size;
   if(!confirm(`Видалити ${n} замовлень(-я) повністю (разом з даними доставки й ТТН)? Цю дію не можна скасувати.`)) return;
+  siteTombstone(orders.filter(o => selectedOrderIds.has(o.id)));
   orders = orders.filter(o => !selectedOrderIds.has(o.id));
   selectedOrderIds.clear();
   renderOrders();
@@ -14320,6 +14349,7 @@ function orderCollapsedHtml(o, num){
           <button class="btn btn-sm" onclick="customSmsOpen(${o.id})" title="Надіслати клієнту SMS довільного тексту від імені магазину">✉ SMS</button>
           <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
           <button class="btn btn-sm" onclick="orderDocChoose(${o.id})" title="Накладна клієнту з цього замовлення: Excel або PDF">🧾 Накладна</button>
+          <button class="btn btn-sm" onclick="waybillFromOrder(${o.id}, 'invoice')" title="Рахунок на оплату з цього замовлення (відкриється в «Рахунки та накладні»)">🧮 Рахунок</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
       </div>
@@ -14397,6 +14427,7 @@ function orderExpandedHtml(o, num){
           <button class="btn btn-sm" onclick="customSmsOpen(${o.id})" title="Надіслати клієнту SMS довільного тексту від імені магазину">✉ SMS</button>
           <button class="btn btn-sm" onclick="exportSingleOrderExcel(${o.id})" title="Вивантажити це замовлення в Excel">📊 Excel</button>
           <button class="btn btn-sm" onclick="orderDocChoose(${o.id})" title="Накладна клієнту з цього замовлення: Excel або PDF">🧾 Накладна</button>
+          <button class="btn btn-sm" onclick="waybillFromOrder(${o.id}, 'invoice')" title="Рахунок на оплату з цього замовлення (відкриється в «Рахунки та накладні»)">🧮 Рахунок</button>
           <button class="btn btn-sm" onclick="refreshOrderPrices(${o.id})" title="Підставити поточні ціни продажу з «Товарів» у всі позиції цього замовлення">🔄 Оновити ціни</button>
           <button class="btn-ghost" onclick="removeOrder(${o.id})" aria-label="Видалити замовлення">×</button>
         </div>
@@ -14450,6 +14481,7 @@ function orderExpandedHtml(o, num){
       <div class="delivery-grid">
         <div class="order-wide-field"><label>ПІБ / назва</label><input type="text" value="${escapeAttr(o.customer)}" oninput="updateOrderField(${o.id},'customer',this.value)" placeholder="Ім'я клієнта"></div>
         <div class="order-wide-field"><label>Клієнт з бази</label><select onchange="pickOrderClient(${o.id}, this.value)">${clientOptionsHtml(o.clientId)}</select></div>
+        ${counterparties.length ? `<div class="order-wide-field"><label>Юрособа (контрагент)</label><select onchange="pickOrderCounterparty(${o.id}, this.value)"><option value="">— фізособа / не вибрано —</option>${[...counterparties].sort((a,b) => a.name.localeCompare(b.name)).map(c => `<option value="${c.id}" ${String(o.counterpartyId||'') === String(c.id) ? 'selected' : ''}>${escapeAttr(c.name)}</option>`).join('')}</select></div>` : ''}
         <div><label>Телефон</label><input type="text" value="${escapeAttr(o.phone||'')}" oninput="updateOrderField(${o.id},'phone',this.value)" placeholder="+380..."></div>
         ${priceTypesList().length ? `<div><label>Тип ціни</label><select onchange="setOrderPriceType(${o.id}, this.value)">${priceTypeOptionsHtml(o.priceType || '')}</select></div>` : ''}
       </div>
@@ -17498,11 +17530,11 @@ function unloadPointFromOrder(o){
   }
   return [o.city, o.address].filter(Boolean).join(', ');
 }
-function waybillFromOrder(id){
+function waybillFromOrder(id, docType){
   const o = orderById(id); if(!o) return;
   showSection('invoices');
   clearInvoiceDraft();
-  document.getElementById('invoiceDocType').value = 'waybill';
+  document.getElementById('invoiceDocType').value = docType === 'invoice' ? 'invoice' : 'waybill';
   invoiceDocTypeChanged();
   invoiceDraftItems = o.items.map(it => { const k = kitById(it.kitId); return {name: k ? k.name : '(товар)', unit:'шт', qty: it.qty, price: it.price}; });
   document.getElementById('invoiceBuyerName').value = o.customer || '';
@@ -17755,7 +17787,8 @@ function siteItemTitle(it){ return [it.name, it.variantLabel, it.variantMeta].fi
 // оплату карткою / частинами беремо лише після підтвердження банку; накладений платіж і передоплату — одразу
 function siteOrderReady(so){
   if(so.removed || so.hidden || so.test) return false;
-  if(so.status === 'cancelled') return false;
+  if(siteIsCancelled(so)) return false;
+  if(Array.isArray(appSettings.siteDeletedIds) && appSettings.siteDeletedIds.includes(so.id)) return false;
   if(['card','chast','privat'].includes(so.payMethod) && !['paid','hold'].includes(so.payStatus)) return false;
   return true;
 }
@@ -17911,7 +17944,12 @@ async function siteTgFlush(){
   if(pend.length){ scheduleSave(); try{ renderOrders(); }catch(e){} }
 }
 // скасовані на сайті (або «зняті» — не оплачені) замовлення в програму не завантажуємо
-function siteIsCancelled(so){ return !!(so && (so.removed || /cancel|скасов/i.test(String(so.status || '')))); }
+function siteIsCancelled(so){
+  if(!so) return false;
+  if(so.removed || so.cancelled || so.canceled || so.cancelledAt || so.canceledAt || so.cancelDate) return true;
+  const re = /cancel|скасов|reject|declin|відхил|expired|failed|void/i;
+  return re.test(String(so.status || '')) || re.test(String(so.state || '')) || re.test(String(so.payStatus || ''));
+}
 async function runSiteImport(manual){
   const c = siteSyncCfg();
   if(siteSyncBusy) return;
