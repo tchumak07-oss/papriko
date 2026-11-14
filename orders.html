@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.69 · 14.11.2026 13:50</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.70 · 14.11.2026 14:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1486,6 +1486,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
         <div><label>Днів на підготовку замовлення</label><input type="number" id="loPrep" min="0" onchange="loCfgChanged()"></div>
         <div><label>Страховий запас (днів)</label><input type="number" id="loSafety" min="0" onchange="loCfgChanged()"></div>
         <div title="Для позицій, внесених в асортимент точки: менше цього залишку точка не має мати, навіть якщо продажів ще не було"><label>Мін. залишок на точці (шт.)</label><input type="number" id="loMinShelf" min="0" onchange="loCfgChanged()"></div>
+        <div title="Кількість по кожній позиції для кожної точки округлюється вгору до кратної цьому числу (напр. 3 — коробками по 3)"><label>Кратність замовлення (шт.)</label><input type="number" id="loMultiple" min="1" onchange="loCfgChanged()"></div>
       </div>
       <div id="loInfo" class="hint" style="margin-top:8px;"></div>
     </div></div>
@@ -15164,7 +15165,7 @@ const SECTIONS = ['products','kitbuilder','composition','orders','clients','ware
 
 /* ---------- Замовлення юросіб: розрахунок за продажами й залишками точок ---------- */
 var lo = {sales: null, stock: null, overrides: {}};
-function loCfg(){ const c = appSettings.legalCfg || (appSettings.legalCfg = {}); if(c.interval === undefined) c.interval = 7; if(c.prep === undefined) c.prep = 4; if(c.safety === undefined) c.safety = 3; if(c.shipDay === undefined) c.shipDay = 5; if(c.minShelf === undefined) c.minShelf = 2; return c; }
+function loCfg(){ const c = appSettings.legalCfg || (appSettings.legalCfg = {}); if(c.interval === undefined) c.interval = 7; if(c.prep === undefined) c.prep = 4; if(c.safety === undefined) c.safety = 3; if(c.shipDay === undefined) c.shipDay = 5; if(c.minShelf === undefined) c.minShelf = 2; if(c.multiple === undefined) c.multiple = 1; return c; }
 function loInit(){
   const sel = document.getElementById('loCp'); const cur = sel.value;
   sel.innerHTML = '<option value="">— оберіть контрагента —</option>' + [...counterparties].sort((a, b) => a.name.localeCompare(b.name)).map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('');
@@ -15172,7 +15173,7 @@ function loInit(){
   else if(!sel.value && counterparties.length === 1) sel.value = String(counterparties[0].id);
   const c = loCfg();
   document.getElementById('loShipDay').value = String(c.shipDay); document.getElementById('loInterval').value = c.interval;
-  document.getElementById('loPrep').value = c.prep; document.getElementById('loSafety').value = c.safety; document.getElementById('loMinShelf').value = c.minShelf;
+  document.getElementById('loPrep').value = c.prep; document.getElementById('loSafety').value = c.safety; document.getElementById('loMinShelf').value = c.minShelf; document.getElementById('loMultiple').value = c.multiple;
   loRender();
 }
 function loCfgChanged(){
@@ -15182,6 +15183,7 @@ function loCfgChanged(){
   c.prep = Math.max(0, parseFloat(document.getElementById('loPrep').value) || 0);
   c.safety = Math.max(0, parseFloat(document.getElementById('loSafety').value) || 0);
   c.minShelf = Math.max(0, parseInt(document.getElementById('loMinShelf').value, 10) || 0);
+  c.multiple = Math.max(1, parseInt(document.getElementById('loMultiple').value, 10) || 1);
   lo.overrides = {}; scheduleSave(); loRender();
 }
 function loNorm(x){ return String(x || '').toLowerCase().replace(/[^a-zа-яіїєґ0-9]+/g, ' ').trim(); }
@@ -15287,6 +15289,7 @@ function loCompute(){
       let need = Math.max(0, Math.ceil(rate * (c.interval + c.prep + c.safety) / 7 - stock - 1e-9));
       // позиція з асортименту точки або та, що вже є в оборотці цієї точки, не має опускатися нижче мінімуму (навіть без продажів)
       if(assort || (loNorm(item) in stk)) need = Math.max(need, c.minShelf - stock);
+      if(need > 0 && c.multiple > 1) need = Math.ceil(need / c.multiple) * c.multiple;
       const key = store + '||' + item;
       rows.push({store, item, key, stock, sold, rate, cover: rate > 0 ? stock / rate : null, need, qty: lo.overrides[key] !== undefined ? lo.overrides[key] : need});
     });
