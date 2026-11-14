@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.67 · 14.11.2026 12:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.68 · 14.11.2026 13:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -549,6 +549,7 @@
       <button class="app-nav-btn" id="nav-log" style="display:none" onclick="showSection('log')"></button>
       <button class="app-nav-btn" id="nav-archive" style="display:none" onclick="showSection('archive')"><span class="nav-icon">🗄️</span>Архів</button>
       <button class="app-nav-btn" id="nav-cash" style="display:none" onclick="showSection('cash')"><span class="nav-icon">💰</span>Каса</button>
+      <button class="app-nav-btn" id="nav-legalorders" onclick="showSection('legalorders')"><span class="nav-icon">🏢</span>Замовлення юросіб</button>
       <button class="app-nav-btn" id="nav-invoices" onclick="showSection('invoices')"><span class="nav-icon">🧮</span>Рахунки та накладні</button>
       <button class="app-nav-btn" id="nav-reports" onclick="showSection('reports')"><span class="nav-icon">📊</span>Звіти</button>
       <button class="app-nav-btn" id="nav-settings" onclick="showSection('settings')"><span class="nav-icon">⚙️</span>Налаштування</button>
@@ -1431,6 +1432,27 @@
   </div></div>
 
   </div><!-- /section-cash -->
+
+  <div id="section-legalorders" class="app-section">
+    <div class="section-title" style="margin-top:0;">🏢 Замовлення юросіб</div>
+    <p class="hint">Завантаж два звіти клієнта (продажі та оборотку по складах) — програма порахує, скільки докинути на кожну точку, і створить замовлення в «Замовленнях».</p>
+    <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:14px 16px;">
+      <div class="delivery-grid">
+        <div><label>Контрагент</label><select id="loCp" onchange="loRender()"></select></div>
+        <div><label>Продажі (Excel)</label><input type="file" id="loSalesFile" accept=".xls,.xlsx" onchange="loLoadFile('sales', this)"></div>
+        <div><label>Оборотка по складах (Excel)</label><input type="file" id="loStockFile" accept=".xls,.xlsx" onchange="loLoadFile('stock', this)"></div>
+      </div>
+      <div class="delivery-grid" style="margin-top:10px;">
+        <div><label>День відправки</label><select id="loShipDay" onchange="loCfgChanged()"><option value="1">Понеділок</option><option value="2">Вівторок</option><option value="3">Середа</option><option value="4">Четвер</option><option value="5">П'ятниця</option><option value="6">Субота</option><option value="0">Неділя</option></select></div>
+        <div><label>Відправка раз на (днів)</label><input type="number" id="loInterval" min="1" onchange="loCfgChanged()"></div>
+        <div><label>Днів на підготовку замовлення</label><input type="number" id="loPrep" min="0" onchange="loCfgChanged()"></div>
+        <div><label>Страховий запас (днів)</label><input type="number" id="loSafety" min="0" onchange="loCfgChanged()"></div>
+        <div title="Для позицій, внесених в асортимент точки: менше цього залишку точка не має мати, навіть якщо продажів ще не було"><label>Мін. залишок на точці (шт.)</label><input type="number" id="loMinShelf" min="0" onchange="loCfgChanged()"></div>
+      </div>
+      <div id="loInfo" class="hint" style="margin-top:8px;"></div>
+    </div></div>
+    <div id="loBody"></div>
+  </div>
 
   <div id="section-invoices" class="app-section">
 
@@ -15100,7 +15122,218 @@ function buildSubTabs(){
     });
   });
 }
-const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','log','cash','invoices','reports','settings'];
+const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','log','cash','invoices','legalorders','reports','settings'];
+
+/* ---------- Замовлення юросіб: розрахунок за продажами й залишками точок ---------- */
+var lo = {sales: null, stock: null, overrides: {}};
+function loCfg(){ const c = appSettings.legalCfg || (appSettings.legalCfg = {}); if(c.interval === undefined) c.interval = 7; if(c.prep === undefined) c.prep = 4; if(c.safety === undefined) c.safety = 3; if(c.shipDay === undefined) c.shipDay = 5; if(c.minShelf === undefined) c.minShelf = 2; return c; }
+function loInit(){
+  const sel = document.getElementById('loCp'); const cur = sel.value;
+  sel.innerHTML = '<option value="">— оберіть контрагента —</option>' + [...counterparties].sort((a, b) => a.name.localeCompare(b.name)).map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('');
+  if(cur && counterpartyById(cur)) sel.value = cur;
+  else if(!sel.value && counterparties.length === 1) sel.value = String(counterparties[0].id);
+  const c = loCfg();
+  document.getElementById('loShipDay').value = String(c.shipDay); document.getElementById('loInterval').value = c.interval;
+  document.getElementById('loPrep').value = c.prep; document.getElementById('loSafety').value = c.safety; document.getElementById('loMinShelf').value = c.minShelf;
+  loRender();
+}
+function loCfgChanged(){
+  const c = loCfg();
+  c.shipDay = parseInt(document.getElementById('loShipDay').value, 10);
+  c.interval = Math.max(1, parseFloat(document.getElementById('loInterval').value) || 7);
+  c.prep = Math.max(0, parseFloat(document.getElementById('loPrep').value) || 0);
+  c.safety = Math.max(0, parseFloat(document.getElementById('loSafety').value) || 0);
+  c.minShelf = Math.max(0, parseInt(document.getElementById('loMinShelf').value, 10) || 0);
+  lo.overrides = {}; scheduleSave(); loRender();
+}
+function loNorm(x){ return String(x || '').toLowerCase().replace(/[^a-zа-яіїєґ0-9]+/g, ' ').trim(); }
+function loIsItem(name){ return /,\s*(шт|кг|г|л|мл|уп|пач)\.?\s*$/i.test(String(name || '').trim()); }
+function loPeriod(aoa){
+  for(const r of aoa.slice(0, 12)){ const m = /(\d{2})\.(\d{2})\.(\d{4})\s*-\s*(\d{2})\.(\d{2})\.(\d{4})/.exec(r.map(String).join(' ')); if(m){ const a = new Date(+m[3], +m[2] - 1, +m[1]), b = new Date(+m[6], +m[5] - 1, +m[4]); return {from: a, to: b, days: Math.round((b - a) / 86400000) + 1}; } }
+  return null;
+}
+function loParseSales(aoa){
+  const hi = aoa.findIndex(r => r.some(v => String(v).trim() === 'Підрозділ')); if(hi < 0) throw new Error('не знайдено рядок «Підрозділ» — це звіт «Продажі»?');
+  let col = -1, nc = 0; aoa[hi].forEach((v, i) => { if(String(v).trim() === 'Підсумок') col = i; if(String(v).trim() === 'Підрозділ') nc = i; }); if(col < 0) col = aoa[hi].length - 1;
+  const out = {}; let store = null;
+  aoa.slice(hi + 2).forEach(r => {
+    const nm = String(r[nc] || '').trim(); if(!nm || nm === 'Підсумок') return;
+    if(loIsItem(nm)){ if(store) out[store][nm] = (out[store][nm] || 0) + (Number(r[col]) || 0); }
+    else { store = nm; out[store] = out[store] || {}; }
+  });
+  return {stores: out, period: loPeriod(aoa)};
+}
+function loParseStock(aoa){
+  const hi = aoa.findIndex(r => r.some(v => String(v).trim() === 'Кінцевий залишок')); if(hi < 0) throw new Error('не знайдено колонку «Кінцевий залишок» — це оборотка по складах?');
+  let col = -1, nc = 0; aoa[hi].forEach((v, i) => { if(String(v).trim() === 'Кінцевий залишок') col = i; });
+  aoa[hi].forEach((v, i) => { if(/Номенклатура/.test(String(v))) nc = i; }); if(!aoa[hi].some(v => /Номенклатура/.test(String(v)))) nc = Math.max(0, col - 4);
+  const out = {}; let store = null;
+  aoa.slice(hi + 1).forEach(r => {
+    const nm = String(r[nc] || '').trim(); if(!nm || nm === 'Підсумок') return;
+    if(loIsItem(nm)){ if(store) out[store][nm] = Number(r[col]) || 0; }
+    else { store = nm; out[store] = out[store] || {}; }
+  });
+  return {stores: out, period: loPeriod(aoa)};
+}
+async function loLoadFile(kind, input){
+  const f = input.files && input.files[0]; if(!f) return;
+  try{
+    const wb = XLSX.read(await f.arrayBuffer(), {type: 'array'});
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, defval: ''});
+    lo[kind] = kind === 'sales' ? loParseSales(aoa) : loParseStock(aoa);
+    lo.overrides = {};
+  }catch(e){ lo[kind] = null; alert('Не вдалося прочитати файл: ' + (e.message || e)); }
+  loRender();
+}
+// пошук набору для назви товару з оборотки за ключовими словами
+var LO_STOP = ['papriko', 'млинок', 'скло', 'шт', 'пакет', 'банка'];
+function loStems(x){ return loNorm(x).split(' ').filter(w => w.length >= 4 && !LO_STOP.includes(w) && !/^\d/.test(w)).map(w => w.slice(0, 5)); }
+function loSuggestKit(name){
+  const st = loStems(name); if(!st.length) return null;
+  let best = null, bs = 0, tie = false;
+  kits.filter(k => !k.archived).forEach(k => {
+    const ks = loStems(k.name); const sc = st.filter(w => ks.includes(w)).length;
+    if(sc > bs){ bs = sc; best = k; tie = false; } else if(sc === bs && sc > 0) tie = true;
+  });
+  return (bs >= 2 && !tie) ? best : null;
+}
+function loKitFor(name){
+  const m = (appSettings.legalMap || {})[loNorm(name)];
+  if(m === 'skip') return 'skip';
+  if(m){ const k = kitById(parseInt(m, 10)); if(k) return k; }
+  return null;
+}
+function loSetMap(name, v){ const m = appSettings.legalMap || (appSettings.legalMap = {}); if(v) m[loNorm(name)] = v; else delete m[loNorm(name)]; scheduleSave(); loRender(); }
+function loStoreKey(n){ return loNorm(n); }
+function loSalesFor(storeName){
+  if(!lo.sales) return {};
+  const k = loStoreKey(storeName);
+  for(const s of Object.keys(lo.sales.stores)){ const sk = loStoreKey(s); if(k === sk || k.startsWith(sk + ' ') || sk.startsWith(k + ' ')) return lo.sales.stores[s]; }
+  return {};
+}
+// асортимент точок клієнта: appSettings.legalAssort[contragentId][назва точки з оборотки] = [назви товарів]
+function loAssort(store){ const cp = document.getElementById('loCp').value; const a = (appSettings.legalAssort || {})[cp]; const l = a && a[store]; return Array.isArray(l) ? l : null; }
+function loAssortSet(store, list){ const cp = document.getElementById('loCp').value; if(!cp) return; const A = appSettings.legalAssort || (appSettings.legalAssort = {}); (A[cp] = A[cp] || {})[store] = list; scheduleSave(); }
+function loAllItems(){
+  const set = new Map();
+  const add = n => { if(!set.has(loNorm(n))) set.set(loNorm(n), n); };
+  [lo.stock, lo.sales].forEach(f => { if(f) Object.values(f.stores).forEach(o => Object.keys(o).forEach(add)); });
+  const cp = document.getElementById('loCp').value; const A = (appSettings.legalAssort || {})[cp] || {};
+  Object.values(A).forEach(l => (l || []).forEach(add));
+  return [...set.values()].sort((a, b) => a.localeCompare(b, 'uk'));
+}
+function loToggleAssort(store, item, on){
+  let l = loAssort(store);
+  if(!l) l = Object.keys(lo.stock.stores[store] || {});
+  l = l.filter(x => loNorm(x) !== loNorm(item)); if(on) l.push(item);
+  loAssortSet(store, l); loRender();
+}
+function loAssortAll(store, on){ loAssortSet(store, on ? loAllItems() : []); loRender(); }
+function loOpenAssort(store){
+  if(!loAssort(store)) loAssortSet(store, Object.keys(lo.stock.stores[store] || {}));
+  lo.openAssort = lo.openAssort === store ? null : store; loRender();
+}
+function loCompute(){
+  const c = loCfg(); const rows = [];
+  if(!lo.stock) return rows;
+  const days = lo.sales && lo.sales.period ? lo.sales.period.days : 14; const weeks = days / 7;
+  Object.keys(lo.stock.stores).forEach(store => {
+    const sales = loSalesFor(store);
+    const stk = {}; Object.keys(lo.stock.stores[store]).forEach(n => { stk[loNorm(n)] = lo.stock.stores[store][n]; });
+    const sl = {}; Object.keys(sales).forEach(n => { sl[loNorm(n)] = sales[n]; });
+    const assort = loAssort(store);
+    const names = assort ? assort : [...new Set([...Object.keys(lo.stock.stores[store]), ...Object.keys(sales)])];
+    names.forEach(item => {
+      const stock = stk[loNorm(item)] || 0, sold = sl[loNorm(item)] || 0;
+      const rate = sold / weeks;
+      let need = Math.max(0, Math.ceil(rate * (c.interval + c.prep + c.safety) / 7 - stock - 1e-9));
+      if(assort) need = Math.max(need, c.minShelf - stock);
+      const key = store + '||' + item;
+      rows.push({store, item, key, stock, sold, rate, cover: rate > 0 ? stock / rate : null, need, qty: lo.overrides[key] !== undefined ? lo.overrides[key] : need});
+    });
+  });
+  return rows;
+}
+function loSetQty(key, v){ lo.overrides[key] = Math.max(0, parseInt(v, 10) || 0); loRender(); }
+function loRender(){
+  const body = document.getElementById('loBody'); if(!body) return;
+  const c = loCfg();
+  // дата відправки / крайній термін замовлення
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const add = (c.shipDay - now.getDay() + 7) % 7; const ship = new Date(now); ship.setDate(ship.getDate() + add);
+  const deadline = new Date(ship); deadline.setDate(deadline.getDate() - c.prep);
+  const fmtD = d => d.toLocaleDateString('uk-UA', {weekday: 'short', day: '2-digit', month: '2-digit'});
+  const late = deadline < now;
+  document.getElementById('loInfo').innerHTML = `Найближча відправка: <b>${fmtD(ship)}</b> · замовлення треба зробити до <b>${fmtD(deadline)}</b>${late ? ' <span style="color:var(--danger);">(термін уже минув — реальна відправка буде через тиждень: ' + fmtD(new Date(ship.getTime() + c.interval * 86400000)) + ')</span>' : ''}. Цільовий запас: продажі за ${c.interval + c.prep + c.safety} дн. (відправка ${c.interval} + підготовка ${c.prep} + страховий ${c.safety}).`;
+  if(!lo.stock){ body.innerHTML = '<div class="hint">Завантаж оборотку по складах (обов\'язково) і продажі (для розрахунку швидкості продажів).</div>'; return; }
+  const rows = loCompute();
+  const per = lo.sales && lo.sales.period ? `продажі за ${lo.sales.period.days} дн.` : 'файл продажів не завантажено — потреба рахується як 0';
+  const stores = Object.keys(lo.stock.stores);
+  let unmapped = 0;
+  const html = stores.map(st => {
+    const rs = rows.filter(r => r.store === st).sort((a, b) => a.item.localeCompare(b.item, 'uk'));
+    return `<div class="catalog-panel" style="margin-bottom:10px;"><div style="padding:10px 14px;">
+      <div style="font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${escapeAttr(st)}
+        <button class="btn btn-sm" type="button" style="font-size:12px;padding:2px 8px;" onclick="loOpenAssort('${escapeAttr(st).replace(/'/g, "\\'")}')">${loAssort(st) ? '⚙ Асортимент (' + loAssort(st).length + ')' : '⚙ Асортимент'}</button></div>
+      ${lo.openAssort === st ? `<div style="margin:0 0 8px;padding:8px 10px;border:1px dashed var(--border);border-radius:8px;"><div class="hint" style="margin-bottom:6px;">Познач, що має бути на цій точці. Ці позиції показуватимуться завжди (навіть без продажів і залишку), решта — ховаються.</div>
+        ${loAllItems().map(n => `<label style="display:block;font-size:13px;cursor:pointer;"><input type="checkbox" style="width:auto;" ${(loAssort(st) || []).some(x => loNorm(x) === loNorm(n)) ? 'checked' : ''} onchange="loToggleAssort('${escapeAttr(st).replace(/'/g, "\\'")}', '${escapeAttr(n).replace(/'/g, "\\'")}', this.checked)"> ${escapeAttr(n)}</label>`).join('')}
+        <div style="margin-top:6px;"><button class="btn btn-sm" type="button" onclick="loAssortAll('${escapeAttr(st).replace(/'/g, "\\'")}', true)">Усі</button> <button class="btn btn-sm" type="button" onclick="loAssortAll('${escapeAttr(st).replace(/'/g, "\\'")}', false)">Жодного</button></div></div>` : ''}
+      <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;"><th style="padding:3px 6px;">Товар (з оборотки)</th><th style="padding:3px 6px;">Набір у програмі</th><th style="padding:3px 6px;text-align:right;">Продано</th><th style="padding:3px 6px;text-align:right;">Залишок</th><th style="padding:3px 6px;text-align:right;">Вистачить</th><th style="padding:3px 6px;text-align:right;">Замовити</th></tr></thead><tbody>` +
+      rs.map(r => {
+        let k = loKitFor(r.item); const sug = !k ? loSuggestKit(r.item) : null;
+        if(!k) unmapped++;
+        const opts = `<option value="">— оберіть —</option><option value="skip" ${k === 'skip' ? 'selected' : ''}>не замовляти</option>` + kits.filter(x => !x.archived).map(x => `<option value="${x.id}" ${(k && k !== 'skip' && k.id === x.id) || (!k && sug && sug.id === x.id) ? 'selected' : ''}>${escapeAttr(x.name)}</option>`).join('');
+        const cover = r.cover === null ? '—' : (r.cover >= 10 ? '10+ тиж.' : r.cover.toFixed(1) + ' тиж.');
+        const warn = r.cover !== null && r.cover < 1;
+        return `<tr style="border-top:1px solid var(--border,#3a2f26);"><td style="padding:4px 6px;">${escapeAttr(r.item)}</td>
+          <td style="padding:4px 6px;"><select onchange="loSetMap('${escapeAttr(r.item).replace(/'/g, "\\'")}', this.value)" style="max-width:240px;">${opts}</select>${!k && sug ? ' <span class="hint">підказка</span>' : ''}</td>
+          <td style="padding:4px 6px;text-align:right;">${r.sold}</td><td style="padding:4px 6px;text-align:right;">${r.stock}</td>
+          <td style="padding:4px 6px;text-align:right;${warn ? 'color:var(--danger);font-weight:600;' : ''}">${cover}</td>
+          <td style="padding:4px 6px;text-align:right;"><input type="number" min="0" value="${r.qty}" style="width:64px;" onchange="loSetQty('${escapeAttr(r.key).replace(/'/g, "\\'")}', this.value)"></td></tr>`;
+      }).join('') + `</tbody></table></div></div>`;
+  }).join('');
+  const tot = loTotals(rows);
+  body.innerHTML = `<div class="hint" style="margin-bottom:8px;">${per}. «Вистачить» — на скільки тижнів вистачить залишку при поточних продажах (червоним — менше тижня).</div>` + html +
+    `<div class="catalog-panel"><div style="padding:12px 16px;">
+      <div style="font-weight:600;margin-bottom:6px;">Разом у замовлення</div>
+      ${tot.items.length ? tot.items.map(t => `<div>${escapeAttr(t.kit.name)} × <b>${t.qty}</b></div>`).join('') : '<div class="hint">Нічого замовляти не потрібно.</div>'}
+      ${tot.unmappedQty ? `<div class="hint" style="margin-top:6px;color:var(--danger);">Є позиції (${tot.unmappedQty} шт.), для яких не вибрано набір — вони не потраплять у замовлення.</div>` : ''}
+      <div style="margin-top:10px;"><button class="btn btn-primary" ${tot.items.length ? '' : 'disabled'} onclick="loCreateOrder()">Створити замовлення в «Замовленнях»</button></div>
+    </div></div>`;
+}
+function loTotals(rows){
+  const by = new Map(); let unmappedQty = 0;
+  rows.forEach(r => {
+    if(!r.qty) return; const k = loKitFor(r.item) || null;
+    if(k === 'skip') return;
+    if(!k){ const sug = loSuggestKit(r.item); if(!sug){ unmappedQty += r.qty; return; } const e = by.get(sug.id) || {kit: sug, qty: 0, parts: []}; e.qty += r.qty; e.parts.push([r.store, r.qty]); by.set(sug.id, e); return; }
+    const e = by.get(k.id) || {kit: k, qty: 0, parts: []}; e.qty += r.qty; e.parts.push([r.store, r.qty]); by.set(k.id, e);
+  });
+  return {items: [...by.values()], unmappedQty};
+}
+function loCreateOrder(){
+  const cpId = document.getElementById('loCp').value; const cp = cpId ? counterpartyById(cpId) : null;
+  if(!cp){ alert('Оберіть контрагента.'); return; }
+  const rows = loCompute(); const tot = loTotals(rows);
+  if(!tot.items.length){ alert('Нічого замовляти.'); return; }
+  if(tot.unmappedQty && !confirm(`Для ${tot.unmappedQty} шт. не вибрано набір — їх у замовлення не буде. Створити все одно?`)) return;
+  // зберігаємо підказані відповідності, які користувач залишив
+  const m = appSettings.legalMap || (appSettings.legalMap = {});
+  rows.forEach(r => { if(!loKitFor(r.item)){ const s = loSuggestKit(r.item); if(s) m[loNorm(r.item)] = String(s.id); } });
+  resetOrderFilters();
+  const id = allocOrderId(); const o = newOrderDefaults(id);
+  o.customer = cp.name; o.phone = cp.phone || cp.contactPhone || ''; o.counterpartyId = cp.id; o.cashless = true;
+  if(cp.priceType) o.priceType = cp.priceType;
+  o.sendToTelegram = false;
+  tot.items.forEach(t => o.items.push({kitId: t.kit.id, qty: t.qty, price: kitPriceFor(t.kit, o.priceType)}));
+  const split = {}; tot.items.forEach(t => t.parts.forEach(([st, q]) => { (split[st] = split[st] || []).push(`${t.kit.name} × ${q}`); }));
+  o.notes = 'Розбивка по точках:\n' + Object.keys(split).map(st => st + ': ' + split[st].join('; ')).join('\n');
+  orders.push(o);
+  try{ autoUpdateWeightSilently(id); }catch(e){}
+  scheduleSave();
+  showSection('orders'); renderOrders(); renderOrdersSummary(); scrollToOrderCard(id);
+}
+
 function showSection(name){
   const navName = (NAV_GROUPS[name] || name);
   SECTIONS.forEach(s => {
@@ -15117,6 +15350,7 @@ function showSection(name){
   if(name === 'log') renderActLog();
   if(name === 'cash') renderCash();
   if(name === 'invoices') initInvoicesSection();
+  if(name === 'legalorders') loInit();
   if(name === 'reports') renderReports();
   if(name === 'settings') renderAppSettings();
   startTelegramPolling(); // Telegram слухаємо в усіх вкладках, поки програма відкрита (раніше — лише у «Замовлення»)
