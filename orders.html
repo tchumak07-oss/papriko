@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.63 · 14.11.2026 11:35</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.64 · 14.11.2026 11:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -15058,8 +15058,44 @@ function renderOrdersSummary(){
     <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
     <div class="card"><div class="label">Відправлено</div><div class="value">${shippedCount}</div></div>
     <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
-    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div></div>
+    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders()">Переглянути неоплачені</button></div>
   `;
+}
+// список неоплачених замовлень за вибраний період: ТТН, клієнт, сума
+function showUnpaidOrders(){
+  const fromVal = (document.getElementById('ordersSummaryFrom') || {}).value || '';
+  const toVal = (document.getElementById('ordersSummaryTo') || {}).value || '';
+  const fromTs = fromVal ? dateSortValue(fromVal) : null, toTs = toVal ? dateSortValue(toVal) : null;
+  const list = orders.filter(o => {
+    if(o.paid || o.status === 'Скасовано') return false;
+    const ts = dateSortValue(o.date || '');
+    if(fromTs !== null && ts < fromTs) return false;
+    if(toTs !== null && ts > toTs) return false;
+    return true;
+  }).map(o => ({o, sum: calcOrder(o).total})).sort((a, b) => b.sum - a.sum);
+  const total = list.reduce((x, r) => x + r.sum, 0);
+  const old = document.getElementById('unpaidModal'); if(old) old.remove();
+  const box = document.createElement('div');
+  box.id = 'unpaidModal';
+  box.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  const rows = list.map(r => {
+    const ttn = r.o.ttnNumber || r.o.ukrTtnNumber || '';
+    return `<tr style="border-top:1px solid var(--border,#3a2f26);">
+      <td style="padding:6px 8px;font-family:'JetBrains Mono',monospace;"><a href="#" onclick="document.getElementById('unpaidModal').remove();goToOrder(${r.o.id});return false;" style="color:var(--saffron);">${escapeAttr(ttn) || '— без ТТН —'}</a></td>
+      <td style="padding:6px 8px;">${escapeAttr(r.o.customer || 'Без імені')}</td>
+      <td style="padding:6px 8px;color:var(--text-muted);white-space:nowrap;">${escapeAttr(String(r.o.date || '').slice(0, 10))}</td>
+      <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${fmt(r.sum)} грн</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div style="background:var(--bg-card,#261e18);border:1px solid var(--border,#3a2f26);border-radius:12px;max-width:760px;width:100%;max-height:85vh;overflow:auto;padding:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;">
+      <strong>Неоплачені замовлення${(fromVal || toVal) ? ' (' + (fromVal ? 'з ' + fromVal : '') + (toVal ? ' по ' + toVal : '') + ')' : ''}</strong>
+      <button class="btn btn-sm" type="button" onclick="document.getElementById('unpaidModal').remove()">✕</button>
+    </div>
+    ${list.length ? `<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;"><th style="padding:4px 8px;">ТТН</th><th style="padding:4px 8px;">Клієнт</th><th style="padding:4px 8px;">Дата</th><th style="padding:4px 8px;text-align:right;">Сума</th></tr></thead><tbody>${rows}</tbody></table>
+    <div style="margin-top:10px;text-align:right;font-weight:600;">Разом: ${list.length} зам. · ${fmt(total)} грн</div>` : '<div class="hint">Неоплачених замовлень за цей період немає.</div>'}
+  </div>`;
+  box.onclick = e => { if(e.target === box) box.remove(); };
+  document.body.appendChild(box);
 }
 
 function syncQtyFromOrders(){
