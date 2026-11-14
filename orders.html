@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.71 · 14.11.2026 14:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.73 · 14.11.2026 15:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2492,6 +2492,12 @@ function applyRemoteData(data){
   smsArrivedTemplate = data.smsArrivedTemplate || smsArrivedTemplate;
   smsBranchReminderTemplate = data.smsBranchReminderTemplate || smsBranchReminderTemplate;
   appSettings = Object.assign({autoSmsArrived: false, autoSmsShipped: false, cb: {}}, data.appSettings || {});
+  // видалені користувачем замовлення не приймаємо назад із застарілих записів інших пристроїв
+  if(Array.isArray(appSettings.delOrderKeys) && appSettings.delOrderKeys.length){
+    const dk = new Set(appSettings.delOrderKeys);
+    const before = orders.length; orders = orders.filter(o => !dk.has(o.uid || ('id:' + o.id)));
+    if(orders.length !== before) setTimeout(() => { try{ scheduleSave(); }catch(e){} }, 1500);
+  }
   if(typeof renderAppSettings === 'function') renderAppSettings();
   anthropicApiKey = data.anthropicApiKey || '';
   if(data.ukrSender) ukrSender = Object.assign(ukrSender, data.ukrSender);
@@ -2640,11 +2646,16 @@ function scheduleSave(){
         const remote = snap.exists ? snap.data() : null;
         if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
           const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
+          const delK = new Set(((remote.appSettings || {}).delOrderKeys || []).concat(appSettings.delOrderKeys || []));
           remoteOrders.forEach(ro => {
             // звіряємо передусім за uid (стійкий до випадкового збігу числового id, який кожна
             // вкладка/пристрій рахує окремо й незалежно); на uid-позбавлені старі записи — за id.
             const lo = orders.find(o => (o.uid && ro.uid) ? o.uid === ro.uid : o.id === ro.id);
-            if(!lo){ orders.push(ro); return; } // замовлення, з'явилось деінде — просто додаємо
+            if(!lo){
+              // видалене тут користувачем замовлення НЕ повертаємо, навіть якщо воно ще є на сервері
+              if(delK.has(ro.uid || ('id:' + ro.id))) return;
+              orders.push(ro); return; // замовлення, з'явилось деінде — просто додаємо
+            }
             ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','shipConfirmed']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
@@ -2808,7 +2819,8 @@ function doConnect(config){
           // це як істину — відновлюємо ці замовлення локально й одразу перезаписуємо сервер правильною версією.
           // Порівнюємо по КОЖНІЙ парі окремо: якщо в ОБОХ (і локального, і віддаленого запису) є uid —
           // звіряємо за ним, інакше — за числовим id. Так старі записи без uid не дають хибних спрацювань.
-          const rescuedOrders = orders.filter(o => !archiveCache.includes(o) && !remoteOrders.some(ro => (o.uid && ro.uid) ? ro.uid === o.uid : ro.id === o.id));
+          const delKeys = new Set(((remoteData.appSettings || {}).delOrderKeys || []).concat(appSettings.delOrderKeys || [])); // видалені користувачем — не «рятуємо»
+          const rescuedOrders = orders.filter(o => !delKeys.has(o.uid || ('id:' + o.id)) && !archiveCache.includes(o) && !remoteOrders.some(ro => (o.uid && ro.uid) ? ro.uid === o.uid : ro.id === o.id));
           applyRemoteData(remoteData);
           lastKnownRemoteUpdatedAt = remoteData.updatedAt || null;
           if(rescuedOrders.length){
@@ -8716,10 +8728,15 @@ async function resendShipmentNotifications(id){
 function siteTombstone(list){
   const a = Array.isArray(appSettings.siteDeletedIds) ? appSettings.siteDeletedIds : (appSettings.siteDeletedIds = []);
   (list || []).forEach(o => { if(o && o.siteId && !a.includes(o.siteId)) a.push(o.siteId); });
+  // видалені замовлення (будь-які) запам'ятовуємо за uid, щоб застарілий запис з іншого пристрою не повертав їх
+  const d = Array.isArray(appSettings.delOrderKeys) ? appSettings.delOrderKeys : (appSettings.delOrderKeys = []);
+  (list || []).forEach(o => { const k = o && (o.uid || ('id:' + o.id)); if(k && !d.includes(k)) d.push(k); });
+  if(d.length > 2000) d.splice(0, d.length - 2000);
   if(a.length > 3000) a.splice(0, a.length - 3000);
 }
 function siteUntombstone(o){
   if(o && o.siteId && Array.isArray(appSettings.siteDeletedIds)) appSettings.siteDeletedIds = appSettings.siteDeletedIds.filter(x => x !== o.siteId);
+  if(o && Array.isArray(appSettings.delOrderKeys)) appSettings.delOrderKeys = appSettings.delOrderKeys.filter(x => x !== (o.uid || ('id:' + o.id)));
 }
 function removeOrder(id){
   const o = orderById(id);
@@ -15370,6 +15387,7 @@ function loCreateOrder(){
   tot.stores.forEach(st => {
     const id = allocOrderId(); const o = newOrderDefaults(id);
     o.customer = st.store; o.phone = cp.phone || cp.contactPhone || ''; o.counterpartyId = cp.id; o.cashless = true;
+    o.deliveryMethod = 'Самовивіз';
     if(cp.priceType) o.priceType = cp.priceType;
     o.sendToTelegram = false;
     st.items.forEach(t => o.items.push({kitId: t.kit.id, qty: t.qty, price: kitPriceFor(t.kit, o.priceType)}));
