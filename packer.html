@@ -315,9 +315,13 @@ function isActiveUnshipped(o){ return !o.shipped && !o.packerSent && !o.delivere
 // назва юрособи / клієнта з бази — поруч з іменем у замовленні
 function baseNameTag(o){
   const cp = o.counterpartyId ? cpDb.find(c => String(c.id) === String(o.counterpartyId)) : null;
-  const cl = !cp && o.clientId ? clientsDb.find(c => String(c.id) === String(o.clientId)) : null;
-  const nm = cp ? cp.name : (cl && String(cl.name || '').trim().toLowerCase() !== String(o.customer || '').trim().toLowerCase() ? cl.name : '');
-  return nm ? ` <span style="font-size:13px;font-weight:600;color:var(--saffron);">${cp ? '🏢 ' : '👤 '}${esc(nm)}</span>` : '';
+  const cl = o.clientId ? clientsDb.find(c => String(c.id) === String(o.clientId)) : null;
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  const tag = (ico, nm) => ` <span style="font-size:13px;font-weight:600;color:var(--saffron);">${ico} ${esc(nm)}</span>`;
+  let out = '';
+  if(cp && cp.name && !same(cp.name, o.customer)) out += tag('🏢', cp.name);
+  if(cl && cl.name && !same(cl.name, o.customer) && !(cp && same(cl.name, cp.name))) out += tag('👤', cl.name);
+  return out;
 }
 function isPending(o){ return !!o.packerSent && !o.shipped && !o.shipConfirmed && !carrierSeen(o) && !o.delivered; }
 /* Перевізника визначаємо і за номером ТТН: у Нової Пошти 14 цифр, в Укрпошти 13. Буває, що в замовленні
