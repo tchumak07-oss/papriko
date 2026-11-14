@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.65 · 14.11.2026 12:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.66 · 14.11.2026 12:25</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -15020,16 +15020,17 @@ function renderOrdersSummary(){
     <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
     <div class="card"><div class="label">Відправлено</div><div class="value">${shippedCount}</div></div>
     <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
-    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders()">Переглянути неоплачені</button></div>
+    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(false)">Неоплачені</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(true)">Неоплачені юрособи</button></div>
   `;
 }
 // список неоплачених замовлень за вибраний період: ТТН, клієнт, сума
-function showUnpaidOrders(){
+function showUnpaidOrders(legal){
   const fromVal = (document.getElementById('ordersSummaryFrom') || {}).value || '';
   const toVal = (document.getElementById('ordersSummaryTo') || {}).value || '';
   const fromTs = fromVal ? dateSortValue(fromVal) : null, toTs = toVal ? dateSortValue(toVal) : null;
   const list = orders.filter(o => {
     if(o.paid || o.status === 'Скасовано' || isArchived(o)) return false;
+    if(!!o.counterpartyId !== !!legal) return false; // фізособи й юрособи — окремі списки
     const ts = dateSortValue(o.date || '');
     if(fromTs !== null && ts < fromTs) return false;
     if(toTs !== null && ts > toTs) return false;
@@ -15050,7 +15051,7 @@ function showUnpaidOrders(){
   }).join('');
   box.innerHTML = `<div style="background:var(--bg-card,#261e18);border:1px solid var(--border,#3a2f26);border-radius:12px;max-width:760px;width:100%;max-height:85vh;overflow:auto;padding:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;">
-      <strong>Неоплачені замовлення${(fromVal || toVal) ? ' (' + (fromVal ? 'з ' + fromVal : '') + (toVal ? ' по ' + toVal : '') + ')' : ''}</strong>
+      <strong>Неоплачені ${legal ? 'замовлення юросіб' : 'замовлення'}${(fromVal || toVal) ? ' (' + (fromVal ? 'з ' + fromVal : '') + (toVal ? ' по ' + toVal : '') + ')' : ''}</strong>
       <button class="btn btn-sm" type="button" onclick="document.getElementById('unpaidModal').remove()">✕</button>
     </div>
     ${list.length ? `<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;"><th style="padding:4px 8px;">ТТН</th><th style="padding:4px 8px;">Клієнт</th><th style="padding:4px 8px;">Дата</th><th style="padding:4px 8px;text-align:right;">Сума</th></tr></thead><tbody>${rows}</tbody></table>
