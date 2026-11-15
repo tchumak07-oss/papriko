@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.83 · 15.11.2026 22:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.84 · 15.11.2026 23:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1984,7 +1984,7 @@
         <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="skuModeR" style="width:auto;" onchange="skuModeSet('all')"> Усі замовлені (без скасованих)</label>
         <input type="hidden" id="skuMode" value="paid">
       </div>
-      <div class="hint" style="margin:0 0 8px;">Період спільний з іншими звітами на цій сторінці. Натисни на назву колонки, щоб відсортувати. «Частка» — яку частку всієї виручки за період дає цей товар; за замовчуванням список від найбільшої виручки.</div>
+      <div class="hint" style="margin:0 0 8px;">Період спільний з іншими звітами на цій сторінці. Натисни на назву колонки, щоб відсортувати, а на рядок товару — щоб розгорнути клієнтів і суму по кожному. «Частка» — яку частку всієї виручки за період дає цей товар; за замовчуванням список від найбільшої виручки.</div>
       <input type="text" id="skuMarginSearch" placeholder="🔍 Пошук за назвою або SKU…" oninput="renderSkuMarginTable()" style="margin:0 0 10px;">
       <div class="wh-row-head" id="skuMarginHead" style="grid-template-columns:1fr 80px 90px 100px 100px 90px 70px;"></div>
       <div id="reportSkuMarginTable"></div>
@@ -13417,6 +13417,23 @@ function skuSetPeriod(){
   if(t) t.value = document.getElementById('skuDateTo').value;
   renderReports();
 }
+var skuOpen = new Set();
+function skuToggle(kid){ if(skuOpen.has(kid)) skuOpen.delete(kid); else skuOpen.add(kid); renderSkuMarginTable(); }
+// клієнти, які купили цей SKU за вибраний період (з урахуванням режиму «оплачені / усі»)
+function skuClients(kid){
+  const all = ((document.getElementById('skuMode') || {}).value) === 'all';
+  const map = new Map();
+  orders.filter(o => inReportRange(o.date) && (all ? o.status !== 'Скасовано' : o.paid)).forEach(o => {
+    (o.items || []).forEach(it => {
+      if(String(it.kitId) !== String(kid)) return;
+      const name = (o.customer || '').trim() || 'Без імені'; const key = name.toLowerCase();
+      const e = map.get(key) || {name, qty: 0, revenue: 0, orders: new Set(), last: ''};
+      e.qty += it.qty || 0; e.revenue += (it.qty || 0) * (it.price || 0); e.orders.add(o.id); if((o.date || '') > e.last) e.last = o.date || '';
+      map.set(key, e);
+    });
+  });
+  return [...map.values()].sort((a, b) => b.revenue - a.revenue);
+}
 function skuModeSet(m){ document.getElementById('skuMode').value = m; renderReports(); }
 function skuSortBy(key){ skuSort = {key, dir: skuSort.key === key ? -skuSort.dir : (key === 'name' ? 1 : -1)}; renderSkuMarginTable(); }
 function skuMarginFiltered(){
@@ -13442,15 +13459,18 @@ function renderSkuMarginTable(){
   if(!rows.length){ el.innerHTML = '<div class="comp-empty">Нічого не знайдено за цим пошуком.</div>'; return; }
   const maxShare = rows.reduce((m, x) => Math.max(m, x.share), 0) || 1;
   el.innerHTML = rows.map(r => `
-        <div class="wh-row" style="grid-template-columns:1fr 80px 90px 100px 100px 90px 70px;">
-          <div>${escapeAttr(r.k.name)}${r.k.sku ? ' <span class="hint">('+escapeAttr(r.k.sku)+')</span>' : ''}<div class="bar-track" style="height:4px;margin-top:3px;"><div class="bar-fill" style="width:${Math.min(100, r.share / maxShare * 100)}%;background:var(--saffron);"></div></div></div>
+        <div class="wh-row" style="grid-template-columns:1fr 80px 90px 100px 100px 90px 70px;cursor:pointer;" onclick="skuToggle(${r.k.id})" title="Натисни, щоб побачити клієнтів по цьому SKU">
+          <div>${skuOpen.has(r.k.id) ? '▾' : '▸'} ${escapeAttr(r.k.name)}${r.k.sku ? ' <span class="hint">('+escapeAttr(r.k.sku)+')</span>' : ''}<div class="bar-track" style="height:4px;margin-top:3px;"><div class="bar-fill" style="width:${Math.min(100, r.share / maxShare * 100)}%;background:var(--saffron);"></div></div></div>
           <div class="cv" style="text-align:right;">${r.qty}</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.revenue)} грн</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.cost)} грн</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.profit>=0?'var(--cardamom)':'var(--danger)'};">${fmt(r.profit)} грн</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.margin>=0?'var(--saffron)':'var(--danger)'};">${fmt1(r.margin)}%</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(r.share)}%</div>
-        </div>
+        </div>${skuOpen.has(r.k.id) ? (() => {
+          const cl = skuClients(r.k.id);
+          return `<div style="margin:2px 0 8px 22px;padding:6px 10px;border-left:2px solid var(--saffron);background:rgba(255,255,255,.03);font-size:13px;">` + (cl.length ? cl.map(c => `<div style="display:grid;grid-template-columns:1fr 70px 80px 110px;gap:8px;padding:2px 0;"><span>${escapeAttr(c.name)} <span class="hint">· ${c.orders.size} зам., ост. ${escapeAttr(smsLogDateUa(c.last))}</span></span><span style="text-align:right;">${c.qty} шт</span><span style="text-align:right;color:var(--text-muted);">${r.qty ? fmt1(c.qty / r.qty * 100) : 0}%</span><span style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(c.revenue)} грн</span></div>`).join('') + `<div style="display:grid;grid-template-columns:1fr 70px 80px 110px;gap:8px;padding:3px 0;border-top:1px solid var(--border-soft,#3a2e24);font-weight:700;"><span>Разом клієнтів: ${cl.length}</span><span style="text-align:right;">${cl.reduce((x, c) => x + c.qty, 0)} шт</span><span></span><span style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(cl.reduce((x, c) => x + c.revenue, 0))} грн</span></div>` : '<span class="hint">Клієнтів не знайдено.</span>') + `</div>`;
+        })() : ''}
       `).join('') + (() => {
     const t = rows.reduce((x, r) => ({qty: x.qty + (r.qty || 0), revenue: x.revenue + (r.revenue || 0), cost: x.cost + (r.cost || 0), profit: x.profit + (r.profit || 0), share: x.share + (r.share || 0)}), {qty: 0, revenue: 0, cost: 0, profit: 0, share: 0});
     const mg = t.revenue > 0 ? t.profit / t.revenue * 100 : 0; const mono = "text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;";
