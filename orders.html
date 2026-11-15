@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.82 · 15.11.2026 22:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.83 · 15.11.2026 22:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -13489,7 +13489,13 @@ function renderSkuMarginTable(){
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.margin>=0?'var(--saffron)':'var(--danger)'};">${fmt1(r.margin)}%</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(r.share)}%</div>
         </div>
-      `).join('');
+      `).join('') + (() => {
+    const t = rows.reduce((x, r) => ({qty: x.qty + (r.qty || 0), revenue: x.revenue + (r.revenue || 0), cost: x.cost + (r.cost || 0), profit: x.profit + (r.profit || 0), share: x.share + (r.share || 0)}), {qty: 0, revenue: 0, cost: 0, profit: 0, share: 0});
+    const mg = t.revenue > 0 ? t.profit / t.revenue * 100 : 0; const mono = "text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;";
+    return `<div class="wh-row" style="grid-template-columns:1fr 80px 90px 100px 100px 90px 70px;border-top:2px solid var(--saffron);margin-top:4px;">
+      <div style="font-weight:700;">РАЗОМ (${rows.length} SKU)</div><div class="cv" style="${mono}">${t.qty}</div><div class="cv" style="${mono}">${fmt(t.revenue)} грн</div><div class="cv" style="${mono}">${fmt(t.cost)} грн</div>
+      <div class="cv" style="${mono}color:${t.profit >= 0 ? 'var(--cardamom)' : 'var(--danger)'};">${fmt(t.profit)} грн</div><div class="cv" style="${mono}">${fmt1(mg)}%</div><div class="cv" style="${mono}">${fmt1(t.share)}%</div></div>`;
+  })();
 }
 function exportSkuMarginReportExcel(){
   const expRows = skuMarginFiltered();
@@ -13504,7 +13510,7 @@ function exportSkuMarginReportExcel(){
       {header:'SKU', width:10}, {header:'Назва', width:26}, {header:'Продано, шт', width:12},
       {header:'Виручка', width:12}, {header:'Собівартість', width:14}, {header:'Прибуток', width:12}, {header:'Маржа, %', width:10}, {header:'Частка виручки, %', width:16}
     ],
-    rows: expRows.map(r => [r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin), fmt1(r.share)])
+    rows: expRows.map(r => [r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin), fmt1(r.share)]).concat([(() => { const q = expRows.reduce((x, r) => x + r.qty, 0), rv = expRows.reduce((x, r) => x + r.revenue, 0), cs = expRows.reduce((x, r) => x + r.cost, 0), pf = expRows.reduce((x, r) => x + r.profit, 0), sh = expRows.reduce((x, r) => x + r.share, 0); return ['', 'РАЗОМ', q, fmt1(rv), fmt1(cs), fmt1(pf), fmt1(rv > 0 ? pf / rv * 100 : 0), fmt1(sh)]; })()])
   });
 }
 
