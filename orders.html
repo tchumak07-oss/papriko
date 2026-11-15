@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.76 · 15.11.2026 17:40</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.77 · 15.11.2026 18:05</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -4274,33 +4274,76 @@ function saveKit(id){
   scheduleSave();
 }
 
-// звіт: товари, у яких не проставлена тара (вид тари для сортування і/або упаковка у складі)
+// звіт: товари, у яких не проставлена тара (вид тари для сортування і/або упаковка у складі) — з можливістю проставити
+var noTareIds = [], noTareSel = new Set();
+function noTareState(k){
+  const comp = flattenKitComponents(k.id, 1);
+  const noPack = !Object.keys(comp).some(cid => (catalogItem(parseInt(cid, 10)) || {}).category === 'Упаковка');
+  const composite = (k.components || []).some(c => c.refType === 'kit');
+  return {noPack, noType: !k.tareId && !composite, composite};
+}
 function noTareRows(){
-  return kits.filter(k => !k.archived).map(k => {
-    const comp = flattenKitComponents(k.id, 1);
-    const noPack = !Object.keys(comp).some(cid => (catalogItem(parseInt(cid, 10)) || {}).category === 'Упаковка');
-    const composite = (k.components || []).some(c => c.refType === 'kit');
-    const noType = !k.tareId && !composite;
-    return {k, noPack, noType};
-  }).filter(r => r.noPack || r.noType).sort((a, b) => a.k.name.localeCompare(b.k.name, 'uk'));
+  return kits.filter(k => !k.archived).map(k => Object.assign({k}, noTareState(k))).filter(r => r.noPack || r.noType).sort((a, b) => a.k.name.localeCompare(b.k.name, 'uk'));
+}
+function noTarePacks(){ return catalog.filter(c => !c.archived && c.category === 'Упаковка').sort((a, b) => a.name.localeCompare(b.name, 'uk')); }
+function noTareSetType(kid, v){ const k = kitById(kid); if(!k) return; if(v) k.tareId = v; else delete k.tareId; scheduleSave(); try{ renderKits(); }catch(e){} noTareRender(); }
+function noTareAddPack(kid, v){
+  const k = kitById(kid); if(!k || !v) return;
+  if(!(k.components || []).some(c => c.refType !== 'kit' && String(c.catalogId) === String(v))) (k.components = k.components || []).push({catalogId: Number(v), refType: 'catalog', amount: 1});
+  scheduleSave(); try{ renderKits(); }catch(e){} noTareRender();
+}
+function noTareToggle(kid, on){ if(on) noTareSel.add(kid); else noTareSel.delete(kid); noTareRender(); }
+function noTareToggleAll(on){ noTareSel = on ? new Set(noTareIds) : new Set(); noTareRender(); }
+function noTareApplySel(){
+  const t = document.getElementById('ntBulkType').value, pk = document.getElementById('ntBulkPack').value;
+  if(!noTareSel.size){ alert('Познач товари галочками.'); return; }
+  if(!t && !pk){ alert('Оберіть вид тари і/або упаковку, які проставити.'); return; }
+  noTareSel.forEach(kid => {
+    const k = kitById(kid); if(!k) return; const st = noTareState(k);
+    if(t && (st.noType || document.getElementById('ntOverwrite').checked)) k.tareId = t;
+    if(pk && !(k.components || []).some(c => c.refType !== 'kit' && String(c.catalogId) === String(pk)) && (st.noPack || document.getElementById('ntOverwrite').checked)) (k.components = k.components || []).push({catalogId: Number(pk), refType: 'catalog', amount: 1});
+  });
+  scheduleSave(); try{ renderKits(); }catch(e){}
+  noTareSel = new Set(); noTareRender();
+}
+function noTareRender(){
+  const box = document.getElementById('noTareBody'); if(!box) return;
+  const scroll = box.scrollTop;
+  const packs = noTarePacks();
+  const typeOpts = sel => '<option value="">— не вказано —</option>' + tareTypes.map(t => `<option value="${t.id}" ${String(sel || '') === String(t.id) ? 'selected' : ''}>${escapeAttr(t.name)}</option>`).join('');
+  const rows = noTareIds.map(id => kitById(id)).filter(Boolean).map(k => {
+    const st = noTareState(k);
+    const have = [...new Set(Object.keys(flattenKitComponents(k.id, 1)).map(cid => catalogItem(parseInt(cid, 10))).filter(c => c && c.category === 'Упаковка').map(c => c.name))];
+    return `<tr style="border-top:1px solid var(--border-soft,#3a2e24);">
+      <td style="padding:5px 6px;"><input type="checkbox" style="width:auto;" ${noTareSel.has(k.id) ? 'checked' : ''} onchange="noTareToggle(${k.id}, this.checked)"></td>
+      <td style="padding:5px 6px;"><a href="#" style="color:var(--saffron);" onclick="document.getElementById('noTareModal').remove();showSection('products');jumpToEditKit(${k.id});return false;">${escapeAttr(k.name)}</a>${k.sku ? ' <span class="hint">' + escapeAttr(k.sku) + '</span>' : ''}</td>
+      <td style="padding:5px 6px;">${st.composite ? '<span class="hint">з наборів</span>' : `<select onchange="noTareSetType(${k.id}, this.value)" style="max-width:170px;${st.noType ? 'border-color:var(--danger);' : ''}">${typeOpts(k.tareId)}</select>`}</td>
+      <td style="padding:5px 6px;">${have.length ? '✓ ' + escapeAttr(have.join(', ')) + '<br>' : ''}<select onchange="noTareAddPack(${k.id}, this.value)" style="max-width:200px;${st.noPack ? 'border-color:var(--danger);' : ''}"><option value="">${have.length ? '+ додати ще…' : '— оберіть упаковку —'}</option>${packs.map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('')}</select></td></tr>`;
+  }).join('');
+  box.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--border-soft,#3a2e24);border-radius:8px;">
+      <div><div class="hint">Вибраним (${noTareSel.size}) проставити:</div>
+        <select id="ntBulkType" style="max-width:170px;">${typeOpts('')}</select>
+        <select id="ntBulkPack" style="max-width:200px;"><option value="">— упаковка —</option>${packs.map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('')}</select></div>
+      <label class="hint" style="display:flex;gap:4px;align-items:center;"><input type="checkbox" id="ntOverwrite" style="width:auto;"> навіть якщо вже є</label>
+      <button class="btn btn-sm btn-primary" type="button" onclick="noTareApplySel()">Проставити</button>
+      <button class="btn btn-sm" type="button" onclick="noTareToggleAll(true)">Позначити всі</button>
+      <button class="btn btn-sm" type="button" onclick="noTareToggleAll(false)">Зняти</button></div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;"><th></th><th style="padding:4px 6px;">Товар</th><th style="padding:4px 6px;">Вид тари</th><th style="padding:4px 6px;">Упаковка у складі</th></tr></thead><tbody>${rows}</tbody></table>`;
+  box.scrollTop = scroll;
 }
 function openNoTareReport(){
-  const rows = noTareRows();
+  noTareIds = noTareRows().map(r => r.k.id); noTareSel = new Set();
   const old = document.getElementById('noTareModal'); if(old) old.remove();
   const ov = document.createElement('div'); ov.id = 'noTareModal';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
-  const tr = rows.map(r => `<tr style="border-top:1px solid var(--border-soft,#3a2e24);"><td style="padding:6px 8px;"><a href="#" style="color:var(--saffron);" onclick="document.getElementById('noTareModal').remove();showSection('products');jumpToEditKit(${r.k.id});return false;">${escapeAttr(r.k.name)}</a>${r.k.sku ? ' <span class="hint">' + escapeAttr(r.k.sku) + '</span>' : ''}</td>
-    <td style="padding:6px 8px;text-align:center;">${r.noType ? '<span style="color:var(--danger);">не вказано</span>' : '✓'}</td>
-    <td style="padding:6px 8px;text-align:center;">${r.noPack ? '<span style="color:var(--danger);">немає в складі</span>' : '✓'}</td></tr>`).join('');
-  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:16px 18px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;"><strong style="font-size:17px;">⚠ Товари без тари (${rows.length})</strong><button class="btn btn-sm" type="button" onclick="document.getElementById('noTareModal').remove()">✕</button></div>
-    <p class="hint" style="margin:0 0 10px;">«Вид тари» — для сортування й групування товарів; «Упаковка у складі» — банка/пакет/млинок у складі товару (від цього залежить підрахунок тари у «Що зібрати й відправити»). Натисни на назву, щоб відкрити товар.</p>
-    ${rows.length ? `<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;"><th style="padding:4px 8px;">Товар</th><th style="padding:4px 8px;text-align:center;">Вид тари</th><th style="padding:4px 8px;text-align:center;">Упаковка у складі</th></tr></thead><tbody>${tr}</tbody></table>` : '<div class="hint">У всіх товарів тара проставлена ✓</div>'}
-  </div>`;
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:900px;width:100%;max-height:92vh;display:flex;flex-direction:column;padding:16px 18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;"><strong style="font-size:17px;">⚠ Товари без тари (${noTareIds.length})</strong><button class="btn btn-sm" type="button" onclick="document.getElementById('noTareModal').remove()">✕</button></div>
+    <p class="hint" style="margin:0 0 10px;">«Вид тари» — для сортування й групування; «Упаковка у складі» — банка/пакет/млинок у складі товару (від цього залежить підрахунок тари у «Що зібрати й відправити»). Обирай прямо в рядку або познач кілька товарів і проставляй одразу всім. Зміни зберігаються одразу.</p>
+    <div id="noTareBody" style="overflow:auto;"></div></div>`;
   ov.onclick = e => { if(e.target === ov) ov.remove(); };
   document.body.appendChild(ov);
+  noTareRender();
 }
-
 function editKit(id){
   const k = kitById(id);
   if(!k) return;
