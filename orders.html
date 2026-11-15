@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.75 · 15.11.2026 17:15</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.76 · 15.11.2026 17:40</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -673,6 +673,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <button class="btn btn-sm" onclick="document.getElementById('catImportInput').click()" title="Завантажити каталог з цінами з Excel: співставити товари, оновити ціни, архівувати зайве">📥 Імпорт каталогу з цінами</button>
       <button class="btn btn-sm" onclick="ingPullOpen()" title="Підтягнути в готові товари інгредієнти (спеція + тара) з довідника — за назвою, з підказками">🧂 Підтягнути інгредієнти</button>
       <button class="btn btn-sm" onclick="toggleTarePanel()" title="Види тари та сортування товарів за тарою">📦 Тара</button>
+      <button class="btn btn-sm" onclick="openNoTareReport()" title="Звіт: товари, де не проставлена тара">⚠ Без тари</button>
       <button class="btn btn-sm" id="kitArchiveBtn" onclick="toggleKitArchive()">🗄 Архів товарів</button>
       <input type="file" id="catImportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="catImportStart(this.files[0]); this.value='';">
       <button class="btn btn-primary btn-sm" onclick="addKit()">+ Новий набір / товар</button>
@@ -4272,6 +4273,34 @@ function saveKit(id){
   renderChart();
   scheduleSave();
 }
+
+// звіт: товари, у яких не проставлена тара (вид тари для сортування і/або упаковка у складі)
+function noTareRows(){
+  return kits.filter(k => !k.archived).map(k => {
+    const comp = flattenKitComponents(k.id, 1);
+    const noPack = !Object.keys(comp).some(cid => (catalogItem(parseInt(cid, 10)) || {}).category === 'Упаковка');
+    const composite = (k.components || []).some(c => c.refType === 'kit');
+    const noType = !k.tareId && !composite;
+    return {k, noPack, noType};
+  }).filter(r => r.noPack || r.noType).sort((a, b) => a.k.name.localeCompare(b.k.name, 'uk'));
+}
+function openNoTareReport(){
+  const rows = noTareRows();
+  const old = document.getElementById('noTareModal'); if(old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'noTareModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;';
+  const tr = rows.map(r => `<tr style="border-top:1px solid var(--border-soft,#3a2e24);"><td style="padding:6px 8px;"><a href="#" style="color:var(--saffron);" onclick="document.getElementById('noTareModal').remove();showSection('products');jumpToEditKit(${r.k.id});return false;">${escapeAttr(r.k.name)}</a>${r.k.sku ? ' <span class="hint">' + escapeAttr(r.k.sku) + '</span>' : ''}</td>
+    <td style="padding:6px 8px;text-align:center;">${r.noType ? '<span style="color:var(--danger);">не вказано</span>' : '✓'}</td>
+    <td style="padding:6px 8px;text-align:center;">${r.noPack ? '<span style="color:var(--danger);">немає в складі</span>' : '✓'}</td></tr>`).join('');
+  ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:16px 18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;"><strong style="font-size:17px;">⚠ Товари без тари (${rows.length})</strong><button class="btn btn-sm" type="button" onclick="document.getElementById('noTareModal').remove()">✕</button></div>
+    <p class="hint" style="margin:0 0 10px;">«Вид тари» — для сортування й групування товарів; «Упаковка у складі» — банка/пакет/млинок у складі товару (від цього залежить підрахунок тари у «Що зібрати й відправити»). Натисни на назву, щоб відкрити товар.</p>
+    ${rows.length ? `<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;"><th style="padding:4px 8px;">Товар</th><th style="padding:4px 8px;text-align:center;">Вид тари</th><th style="padding:4px 8px;text-align:center;">Упаковка у складі</th></tr></thead><tbody>${tr}</tbody></table>` : '<div class="hint">У всіх товарів тара проставлена ✓</div>'}
+  </div>`;
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
 function editKit(id){
   const k = kitById(id);
   if(!k) return;
