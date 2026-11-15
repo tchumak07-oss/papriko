@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.77 · 15.11.2026 18:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.78 · 15.11.2026 18:25</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -4254,6 +4254,11 @@ function noTareAddPack(kid, v){
   if(!(k.components || []).some(c => c.refType !== 'kit' && String(c.catalogId) === String(v))) (k.components = k.components || []).push({catalogId: Number(v), refType: 'catalog', amount: 1});
   scheduleSave(); try{ renderKits(); }catch(e){} noTareRender();
 }
+function noTareRemovePack(kid, cid){
+  const k = kitById(kid); if(!k) return;
+  k.components = (k.components || []).filter(c => !(c.refType !== 'kit' && String(c.catalogId) === String(cid)));
+  scheduleSave(); try{ renderKits(); }catch(e){} noTareRender();
+}
 function noTareToggle(kid, on){ if(on) noTareSel.add(kid); else noTareSel.delete(kid); noTareRender(); }
 function noTareToggleAll(on){ noTareSel = on ? new Set(noTareIds) : new Set(); noTareRender(); }
 function noTareApplySel(){
@@ -4275,12 +4280,13 @@ function noTareRender(){
   const typeOpts = sel => '<option value="">— не вказано —</option>' + tareTypes.map(t => `<option value="${t.id}" ${String(sel || '') === String(t.id) ? 'selected' : ''}>${escapeAttr(t.name)}</option>`).join('');
   const rows = noTareIds.map(id => kitById(id)).filter(Boolean).map(k => {
     const st = noTareState(k);
-    const have = [...new Set(Object.keys(flattenKitComponents(k.id, 1)).map(cid => catalogItem(parseInt(cid, 10))).filter(c => c && c.category === 'Упаковка').map(c => c.name))];
+    const direct = new Set((k.components || []).filter(c => c.refType !== 'kit').map(c => String(c.catalogId)));
+    const have = [...new Set(Object.keys(flattenKitComponents(k.id, 1)).map(cid => catalogItem(parseInt(cid, 10))).filter(c => c && c.category === 'Упаковка'))];
     return `<tr style="border-top:1px solid var(--border-soft,#3a2e24);">
       <td style="padding:5px 6px;"><input type="checkbox" style="width:auto;" ${noTareSel.has(k.id) ? 'checked' : ''} onchange="noTareToggle(${k.id}, this.checked)"></td>
       <td style="padding:5px 6px;"><a href="#" style="color:var(--saffron);" onclick="document.getElementById('noTareModal').remove();showSection('products');jumpToEditKit(${k.id});return false;">${escapeAttr(k.name)}</a>${k.sku ? ' <span class="hint">' + escapeAttr(k.sku) + '</span>' : ''}</td>
       <td style="padding:5px 6px;">${st.composite ? '<span class="hint">з наборів</span>' : `<select onchange="noTareSetType(${k.id}, this.value)" style="max-width:170px;${st.noType ? 'border-color:var(--danger);' : ''}">${typeOpts(k.tareId)}</select>`}</td>
-      <td style="padding:5px 6px;">${have.length ? '✓ ' + escapeAttr(have.join(', ')) + '<br>' : ''}<select onchange="noTareAddPack(${k.id}, this.value)" style="max-width:200px;${st.noPack ? 'border-color:var(--danger);' : ''}"><option value="">${have.length ? '+ додати ще…' : '— оберіть упаковку —'}</option>${packs.map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('')}</select></td></tr>`;
+      <td style="padding:5px 6px;">${have.map(c => `<div style="display:flex;align-items:center;gap:6px;">✓ ${escapeAttr(c.name)}${direct.has(String(c.id)) ? ` <button class="btn btn-sm" type="button" style="padding:0 6px;" title="Прибрати цю упаковку зі складу товару" onclick="noTareRemovePack(${k.id}, ${c.id})">×</button>` : ' <span class="hint">(з вкладеного набору)</span>'}</div>`).join('')}<select onchange="noTareAddPack(${k.id}, this.value)" style="max-width:200px;${st.noPack ? 'border-color:var(--danger);' : ''}"><option value="">${have.length ? '+ додати ще…' : '— оберіть упаковку —'}</option>${packs.map(c => `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('')}</select></td></tr>`;
   }).join('');
   box.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--border-soft,#3a2e24);border-radius:8px;">
       <div><div class="hint">Вибраним (${noTareSel.size}) проставити:</div>
