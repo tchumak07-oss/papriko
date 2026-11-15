@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.81 · 15.11.2026 22:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.82 · 15.11.2026 22:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1978,6 +1978,11 @@
         <div><label>Період з</label><input type="date" id="skuDateFrom" oninput="skuSetPeriod()"></div>
         <div><label>Період по</label><input type="date" id="skuDateTo" oninput="skuSetPeriod()"></div>
         <div style="display:flex;align-items:flex-end;gap:8px;"><button class="btn btn-sm" type="button" onclick="setReportRange('month'); renderSkuMarginTable();">Цей місяць</button><button class="btn btn-sm" type="button" onclick="setReportRange('all'); renderSkuMarginTable();">Весь час</button></div>
+      </div>
+      <div style="margin:0 0 8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="skuModeR" style="width:auto;" checked onchange="skuModeSet('paid')"> Тільки оплачені</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="skuModeR" style="width:auto;" onchange="skuModeSet('all')"> Усі замовлені (без скасованих)</label>
+        <input type="hidden" id="skuMode" value="paid">
       </div>
       <div class="hint" style="margin:0 0 8px;">Період спільний з іншими звітами на цій сторінці. Натисни на назву колонки, щоб відсортувати. «Частка» — яку частку всієї виручки за період дає цей товар; за замовчуванням список від найбільшої виручки.</div>
       <input type="text" id="skuMarginSearch" placeholder="🔍 Пошук за назвою або SKU…" oninput="renderSkuMarginTable()" style="margin:0 0 10px;">
@@ -13412,6 +13417,7 @@ function skuSetPeriod(){
   if(t) t.value = document.getElementById('skuDateTo').value;
   renderReports();
 }
+function skuModeSet(m){ document.getElementById('skuMode').value = m; renderReports(); }
 function skuSortBy(key){ skuSort = {key, dir: skuSort.key === key ? -skuSort.dir : (key === 'name' ? 1 : -1)}; renderSkuMarginTable(); }
 function skuMarginFiltered(){
   const q = ((document.getElementById('skuMarginSearch') || {}).value || '').trim().toLowerCase();
@@ -14247,7 +14253,18 @@ function renderReports(){
   // ---- маржа по SKU (той самий набір проданих товарів за період, з розрахунком прибутку й маржі) ----
   const skuMarginTableEl = document.getElementById('reportSkuMarginTable');
   if(skuMarginTableEl){
-    const skuMarginRows = kitRows.map(r => {
+    // режим: лише оплачені або всі замовлені (без скасованих)
+    const skuModeEl = document.getElementById('skuMode'); const skuAll = skuModeEl && skuModeEl.value === 'all';
+    let skuBase = kitRows;
+    if(skuAll){
+      const tot = {};
+      orders.filter(o => inReportRange(o.date) && o.status !== 'Скасовано').forEach(o => (o.items || []).forEach(it => {
+        const t = tot[it.kitId] || (tot[it.kitId] = {qty: 0, revenue: 0, cost: 0});
+        t.qty += it.qty || 0; t.revenue += (it.qty || 0) * (it.price || 0); t.cost += (it.qty || 0) * kitUnitCost(it.kitId, new Set());
+      }));
+      skuBase = Object.entries(tot).map(([kid, t]) => ({k: kitById(parseInt(kid, 10)), ...t})).filter(r => r.k);
+    }
+    const skuMarginRows = skuBase.map(r => {
       const profit = r.revenue - r.cost;
       const margin = r.revenue > 0 ? (profit / r.revenue) * 100 : 0;
       return {...r, profit, margin};
