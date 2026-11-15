@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.73 · 14.11.2026 15:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.74 · 15.11.2026 16:50</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -13799,7 +13799,12 @@ function packListHtml(d){
     return `<tr><td>№${o.id}</td><td>${escapeHtml(o.customer || 'Без імені')}${o.phone ? '<br><span class="hint">' + escapeHtml(o.phone) + '</span>' : ''}</td><td>${items}${o.notes ? '<br><em>' + escapeHtml(o.notes) + '</em>' : ''}</td><td>${escapeHtml(place)}</td><td>${escapeHtml(ttn) || '—'}</td></tr>`;
   }).join('');
   const kitsHtml = d.kitRows.map(r => `<tr><td>${escapeHtml(r.k.name)}${r.k.sku ? ' <span class="hint">(' + escapeHtml(r.k.sku) + ')</span>' : ''}${r.noComps && r.toMake > 0 ? ' <span class="pl-bad">⚠ склад не заповнено</span>' : ''}</td><td class="r">${r.qty}</td><td class="r">${r.ready}</td><td class="r"><b>${r.toMake}</b></td></tr>`).join('');
-  const ingHtml = d.ingRows.length ? d.ingRows.map(r => `<tr><td>${escapeHtml(r.item.name)}</td><td class="r">${escapeHtml(packQty(r.need, r.item.unit))}</td><td class="r">${escapeHtml(packQty(r.balance, r.item.unit))}</td><td class="r ${r.short > 0 ? 'pl-bad' : ''}">${r.short > 0 ? 'не вистачає ' + escapeHtml(packQty(r.short, r.item.unit)) : '✓'}</td></tr>`).join('') : `<tr><td colspan="4" class="hint">${d.kitRows.some(r => r.noComps && r.toMake > 0) ? 'Нічого порахувати — у наборах не заповнений склад (див. попередження вище).' : 'Усе вже є в готових товарах — збирати нічого не треба.'}</td></tr>`;
+  // тара й упаковка (банки, ПЕТ, пакети, млинки, коробки) — окремим блоком, спеції й інгредієнти — окремо
+  const isPack = r => r.item.category === 'Упаковка';
+  const packRows = d.ingRows.filter(isPack), spiceRows = d.ingRows.filter(r => !isPack(r));
+  const rowHtml = r => `<tr><td>${escapeHtml(r.item.name)}</td><td class="r"><b>${escapeHtml(packQty(r.need, r.item.unit))}</b></td><td class="r">${escapeHtml(packQty(r.balance, r.item.unit))}</td><td class="r ${r.short > 0 ? 'pl-bad' : ''}">${r.short > 0 ? 'не вистачає ' + escapeHtml(packQty(r.short, r.item.unit)) : '✓'}</td></tr>`;
+  const packHtml = packRows.length ? packRows.map(rowHtml).join('') : `<tr><td colspan="4" class="hint">Тара не потрібна.</td></tr>`;
+  const ingHtml = spiceRows.length ? spiceRows.map(r => `<tr><td>${escapeHtml(r.item.name)}</td><td class="r">${escapeHtml(packQty(r.need, r.item.unit))}</td><td class="r">${escapeHtml(packQty(r.balance, r.item.unit))}</td><td class="r ${r.short > 0 ? 'pl-bad' : ''}">${r.short > 0 ? 'не вистачає ' + escapeHtml(packQty(r.short, r.item.unit)) : '✓'}</td></tr>`).join('') : `<tr><td colspan="4" class="hint">${d.kitRows.some(r => r.noComps && r.toMake > 0) ? 'Нічого порахувати — у наборах не заповнений склад (див. попередження вище).' : 'Усе вже є в готових товарах — збирати нічого не треба.'}</td></tr>`;
   const shortCount = d.ingRows.filter(r => r.short > 0).length;
   const coveredKits = d.kitRows.filter(r => r.toMake <= 0 && r.qty > 0);
   const coveredHtml = (!d.ingRows.length && coveredKits.length)
@@ -13814,8 +13819,10 @@ function packListHtml(d){
     <table class="pl-t"><tr><th>№</th><th>Клієнт</th><th>Що</th><th>Куди</th><th>ТТН</th></tr>${ords}</table>
     <div class="pl-h">Усього товарів</div>
     <table class="pl-t"><tr><th>Товар</th><th class="r">Треба</th><th class="r">Готових на складі</th><th class="r">Зібрати</th></tr>${kitsHtml}</table>
-    <div class="pl-h">Інгредієнти й упаковка${shortCount ? ' <span class="pl-bad">— нестача: ' + shortCount + '</span>' : ''}</div>
+    <div class="pl-h">Тара й упаковка${packRows.some(r => r.short > 0) ? ' <span class="pl-bad">— нестача: ' + packRows.filter(r => r.short > 0).length + '</span>' : ''}</div>
     ${noCompHtml}${coveredHtml}
+    <table class="pl-t"><tr><th>Позиція</th><th class="r">Потрібно</th><th class="r">На складі</th><th class="r">Статус</th></tr>${packHtml}</table>
+    <div class="pl-h">Інгредієнти${spiceRows.some(r => r.short > 0) ? ' <span class="pl-bad">— нестача: ' + spiceRows.filter(r => r.short > 0).length + '</span>' : ''}</div>
     <table class="pl-t"><tr><th>Позиція</th><th class="r">Потрібно</th><th class="r">На складі</th><th class="r">Статус</th></tr>${ingHtml}</table>
     <p class="hint" style="margin-top:8px;">Якщо залишки на складі не ведуться, «на складі» буде 0, а нестача покаже повну потребу.</p>`;
 }
