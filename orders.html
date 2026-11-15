@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.78 · 15.11.2026 18:25</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.80 · 15.11.2026 21:35</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1144,6 +1144,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <button class="btn btn-sm" type="button" onclick="bulkSetOrdersDate()">Змінити дату</button>
       <button class="btn btn-sm" type="button" onclick="bulkSendSms()" title="Надіслати SMS за шаблоном (з ТТН і сумою) клієнтам виділених замовлень">✉ SMS</button>
       <button class="btn btn-sm" type="button" onclick="bulkArchiveOrders()">В архів</button>
+      <button class="btn btn-sm" type="button" onclick="bulkMergeOrders()" title="Створити нове замовлення (без ТТН) з товарами позначених; старі не змінюються">Об'єднати в одне</button>
       <button class="btn btn-sm" type="button" style="color:var(--danger);" onclick="bulkDeleteOrders()">Видалити</button>
       <button class="btn-ghost" type="button" onclick="clearOrderSelection()">Зняти виділення</button>
     </div>
@@ -7854,6 +7855,7 @@ function duplicateOrder(sourceId){
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
+  return copy;
 }
 
 // Оцінює "цінність" замовлення, щоб при видаленні дублікатів лишити найкорисніший запис
@@ -12025,6 +12027,37 @@ function bulkArchiveOrders(){
   renderOrders();
   renderOrdersSummary();
   scheduleSave();
+}
+
+
+// об'єднання позначених замовлень: створюється НОВЕ замовлення (без ТТН), старі лишаються недоторканими
+function bulkMergeOrders(){
+  const sel = orders.filter(o => selectedOrderIds.has(o.id)).sort((a, b) => a.id - b.id);
+  if(sel.length < 2){ alert('Познач галочками щонайменше два замовлення, які треба об\'єднати.'); return; }
+  const src = sel[sel.length - 1]; // клієнт, телефон і доставка — з останнього позначеного замовлення
+  const sums = sel.map(o => `№${o.id} ${o.customer || 'без імені'} — ${fmt(calcOrder(o).total)} грн`).join('\n');
+  if(!confirm(`Створити НОВЕ замовлення з товарами ${sel.length} позначених?\n\n${sums}\n\nКлієнт і доставка — з №${src.id}. ТТН не копіюється. Старі замовлення не змінюються і не видаляються.`)) return;
+  const nw = duplicateOrder(src.id);
+  if(!nw) return;
+  delete nw.siteId; delete nw.siteNumber; delete nw.siteImported; nw.fromSite = false;
+  nw.items = [];
+  const notes = [];
+  sel.forEach(ot => {
+    (ot.items || []).forEach(it => {
+      const same = nw.items.find(x => String(x.kitId) === String(it.kitId) && Number(x.price) === Number(it.price) && !x.customName && !it.customName);
+      if(same) same.qty = (Number(same.qty) || 0) + (Number(it.qty) || 0); else nw.items.push(JSON.parse(JSON.stringify(it)));
+    });
+    if(ot.notes && ot.notes.trim()) notes.push(`[з №${ot.id}] ` + ot.notes.trim());
+  });
+  nw.notes = notes.concat([`➕ Об'єднано з ${sel.map(o => '№' + o.id).join(', ')} (${smsLogDateUa(todayStr())})`]).join('\n');
+  nw.paid = false; nw.sendToTelegram = false;
+  nw.codAmount = ''; nw.cost = '';
+  try{ autoUpdateWeightSilently(nw.id); }catch(e){}
+  try{ autoUpdateCodAmountSilently(nw.id); }catch(e){}
+  selectedOrderIds.clear();
+  renderOrders(); renderOrdersSummary(); scheduleSave();
+  showUndoToast(`Створено нове замовлення №${nw.id} з ${sel.length} замовлень`, false);
+  try{ scrollToOrderCard(nw.id); }catch(e){}
 }
 
 function bulkDeleteOrders(){
