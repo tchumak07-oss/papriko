@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.84 · 15.11.2026 23:05</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.85 · 16.11.2026 00:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2336,6 +2336,7 @@ async function loadArchives(){
     const FP = firebase.firestore.FieldPath;
     const qs = await fbDb.collection('spice-app').where(FP.documentId(), '>=', 'archive-').where(FP.documentId(), '<', 'archive.').get();
     const have = new Set(orders.map(orderKey));
+    const delSet = new Set(appSettings.delOrderKeys || []);
     const loaded = {};
     qs.forEach(d => {
       const m = d.id.replace(/^archive-/, '');
@@ -2344,6 +2345,8 @@ async function loadArchives(){
       arr.forEach(ro => {
         const k = orderKey(ro);
         archiveKeys.add(k);
+        // видалені користувачем замовлення з архіву не піднімаємо назад (їх ключ лишається в archiveKeys — тож наступна синхронізація прибере їх і з архівного документа)
+        if(delSet.has(ro.uid || ('id:' + ro.id))) return;
         if(!have.has(k)){ have.add(k); orders.push(ro); } // якщо є й в основному — перемагає основний
       });
     });
