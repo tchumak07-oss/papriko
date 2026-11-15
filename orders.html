@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.80 · 15.11.2026 21:35</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.81 · 15.11.2026 22:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2012,8 +2012,14 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
   <div id="rb-skumargin" style="display:none;">
     <p class="hint" style="margin:-8px 0 14px;">Те саме, але зведено по кожному товару (SKU) за весь період — скільки продано, яка сумарна виручка, собівартість і маржа саме по цьому товару. Відсортовано від найгіршої маржі до найкращої.</p>
     <div class="catalog-panel"><div style="padding:14px 16px;">
+      <div class="delivery-grid" style="margin-bottom:8px;">
+        <div><label>Період з</label><input type="date" id="skuDateFrom" oninput="skuSetPeriod()"></div>
+        <div><label>Період по</label><input type="date" id="skuDateTo" oninput="skuSetPeriod()"></div>
+        <div style="display:flex;align-items:flex-end;gap:8px;"><button class="btn btn-sm" type="button" onclick="setReportRange('month'); renderSkuMarginTable();">Цей місяць</button><button class="btn btn-sm" type="button" onclick="setReportRange('all'); renderSkuMarginTable();">Весь час</button></div>
+      </div>
+      <div class="hint" style="margin:0 0 8px;">Період спільний з іншими звітами на цій сторінці. Натисни на назву колонки, щоб відсортувати. «Частка» — яку частку всієї виручки за період дає цей товар; за замовчуванням список від найбільшої виручки.</div>
       <input type="text" id="skuMarginSearch" placeholder="🔍 Пошук за назвою або SKU…" oninput="renderSkuMarginTable()" style="margin:0 0 10px;">
-      <div class="wh-row-head" style="grid-template-columns:1fr 90px 90px 100px 100px 90px;"><div>Товар</div><div style="text-align:right;">Продано</div><div style="text-align:right;">Виручка</div><div style="text-align:right;">Собівартість</div><div style="text-align:right;">Прибуток</div><div style="text-align:right;">Маржа</div></div>
+      <div class="wh-row-head" id="skuMarginHead" style="grid-template-columns:1fr 80px 90px 100px 100px 90px 70px;"></div>
       <div id="reportSkuMarginTable"></div>
     </div></div>
   </div>
@@ -13437,23 +13443,45 @@ let lastExpensesReportRows = [];
 let lastUndeliveredReportRows = [];
 let lastReturnedReportRows = [];
 
+var skuSort = {key: 'revenue', dir: -1};
+function skuSetPeriod(){
+  const f = document.getElementById('rep-date-from'), t = document.getElementById('rep-date-to');
+  if(f) f.value = document.getElementById('skuDateFrom').value;
+  if(t) t.value = document.getElementById('skuDateTo').value;
+  renderReports();
+}
+function skuSortBy(key){ skuSort = {key, dir: skuSort.key === key ? -skuSort.dir : (key === 'name' ? 1 : -1)}; renderSkuMarginTable(); }
 function skuMarginFiltered(){
   const q = ((document.getElementById('skuMarginSearch') || {}).value || '').trim().toLowerCase();
-  return !q ? lastSkuMarginRows : lastSkuMarginRows.filter(r => (String(r.k.name || '') + ' ' + String(r.k.sku || '')).toLowerCase().includes(q));
+  const totRev = lastSkuMarginRows.reduce((x, r) => x + (r.revenue || 0), 0);
+  lastSkuMarginRows.forEach(r => { r.share = totRev > 0 ? (r.revenue || 0) / totRev * 100 : 0; });
+  const rows = !q ? lastSkuMarginRows.slice() : lastSkuMarginRows.filter(r => (String(r.k.name || '') + ' ' + String(r.k.sku || '')).toLowerCase().includes(q));
+  const k = skuSort.key, d = skuSort.dir;
+  rows.sort((a, b) => k === 'name' ? d * String(a.k.name || '').localeCompare(String(b.k.name || ''), 'uk') : d * ((Number(a[k]) || 0) - (Number(b[k]) || 0)));
+  return rows;
 }
 function renderSkuMarginTable(){
   const el = document.getElementById('reportSkuMarginTable'); if(!el) return;
+  const sf = document.getElementById('skuDateFrom'), st = document.getElementById('skuDateTo'), rf = document.getElementById('rep-date-from'), rt = document.getElementById('rep-date-to');
+  if(sf && rf) sf.value = rf.value; if(st && rt) st.value = rt.value;
+  const head = document.getElementById('skuMarginHead');
+  if(head){
+    const cols = [['name', 'Товар', 'left'], ['qty', 'Продано', 'right'], ['revenue', 'Виручка', 'right'], ['cost', 'Собівартість', 'right'], ['profit', 'Прибуток', 'right'], ['margin', 'Маржа', 'right'], ['share', 'Частка', 'right']];
+    head.innerHTML = cols.map(c => `<div style="text-align:${c[2]};cursor:pointer;user-select:none;${skuSort.key === c[0] ? 'color:var(--saffron);' : ''}" onclick="skuSortBy('${c[0]}')">${c[1]}${skuSort.key === c[0] ? (skuSort.dir > 0 ? ' ▲' : ' ▼') : ''}</div>`).join('');
+  }
   const rows = skuMarginFiltered();
   if(!lastSkuMarginRows.length){ el.innerHTML = '<div class="comp-empty">Немає продажів за цей період.</div>'; return; }
   if(!rows.length){ el.innerHTML = '<div class="comp-empty">Нічого не знайдено за цим пошуком.</div>'; return; }
+  const maxShare = rows.reduce((m, x) => Math.max(m, x.share), 0) || 1;
   el.innerHTML = rows.map(r => `
-        <div class="wh-row" style="grid-template-columns:1fr 90px 90px 100px 100px 90px;">
-          <div>${escapeAttr(r.k.name)}${r.k.sku ? ' <span class="hint">('+escapeAttr(r.k.sku)+')</span>' : ''}</div>
+        <div class="wh-row" style="grid-template-columns:1fr 80px 90px 100px 100px 90px 70px;">
+          <div>${escapeAttr(r.k.name)}${r.k.sku ? ' <span class="hint">('+escapeAttr(r.k.sku)+')</span>' : ''}<div class="bar-track" style="height:4px;margin-top:3px;"><div class="bar-fill" style="width:${Math.min(100, r.share / maxShare * 100)}%;background:var(--saffron);"></div></div></div>
           <div class="cv" style="text-align:right;">${r.qty}</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.revenue)} грн</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.cost)} грн</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.profit>=0?'var(--cardamom)':'var(--danger)'};">${fmt(r.profit)} грн</div>
           <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;color:${r.margin>=0?'var(--saffron)':'var(--danger)'};">${fmt1(r.margin)}%</div>
+          <div class="cv" style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt1(r.share)}%</div>
         </div>
       `).join('');
 }
@@ -13468,9 +13496,9 @@ function exportSkuMarginReportExcel(){
     sheetName: 'Маржа по SKU',
     headers: [
       {header:'SKU', width:10}, {header:'Назва', width:26}, {header:'Продано, шт', width:12},
-      {header:'Виручка', width:12}, {header:'Собівартість', width:14}, {header:'Прибуток', width:12}, {header:'Маржа, %', width:10}
+      {header:'Виручка', width:12}, {header:'Собівартість', width:14}, {header:'Прибуток', width:12}, {header:'Маржа, %', width:10}, {header:'Частка виручки, %', width:16}
     ],
-    rows: expRows.map(r => [r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin)])
+    rows: expRows.map(r => [r.k.sku||'', r.k.name||'', r.qty, fmt1(r.revenue), fmt1(r.cost), fmt1(r.profit), fmt1(r.margin), fmt1(r.share)])
   });
 }
 
