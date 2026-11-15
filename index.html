@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.74 · 15.11.2026 16:50</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.75 · 15.11.2026 17:15</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -6283,7 +6283,12 @@ async function notifyTelegramShipment(o){
   if(o.notes) lines.push(`💬 Коментар: ${escapeHtml(o.notes)}`);
   // якщо по цьому замовленню в групу вже надсилали сповіщення — видаляємо старе, щоб не було дублів без ТТН
   let replacedOld = null;
-  const prev = o.tgShipMsg;
+  // id попереднього повідомлення беремо і з самого замовлення, і з окремого реєстру (він не залежить від того,
+  // чи об'єкт замовлення встигли підмінити під час синхронізації)
+  const tgKey = String(o.uid || ('id:' + o.id));
+  const tgReg = appSettings.tgMsgs || (appSettings.tgMsgs = {});
+  const curOrd = orderById(o.id) || o;
+  const prev = curOrd.tgShipMsg || o.tgShipMsg || tgReg[tgKey];
   if(appSettings.tgReplacePrev !== false && prev && prev.id && String(prev.chat) === String(tgChatId)){
     const d = await deleteTelegramMessage(prev.chat, prev.id);
     replacedOld = d.ok;
@@ -6295,8 +6300,14 @@ async function notifyTelegramShipment(o){
       {text: '📦 Список не відправлених', callback_data: 'list_unshipped'}
     ]]
   });
-  if(res.ok && res.messageId){ o.tgShipMsg = {id: res.messageId, chat: tgChatId, ts: Date.now()}; scheduleSave(); }
-  else if(!res.ok && replacedOld){ o.tgShipMsg = null; } // старе вже видалено, а нове не надіслалось — не тримаємо застарілий id
+  if(res.ok && res.messageId){
+    const rec = {id: res.messageId, chat: tgChatId, ts: Date.now()};
+    o.tgShipMsg = rec; const cur2 = orderById(o.id); if(cur2) cur2.tgShipMsg = rec; // замовлення могли підмінити, поки йшов запит
+    tgReg[tgKey] = rec;
+    const ks = Object.keys(tgReg); if(ks.length > 400) ks.sort((a, b) => (tgReg[a].ts || 0) - (tgReg[b].ts || 0)).slice(0, ks.length - 400).forEach(k => delete tgReg[k]);
+    scheduleSave();
+  }
+  else if(!res.ok && replacedOld){ o.tgShipMsg = null; delete tgReg[tgKey]; } // старе вже видалено, а нове не надіслалось — не тримаємо застарілий id
   return res;
 }
 
