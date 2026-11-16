@@ -391,7 +391,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.95 · 16.11.2026 16:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.96 · 16.11.2026 16:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2629,7 +2629,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86095; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86096; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -9236,7 +9236,9 @@ function addOrderItem(orderId){
   const qtyInput = document.getElementById(`order-item-qty-${orderId}`);
   const raw = select.value;
   const qty = parseFloat(qtyInput.value) || 0;
-  if(!raw || qty <= 0) return;
+  const hl = el => { el.style.outline = '2px solid var(--danger)'; try{ el.focus(); }catch(e){} setTimeout(() => { el.style.outline = ''; }, 2500); };
+  if(!raw){ hl(select); return; }
+  if(qty <= 0){ hl(qtyInput); return; }
   let kitId;
   if(raw.startsWith('cat:')){
     const catalogId = parseInt(raw.slice(4), 10);
@@ -12220,12 +12222,16 @@ function hasActiveOrderFilter(){
 // «з'їдати» вибраний, але ще не доданий товар і введену кількість у рядку «Оберіть набір/товар…»
 function renderOrders(){
   const keep = {};
+  let focusId = '', selS = null, selE = null;
   try{
     document.querySelectorAll('[id^="order-item-select-"],[id^="order-item-qty-"]').forEach(el => { if(el.value) keep[el.id] = el.value; });
+    const ae = document.activeElement;
+    if(ae && ae.id && ae.closest && ae.closest('#orderList')){ focusId = ae.id; try{ selS = ae.selectionStart; selE = ae.selectionEnd; }catch(e){} }
   }catch(e){}
   _renderOrdersImpl();
   try{
     Object.keys(keep).forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = keep[id]; });
+    if(focusId){ const f = document.getElementById(focusId); if(f && document.activeElement !== f){ f.focus(); try{ if(selS !== null) f.setSelectionRange(selS, selE); }catch(e){} } }
   }catch(e){}
 }
 function _renderOrdersImpl(){
