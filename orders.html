@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.88 · 16.11.2026 13:20</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.89 · 16.11.2026 13:35</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2485,7 +2485,23 @@ function applyRemoteData(data){
   if(!data) return;
   checkVersionFence(data);
   catalog = data.catalog || [];
-  kits = data.kits || [];
+  {
+    // «відкрито/закрито» — суто локальний стан цього екрана; фонова синхронізація не має його перемикати.
+    // Картку, яку зараз редагують (відкрита або щойно створена), лишаємо локальною — не затираємо знімком з бази.
+    const localKits = (typeof kits !== 'undefined' && Array.isArray(kits)) ? kits : [];
+    const lk = {}; localKits.forEach(k => { lk[k.id] = k; });
+    const incoming = data.kits || [];
+    const seen = new Set();
+    kits = incoming.map(rk => {
+      seen.add(rk.id);
+      const l = lk[rk.id];
+      if(!l) return rk;
+      if(l.collapsed === false) return l;           // редагується зараз — зберігаємо локальну версію
+      if(rk.collapsed !== l.collapsed) rk.collapsed = l.collapsed;
+      return rk;
+    });
+    localKits.forEach(l => { if(!seen.has(l.id) && (l.collapsed === false || l.id === newKitPinId)) kits.push(l); }); // ще не збережений новий набір
+  }
   orders = data.orders || [];
   appendArchivedToOrders();
   // старі замовлення, позначені прапорцем повернення ще до появи статусу «Повернено» в списку —
@@ -2650,7 +2666,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86088; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86089; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -4812,7 +4828,7 @@ function kbRowDragStart(e, idx){
   document.addEventListener('pointerup', onUp);
 }
 
-let newKitPinId = null; // щойно створений товар: показуємо нагорі списку, поки його не збережено
+var newKitPinId = null; // щойно створений товар: показуємо нагорі списку, поки його не збережено
 // обгортка: фонова перемальовка (синхронізація, інші дії) не має обнуляти вибраний компонент і кількість
 function renderKits(){
   const keep = {};
