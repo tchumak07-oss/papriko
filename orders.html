@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.91 · 16.11.2026 14:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.93 · 16.11.2026 15:35</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2666,7 +2666,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86091; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86093; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -2832,7 +2832,23 @@ function doConnect(config){
           setSyncBadge('warn', 'Товари й замовлення підключено, але рух товарів/склад — ні (' + err.message + '). Якщо помилка про права доступу — перевірте правила безпеки Firestore: вони мають дозволяти документ "spice-app/aux", а не лише "spice-app/data".');
         });
 
-        fbDocRef.onSnapshot(snap => {
+        // поки людина вводить дані (курсор у полі/списку), оновлення з бази відкладаємо: інакше перемальовка форми
+        // «зриває» вибране відділення НП, введений номер тощо. Застосуємо, щойно вона відійде від поля (макс. ~60 с).
+        let snapDeferredAt = 0, snapDeferTimer = null, snapDeferredSnap = null;
+        const userIsEditing = () => {
+          const el = document.activeElement;
+          return !!(el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && el.type !== 'button' && el.type !== 'checkbox' && el.closest && el.closest('#orderList,#kitList,#catalogList,#clientList,.modal,[id^="section-"]'));
+        };
+        const onMainSnap = snap => {
+          if(snap.exists && !snap.metadata.hasPendingWrites && userIsEditing()){
+            if(!snapDeferredAt) snapDeferredAt = Date.now();
+            if(Date.now() - snapDeferredAt < 60000){
+              snapDeferredSnap = snap;
+              if(!snapDeferTimer) snapDeferTimer = setTimeout(() => { snapDeferTimer = null; const sn = snapDeferredSnap; snapDeferredSnap = null; if(sn) onMainSnap(sn); }, 3000);
+              return;
+            }
+          }
+          snapDeferredAt = 0;
           if(!snap.exists || snap.metadata.hasPendingWrites) return;
           const remoteData = snap.data();
           // "єдина активна вкладка": якщо поле activeSessionId змінилось на чужий (не наш) id відносно
@@ -2880,7 +2896,8 @@ function doConnect(config){
             setSyncBadge('warn', `Відновлено ${rescuedOrders.length} замовлення(нь), яке(і) зникло(ли) через застарілий запис з іншого пристрою/вкладки — збережено виправлену версію.`);
             scheduleSave();
           }
-        }, err => {
+        };
+        fbDocRef.onSnapshot(onMainSnap, err => {
           setSyncBadge('err', 'Помилка синхронізації');
         });
         resolve();
@@ -17601,8 +17618,16 @@ function actTake(){
     cli:(clients||[]).length, cat:(catalog||[]).length, kit:(kits||[]).length, rec:(receipts||[]).length};
   return {m, cnt};
 }
+function actDeviceTag(){
+  try{
+    const ua = navigator.userAgent || '';
+    const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iOS' : /Windows/i.test(ua) ? 'Windows' : /Mac/i.test(ua) ? 'Mac' : 'інше';
+    const page = /orders\.html/i.test(location.pathname) ? 'orders' : /packer/i.test(location.pathname) ? 'packer' : 'app';
+    return os + '/' + page;
+  }catch(e){ return ''; }
+}
 function actAdd(who, ord, name, msg){
-  actLog.push({t:new Date().toISOString(), w:who, o:ord||'', n:name||'', m:msg});
+  actLog.push({t:new Date().toISOString(), w:who, o:ord||'', n:name||'', m:msg, v:APP_VER_NUM, d:actDeviceTag()});
   if(actLog.length > ACT_LOG_MAX) actLog.splice(0, actLog.length - ACT_LOG_MAX);
   actLogDirty = true;
   clearTimeout(actSaveTimer); actSaveTimer = setTimeout(actPersist, 30000);
@@ -17699,7 +17724,7 @@ function renderActLog(){
   const fmtT = iso => { const d = new Date(iso); const z = n => String(n).padStart(2, '0'); return `${z(d.getDate())}.${z(d.getMonth()+1)} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`; };
   box.innerHTML = list.length ? `<div class="hint" style="margin-bottom:6px;">Показано ${list.length} з ${total}</div>` + list.map(e => `<div style="display:grid;grid-template-columns:105px 62px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:13px;">
       <span class="hint" style="font-family:'JetBrains Mono',monospace;">${fmtT(e.t)}</span>
-      <span style="color:${e.w === 'авто' ? 'var(--saffron)' : 'var(--text-muted)'};">${escapeHtml(e.w)}</span>
+      <span style="color:${e.w === 'авто' ? 'var(--saffron)' : 'var(--text-muted)'};">${escapeHtml(e.w)}<br><span class="hint" style="font-size:10px;">${e.v ? 'v0.' + Math.floor(e.v / 1000) + '.' + (e.v % 1000) : 'стара вер.'}${e.d ? '<br>' + escapeHtml(e.d) : ''}</span></span>
       <span>${e.o ? `<a href="#" onclick="goToOrder(${Number(e.o) || 0});return false;" style="color:inherit;">№${escapeHtml(String(e.o))} ${escapeHtml(e.n)}</a> — ` : ''}${escapeHtml(e.m)}</span></div>`).join('')
       + (total > list.length ? `<div style="margin-top:10px;"><button class="btn btn-sm" onclick="actLogLimit+=500;renderActLog()">Показати ще</button></div>` : '')
     : '<div class="comp-empty">Записів немає.</div>';
