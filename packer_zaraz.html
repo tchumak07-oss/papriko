@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Папріко · Наборщик</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-app-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root{
+    --bg:#1a1410; --card:#251d16; --line:#3a2e24; --text:#f1e7da; --muted:#a8998a;
+    --teal:#2dd4bf; --teal-text:#06302b; --saffron:#e8a93a; --chili:#e0604a; --green:#6fae6a; --danger:#e0604a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.35;}
+  header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  header h1{font-size:18px;margin:0;flex:1;}
+  .sync{font-size:12px;color:var(--muted);}
+  .sync.ok{color:var(--green);} .sync.err{color:var(--danger);}
+  .tabs{display:flex;gap:8px;padding:10px 16px 0;}
+  .tab{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;font-size:15px;cursor:pointer;}
+  .tab.on{background:var(--saffron);color:#2a1d05;border-color:var(--saffron);font-weight:700;}
+  main{padding:12px 16px 40px;max-width:900px;margin:0 auto;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0;}
+  .chip{padding:7px 12px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;font-size:14px;cursor:pointer;}
+  .chip.on{background:var(--teal);color:var(--teal-text);border-color:var(--teal);font-weight:700;}
+  input[type=text],input[type=email],input[type=password],input[type=date]{background:var(--card);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:8px;font-size:15px;max-width:100%;}
+  input[type=text]{flex:1;min-width:150px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;}
+  .card.packed{border-color:var(--teal);background:linear-gradient(90deg,rgba(45,212,191,.14),rgba(45,212,191,.03) 45%);box-shadow:inset 4px 0 0 var(--teal);}
+  .name{font-size:18px;font-weight:700;}
+  .muted{color:var(--muted);font-size:14px;}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:800;margin-right:6px;}
+  .b-np{background:var(--saffron);color:#2a1d05;} .b-up{background:var(--chili);color:#fff;} .b-sv{background:var(--green);color:#10260f;}
+  .items{margin:8px 0 4px;padding:0;list-style:none;}
+  .items li{padding:5px 0;border-top:1px dashed var(--line);font-size:16px;}
+  .items li:first-child{border-top:0;}
+  .qty{font-weight:800;color:var(--saffron);margin-left:6px;}
+  .sub{font-size:13px;color:var(--muted);margin-left:14px;}
+  .btn{padding:12px 16px;border:0;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;background:var(--saffron);color:#2a1d05;}
+  .btn.pack{width:100%;margin-top:8px;background:var(--teal);color:var(--teal-text);}
+  .btn.unpack{width:100%;margin-top:8px;background:transparent;color:var(--teal);border:1px solid var(--teal);}
+  .btn.sm{padding:8px 12px;font-size:14px;}
+  .btn.ghost{background:var(--card);color:var(--text);border:1px solid var(--line);}
+  .btn:disabled{opacity:.5;}
+  .empty{padding:30px 10px;text-align:center;color:var(--muted);}
+  a{color:var(--saffron);}
+  .rep-row{display:grid;grid-template-columns:28px 1.2fr 1fr 1fr 1.6fr;gap:8px;padding:8px 4px;border-top:1px solid var(--line);font-size:14px;}
+  .rep-row.h{color:var(--muted);font-size:12px;border-top:0;}
+  @media(max-width:620px){ .rep-row{grid-template-columns:24px 1fr 1fr;} .rep-row .hide-m{display:none;} }
+  h2{font-size:17px;margin:18px 0 4px;}
+  #login{max-width:360px;margin:60px auto;padding:0 16px;}
+  #login input{display:block;width:100%;margin:8px 0;}
+  .num{display:inline-block;min-width:34px;text-align:center;background:var(--line);color:var(--saffron);border-radius:6px;padding:0 6px;margin-right:6px;font-size:15px;}
+  .note{margin:8px 0 2px;padding:8px 10px;border-radius:8px;background:rgba(232,169,58,.18);border:1px solid var(--saffron);color:#ffe3a8;font-weight:600;font-size:15px;white-space:pre-wrap;word-break:break-word;}
+  .btn.ship{background:#3b82f6;color:#fff;}
+  .newtag{display:inline-block;background:var(--chili);color:#fff;font-size:12px;font-weight:800;padding:2px 8px;border-radius:6px;margin-left:8px;}
+  .card.isnew{border-color:var(--chili);}
+  #newBanner{border-color:var(--chili);background:rgba(224,96,74,.15);font-weight:700;cursor:pointer;}
+  .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;}
+</style>
+</head>
+<body>
+<div id="login" style="display:none;">
+  <h1>Папріко · Наборщик</h1>
+  <p class="muted">Відкрийте особисте посилання, яке вам дали, або введіть пошту й пароль.</p>
+  <input type="email" id="lgEmail" placeholder="Пошта" autocomplete="username">
+  <input type="password" id="lgPass" placeholder="Пароль" autocomplete="current-password">
+  <button class="btn" onclick="manualLogin()">Увійти</button>
+  <div id="lgErr" class="muted" style="color:var(--danger);margin-top:8px;"></div>
+</div>
+
+<div id="app" style="display:none;">
+  <header>
+    <h1>📦 Наборщик</h1>
+    <button class="chip" id="soundBtn" onclick="toggleSound()">🔕 Звук вимкнено</button>
+    <button class="chip" id="refreshBtn" onclick="refreshStatuses(true)">🔄 Оновити</button>
+    <span class="sync" id="syncLbl">Підключення…</span>
+  </header>
+  <div class="tabs">
+    <button class="tab on" id="tabOrders" onclick="setTab('orders')">Замовлення</button>
+    <button class="tab" id="tabArchive" onclick="setTab('archive')">Архів</button>
+    <button class="tab" id="tabReports" onclick="setTab('reports')">Звіти</button>
+  </div>
+  <main>
+    <section id="viewOrders">
+      <div class="row">
+        <button class="chip on" data-f="all" onclick="setFilter('all')">Усі</button>
+        <button class="chip" data-f="todo" onclick="setFilter('todo')">Не зібрані</button>
+        <button class="chip" data-f="done" onclick="setFilter('done')">Зібрані</button>
+        <button class="chip" data-f="printed" id="chipPrinted" onclick="setFilter('printed')">🖨 Роздруковані</button>
+        <select id="sortSel" onchange="try{localStorage.setItem('packerSort',this.value)}catch(e){};renderOrders()">
+          <option value="num">Сортування: за номером</option>
+          <option value="carrier">За доставкою (УП, НП, самовивіз)</option>
+          <option value="carrierNp">За доставкою (НП, УП, самовивіз)</option>
+          <option value="todo">Спершу не зібрані</option>
+          <option value="name">За імʼям клієнта</option>
+          <option value="city">За містом</option>
+        </select>
+        <input type="text" id="q" placeholder="Пошук: імʼя, телефон, ТТН" oninput="renderOrders()">
+      </div>
+      <div class="row">
+        <span class="muted">🖨 Наклейка:</span>
+        <select id="stSize" onchange="try{localStorage.setItem('packerStSize',this.value)}catch(e){}">
+          <option value="100">100×100 (термо)</option><option value="85">85×85</option><option value="A4">A4</option>
+        </select>
+        <button class="btn sm ghost" onclick="printAll('np')" id="btnAllNp">НП — усі показані</button>
+        <button class="btn sm ghost" onclick="printAllUp()" id="btnAllUp">УП — усі показані</button>
+      </div>
+      <div id="newBanner" style="display:none;" class="card" onclick="markSeen()"></div>
+      <div class="muted" id="refreshInfo" style="margin-top:4px;"></div>
+      <div class="muted" id="counts"></div>
+      <div id="list"></div>
+    </section>
+
+    <section id="viewArchive" style="display:none;">
+      <div class="muted">Сюди потрапляють замовлення, які перевізник (НП/УП) уже підтвердив як відправлені. Позначка «Відправлено» від наборщика в архів не переносить, поки немає підтвердження.</div>
+      <div class="row">
+        <button class="chip on" data-a="7" onclick="setArch('7')">7 днів</button>
+        <button class="chip" data-a="30" onclick="setArch('30')">30 днів</button>
+        <button class="chip" data-a="all" onclick="setArch('all')">Усі</button>
+        <input type="text" id="qa" placeholder="Пошук: імʼя, телефон, ТТН" oninput="renderArchive()">
+      </div>
+      <div class="muted" id="archCounts"></div>
+      <div id="archList"></div>
+    </section>
+
+    <section id="viewReports" style="display:none;">
+      <div class="row">
+        <input type="date" id="rFrom" onchange="renderReports()"> — <input type="date" id="rTo" onchange="renderReports()">
+        <button class="chip" onclick="repPeriod('today')">Сьогодні</button>
+        <button class="chip" onclick="repPeriod('week')">7 днів</button>
+      </div>
+      <h2 id="repPackedTitle">Зібрано</h2>
+      <div class="row"><button class="btn sm ghost" onclick="copyReport('packed')">Скопіювати</button><button class="btn sm ghost" onclick="excelReport('packed')">Excel</button></div>
+      <div id="repPacked"></div>
+      <h2 id="repShippedTitle">Відправлено</h2>
+      <div class="row"><button class="btn sm ghost" onclick="copyReport('shipped')">Скопіювати</button><button class="btn sm ghost" onclick="excelReport('shipped')">Excel</button></div>
+      <div id="repShipped"></div>
+      <p class="muted">«Відправлено» — замовлення, позначені як відправлені, за датою замовлення. «Зібрано» — за датою, коли натиснули «Набрано».</p>
+    </section>
+  </main>
+</div>
+
+<script>
+const FB_CONFIG = {
+  apiKey: "AIzaSyCa1vo8VkzNBuIGNrJ7h4NXqT4VAKhWPDc",
+  authDomain: "papriko.firebaseapp.com",
+  projectId: "papriko",
+  storageBucket: "papriko.firebasestorage.app",
+  messagingSenderId: "17346760392",
+  appId: "1:17346760392:web:b8260e6b55de4881bcdffd"
+};
+let db, auth, docRef;
+let orders = [], kits = [], catalog = [], clientsDb = [], cpDb = [];
+let cfg = {npApiKey:'', ukrProxyUrl:'', ukrToken:'', ukrBearer:'', ukrTrackingBearer:''};
+let filter = 'all', tab = 'orders';
+let busyUid = null;
+let lastReport = {packed: [], shipped: []};
+let seen = null;           // Set uid-ів, які наборщик уже бачив
+let soundOn = false, actx = null, firstSnap = true;
+const baseTitle = document.title;
+function loadSeen(){
+  try{ const s = localStorage.getItem('packerSeen'); if(s) return new Set(JSON.parse(s)); }catch(e){}
+  return null;
+}
+function saveSeen(){ try{ localStorage.setItem('packerSeen', JSON.stringify([...seen])); }catch(e){} }
+function uidOf(o){ return o.uid || ('id' + o.id); }
+function newOrders(){ return seen ? orders.filter(o => isActiveUnshipped(o) && !seen.has(uidOf(o))) : []; }
+function markSeen(){
+  orders.filter(isActiveUnshipped).forEach(o => seen.add(uidOf(o)));
+  saveSeen(); renderOrders(); updateAlert(false);
+}
+function beep(){
+  if(!soundOn) return;
+  try{
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25].forEach((dt, i) => {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sine'; o.frequency.value = i ? 1100 : 800;
+      g.gain.setValueAtTime(0.0001, actx.currentTime + dt);
+      g.gain.exponentialRampToValueAtTime(0.4, actx.currentTime + dt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dt + 0.22);
+      o.connect(g); g.connect(actx.destination); o.start(actx.currentTime + dt); o.stop(actx.currentTime + dt + 0.25);
+    });
+  }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200]); }catch(e){}
+}
+function toggleSound(){
+  soundOn = !soundOn;
+  try{ localStorage.setItem('packerSound', soundOn ? '1' : '0'); }catch(e){}
+  if(soundOn){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === 'suspended') actx.resume(); }catch(e){} beep(); }
+  updateSoundBtn();
+}
+function updateSoundBtn(){ const b = $('soundBtn'); b.textContent = soundOn ? '🔔 Звук увімкнено' : '🔕 Звук вимкнено'; b.classList.toggle('on', soundOn); }
+function updateAlert(playSound){
+  const n = newOrders().length;
+  const bn = $('newBanner');
+  if(n){ bn.style.display = ''; bn.textContent = `🆕 Нових замовлень: ${n} — натисніть, щоб позначити переглянутими`; }
+  else bn.style.display = 'none';
+  document.title = n ? `(${n}) Нові · Наборщик` : baseTitle;
+  if(n && playSound) beep();
+}
+document.addEventListener('click', () => { if(soundOn && actx && actx.state === 'suspended') actx.resume(); });
+try{ soundOn = localStorage.getItem('packerSound') === '1'; }catch(e){}
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const z2 = n => String(n).padStart(2, '0');
+function todayStr(){ const d = new Date(); return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`; }
+function toast(t){ const e = document.createElement('div'); e.className = 'toast'; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 2200); }
+function showErr(t){
+  const old = document.getElementById('errBox'); if(old) old.remove();
+  const e = document.createElement('div'); e.id = 'errBox';
+  e.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;background:#5a1d14;color:#fff;border:1px solid #e0604a;border-radius:10px;padding:12px 14px;z-index:30;font-size:14px;word-break:break-word;';
+  e.innerHTML = esc(t) + '<div style="margin-top:8px;"><button class="btn sm ghost" onclick="this.parentNode.parentNode.remove()">Закрити</button></div>';
+  document.body.appendChild(e);
+}
+function setSync(cls, t){ const e = $('syncLbl'); e.className = 'sync ' + cls; e.textContent = t; }
+
+/* ---------- вхід ---------- */
+function readLinkCreds(){
+  try{
+    const m = location.hash.match(/[#&]k=([^&]+)/);
+    if(m){
+      const j = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))));
+      if(j && j.e && j.p){
+        try{ localStorage.setItem('packerCred', JSON.stringify(j)); }catch(e){}
+        history.replaceState(null, '', location.pathname + location.search); // прибираємо секрет із адресного рядка
+        return j;
+      }
+    }
+  }catch(e){}
+  try{ const s = localStorage.getItem('packerCred'); if(s) return JSON.parse(s); }catch(e){}
+  return null;
+}
+function manualLogin(){
+  const e = $('lgEmail').value.trim(), p = $('lgPass').value;
+  if(!e || !p){ $('lgErr').textContent = 'Введіть пошту й пароль.'; return; }
+  signIn({e, p}, true);
+}
+function signIn(cred, remember){
+  $('lgErr').textContent = '';
+  auth.signInWithEmailAndPassword(cred.e, cred.p).then(() => {
+    if(remember){ try{ localStorage.setItem('packerCred', JSON.stringify(cred)); }catch(e){} }
+  }).catch(err => {
+    try{ localStorage.removeItem('packerCred'); }catch(e){}
+    $('login').style.display = 'block'; $('app').style.display = 'none';
+    const c = err && err.code;
+    $('lgErr').textContent = (c === 'auth/network-request-failed') ? 'Немає інтернету.' : 'Не вдалось увійти. Перевірте посилання або пароль.';
+  });
+}
+
+function start(){
+  firebase.initializeApp(FB_CONFIG);
+  auth = firebase.auth();
+  db = firebase.firestore();
+  // на мобільних мережах/в деяких Wi-Fi прямий канал блокується й сторінка «висить» на підключенні — дозволяємо автоматичний перехід на long polling
+  try{ db.settings({experimentalAutoDetectLongPolling: true, merge: true}); }catch(e){}
+  docRef = db.collection('spice-app').doc('data');
+  auth.onAuthStateChanged(user => {
+    if(user){
+      $('login').style.display = 'none'; $('app').style.display = 'block';
+      subscribe();
+    } else {
+      const c = readLinkCreds();
+      if(c) signIn(c, false);
+      else { $('login').style.display = 'block'; $('app').style.display = 'none'; }
+    }
+  });
+}
+
+let unsub = null, connTimer = null, gotSnap = false;
+function subscribe(){
+  if(unsub) return;
+  setSync('', 'Підключення…');
+  clearTimeout(connTimer);
+  connTimer = setTimeout(() => { if(!gotSnap) setSync('err', 'Немає звʼязку з базою. Перевірте інтернет (Wi‑Fi / мобільні дані) й потягніть сторінку вниз, щоб оновити'); }, 12000);
+  unsub = docRef.onSnapshot(snap => {
+    gotSnap = true; clearTimeout(connTimer);
+    if(!snap.exists){ setSync('err', 'Дані не знайдено'); return; }
+    const d = snap.data();
+    // видалені в головній програмі замовлення (їх «воскрешає» стара копія програми) в наборщику не показуємо
+    const delK = new Set(((d.appSettings || {}).delOrderKeys) || []);
+    orders = (Array.isArray(d.orders) ? d.orders : []).filter(o => !delK.has(o.uid || ('id:' + o.id)));
+    kits = Array.isArray(d.kits) ? d.kits : [];
+    catalog = Array.isArray(d.catalog) ? d.catalog : [];
+    clientsDb = Array.isArray(d.clients) ? d.clients : []; cpDb = Array.isArray(d.counterparties) ? d.counterparties : [];
+    cfg = {npApiKey: d.npApiKey || '', ukrProxyUrl: d.ukrProxyUrl || '', ukrToken: d.ukrToken || '', ukrBearer: d.ukrBearer || '', ukrTrackingBearer: d.ukrTrackingBearer || ''};
+    setSync('ok', '● На звʼязку · останні зміни ' + new Date().toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'}));
+    if(!seen) seen = loadSeen();
+    const before = seen ? newOrders().length : 0;
+    if(!seen){ seen = new Set(orders.filter(isActiveUnshipped).map(uidOf)); saveSeen(); } // перший запуск: наявні не вважаємо новими
+    render();
+    updateAlert(!firstSnap && newOrders().length > before);
+    if(firstSnap && newOrders().length) updateAlert(true);
+    firstSnap = false;
+    if(!lastRefreshAt && !refreshBusy) setTimeout(() => { if(!lastRefreshAt) refreshStatuses(false); }, 2500);
+  }, err => {
+    setSync('err', 'Немає доступу: ' + (err && err.code ? err.code : err.message));
+  });
+}
+
+/* ---------- допоміжне ---------- */
+function isArchived(o){ return !o.keepActive && (!!o.manualArchive || (!!o.paid && !!o.delivered)); }
+// pk* — власні поля кабінету наборщика: сюди пишемо статус перевізника, отриманий кнопкою «Оновити».
+// Свідомо НЕ чіпаємо npStatusText/shipped/delivered основної програми, щоб не зламати її SMS і сповіщення про зміну статусу.
+function carrierSeen(o){ return !!(o.pkShipped || o.pkDelivered); }
+function isReturnedAny(o){ return !!(o.npReturned || o.status === 'Повернено' || o.pkReturned); }
+function isActiveUnshipped(o){ return !o.shipped && !o.packerSent && !o.delivered && !carrierSeen(o) && !isArchived(o) && !isReturnedAny(o); }
+// наборщик натиснув «Відправлено», але НП/УП ще не підтвердили реальним статусом — лишається у списку «Замовлення»
+// назва юрособи / клієнта з бази — поруч з іменем у замовленні
+function baseNameTag(o){
+  const cp = o.counterpartyId ? cpDb.find(c => String(c.id) === String(o.counterpartyId)) : null;
+  const cl = o.clientId ? clientsDb.find(c => String(c.id) === String(o.clientId)) : null;
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  const tag = (ico, nm) => ` <span style="font-size:13px;font-weight:600;color:var(--saffron);">${ico} ${esc(nm)}</span>`;
+  let out = '';
+  if(cp && cp.name && !same(cp.name, o.customer)) out += tag('🏢', cp.name);
+  if(cl && cl.name && !same(cl.name, o.customer) && !(cp && same(cl.name, cp.name))) out += tag('👤', cl.name);
+  return out;
+}
+function isPending(o){ return !!o.packerSent && !o.shipped && !o.shipConfirmed && !carrierSeen(o) && !o.delivered; }
+/* Перевізника визначаємо і за номером ТТН: у Нової Пошти 14 цифр, в Укрпошти 13. Буває, що в замовленні
+   вказано «Нова Пошта», а номер вписано від Укрпошти (або навпаки) — тоді довіряємо номеру. */
+function digitsOf(v){ return String(v || '').replace(/\D/g, ''); }
+function upTtnOf(o){
+  if(o.ukrTtnNumber) return String(o.ukrTtnNumber);
+  const d = digitsOf(o.ttnNumber);
+  return (o.deliveryMethod !== 'Самовивіз' && d.length === 13) ? d : '';
+}
+function npTtnOf(o){
+  const d = digitsOf(o.ttnNumber);
+  return (o.ttnNumber && d.length !== 13) ? String(o.ttnNumber) : '';
+}
+function carrierOf(o){
+  if(o.deliveryMethod === 'Самовивіз') return 'sv';
+  if(upTtnOf(o) || (o.deliveryMethod === 'Укрпошта' && o.ukrShipmentUuid)) return 'up';
+  if(o.deliveryMethod === 'Нова Пошта') return 'np';
+  if(o.deliveryMethod === 'Укрпошта') return 'up';
+  return '';
+}
+function carrierBadge(o){
+  const c = carrierOf(o);
+  if(c === 'np') return '<span class="badge b-np">НП</span>';
+  if(c === 'up') return '<span class="badge b-up">УП</span>';
+  if(c === 'sv') return '<span class="badge b-sv">Самовивіз</span>';
+  return '';
+}
+function destination(o){
+  if(o.deliveryMethod === 'Самовивіз') return 'Самовивіз';
+  if(o.deliveryMethod === 'Укрпошта'){
+    return [o.ukrIndex, o.ukrCity, o.ukrOfficeDesc || [o.ukrStreet, o.ukrHouse && ('буд. ' + o.ukrHouse), o.ukrApartment && ('кв. ' + o.ukrApartment)].filter(Boolean).join(' ') || o.address].filter(Boolean).join(', ');
+  }
+  if(o.npDeliveryType === 'address' || (!o.warehouseDesc && o.npStreet)){
+    return [o.city, o.npStreet, o.npHouse && ('буд. ' + o.npHouse), o.npFlat && ('кв. ' + o.npFlat)].filter(Boolean).join(', ');
+  }
+  return [o.city, o.warehouseDesc].filter(Boolean).join(', ');
+}
+function ttnOf(o){ return o.ttnNumber || o.ukrTtnNumber || ''; }
+function kitById(id){ return kits.find(k => k.id === id); }
+function catName(id){ const c = catalog.find(x => x.id === id); return c ? c.name : null; }
+function itemLines(o){
+  return (o.items || []).map(it => {
+    const k = kitById(it.kitId);
+    const comps = [];
+    if(k && Array.isArray(k.components)){
+      k.components.forEach(c => {
+        if(c.refType === 'catalog' || c.catalogId != null){
+          const n = catName(c.catalogId);
+          if(n) comps.push(n + (c.amount ? ' — ' + c.amount : ''));
+        }
+      });
+    }
+    return {name: k ? k.name : '(товар видалено)', qty: it.qty, comps};
+  });
+}
+function itemsText(o){ return itemLines(o).map(l => `${l.name} ×${l.qty}`).join('; '); }
+
+function packedDate(o){ // → 'YYYY-MM-DD' або ''
+  if(o.packedTs) return String(o.packedTs).slice(0, 10);
+  const m = String(o.packedAt || '').match(/^(\d{1,2})\.(\d{1,2})/);
+  if(m){
+    const y = (String(o.date || '').match(/^(\d{4})/) || [])[1] || String(new Date().getFullYear());
+    return `${y}-${z2(m[2])}-${z2(m[1])}`;
+  }
+  return '';
+}
+function ukDate(s){ const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ''); }
+
+/* ---------- друк наклейок ---------- */
+function stickerKind(o){
+  if(upTtnOf(o) || (o.deliveryMethod === 'Укрпошта' && o.ukrShipmentUuid)) return 'up';
+  if(o.deliveryMethod === 'Нова Пошта' && npTtnOf(o)) return 'np';
+  return '';
+}
+function stickerBtn(o){
+  const k = stickerKind(o);
+  if(!k) return (o.deliveryMethod === 'Самовивіз') ? '' : '<div class="muted" style="margin-top:6px;">Наклейка буде доступна після створення ТТН.</div>';
+  const uid = esc(uidOf(o));
+  const st = o.labelPrinted
+    ? `<span style="color:var(--teal);font-size:14px;font-weight:700;margin-left:8px;">✓ Роздруковано${o.labelPrintedAt ? ' ' + esc(o.labelPrintedAt) : ''}</span> <button class="btn sm ghost" style="margin-left:4px;" onclick="setPrinted(['${uid}'], false)">скасувати</button>`
+    : `<button class="btn sm ghost" style="margin-left:6px;" onclick="setPrinted(['${uid}'], true)" title="Позначити, що наклейку вже роздруковано">позначити роздрукованою</button>`;
+  return `<div style="margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;"><button class="btn sm ghost" onclick="printSticker('${uid}')">🖨 Наклейка ${k === 'np' ? 'НП' : 'УП'}</button>${st}</div>`;
+}
+function stSize(){ return ($('stSize') && $('stSize').value) || '100'; }
+function npStickerUrl(ttns){
+  const kind = stSize() === 'A4' ? 'printDocument' : (stSize() === '85' ? 'printMarking85x85' : 'printMarking100x100');
+  const typ = stSize() === 'A4' ? 'pdf' : (stSize() === '85' ? 'pdf8' : 'pdf');
+  return `https://my.novaposhta.ua/orders/${kind}/` + ttns.map(t => 'orders[]/' + encodeURIComponent(t)).join('/') + `/type/${typ}/apiKey/${encodeURIComponent(cfg.npApiKey)}`;
+}
+async function ukrStickerOnce(o, size){
+  const res = await fetch(cfg.ukrProxyUrl, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({app: 'ecom', method: 'GET', path: `/shipments/${o.ukrShipmentUuid}/sticker?size=${size}`, token: cfg.ukrToken, bearer: cfg.ukrBearer})});
+  const buf = await res.arrayBuffer();
+  return {res, buf};
+}
+/* ТТН привʼязана вручну (без створення в програмі) — ідентифікатора відправлення немає.
+   Шукаємо його в Укрпошті за номером ТТН і зберігаємо в замовленні. */
+async function ukrResolveUuid(o){
+  const ttn = digitsOf(upTtnOf(o));
+  if(!ttn) throw new Error('У замовленні немає номера ТТН Укрпошти');
+  let lastErr = '';
+  for(const path of [`/shipments/barcode/${ttn}`, `/shipments/${ttn}`]){
+    try{
+      const res = await fetch(cfg.ukrProxyUrl, {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({app: 'ecom', method: 'GET', path, token: cfg.ukrToken, bearer: cfg.ukrBearer})});
+      const txt = await res.text();
+      let j = null; try{ j = JSON.parse(txt); }catch(e){}
+      if(j && j.raw && !j.uuid){ try{ j = JSON.parse(j.raw); }catch(e){} }
+      if(res.ok && j && j.uuid) return String(j.uuid);
+      lastErr = `${res.status} ${txt.slice(0, 100)}`;
+    }catch(e){ lastErr = e.message || String(e); }
+  }
+  throw new Error(`Укрпошта не знайшла відправлення ${ttn} у вашому кабінеті (${lastErr}). Можливо, ТТН створена в іншому акаунті або ще не зареєстрована.`);
+}
+async function ukrEnsureUuid(o){
+  if(o.ukrShipmentUuid) return;
+  const uuid = await ukrResolveUuid(o);
+  o.ukrShipmentUuid = uuid;
+  const uid = uidOf(o);
+  try{
+    await db.runTransaction(t => t.get(docRef).then(snap => {
+      if(!snap.exists) return;
+      const arr = (snap.data().orders || []).slice();
+      const i = arr.findIndex(x => (x.uid || ('id' + x.id)) === uid);
+      if(i < 0) return;
+      arr[i] = Object.assign({}, arr[i], {ukrShipmentUuid: uuid});
+      t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+    }));
+  }catch(e){ console.warn('save uuid', e); }
+}
+async function ukrStickerBlobRaw(o){
+  if(!cfg.ukrProxyUrl) throw new Error('У програмі не вказано проксі Укрпошти');
+  await ukrEnsureUuid(o);
+  // Укрпошта приймає лише свої значення FormSize — пробуємо кілька, запамʼятовуємо те, що спрацювало
+  let cands = stSize() === 'A4' ? ['SIZE_A4'] : ['SIZE_100_100', 'SIZE_100x100', 'SIZE_A5', 'SIZE_A4'];
+  try{ const g = localStorage.getItem('packerUkrSize_' + stSize()); if(g) cands = [g].concat(cands.filter(c => c !== g)); }catch(e){}
+  let last = '';
+  for(const size of cands){
+    const {res, buf} = await ukrStickerOnce(o, size);
+    const txt = new TextDecoder().decode(buf);
+    if(!res.ok && /FormSize|size/i.test(txt)){ last = `${size}: ${txt.slice(0, 120)}`; continue; }
+    const u8 = new Uint8Array(buf);
+    const head = txt.slice(0, 5);
+    let bad = 0; for(let i = 0; i + 2 < u8.length; i++){ if(u8[i] === 0xEF && u8[i+1] === 0xBF && u8[i+2] === 0xBD) bad++; }
+    let blob = null;
+    if(res.ok && head.startsWith('%PDF')){
+      if(bad > 20) throw new Error(`проксі пошкодив PDF (${u8.length} байт, ${bad} зіпсованих символів) — він віддає двійкові дані як текст`);
+      if(u8.length < 1500) throw new Error(`PDF підозріло малий (${u8.length} байт): ` + txt.slice(0, 120));
+      blob = new Blob([buf], {type: 'application/pdf'});
+    } else if(res.ok){
+      const m = txt.match(/JVBER[A-Za-z0-9+\/=]+/);
+      if(m){ const bin = atob(m[0]), arr = new Uint8Array(bin.length); for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); blob = new Blob([arr], {type: 'application/pdf'}); }
+    }
+    if(!blob) throw new Error(res.ok ? 'Проксі повернув не PDF: ' + txt.slice(0, 160) : `Укрпошта: ${res.status} ${txt.slice(0, 160)}`);
+    try{ localStorage.setItem('packerUkrSize_' + stSize(), size); }catch(e){}
+    if(size === 'SIZE_A5' || (size === 'SIZE_A4' && stSize() !== 'A4')) toast('Формат 100×100 Укрпошта не прийняла — наклейка у ' + size.replace('SIZE_', ''));
+    return blob;
+  }
+  throw new Error('Укрпошта не прийняла жодного розміру наклейки. Остання відповідь: ' + last);
+}
+/* Укрпошта не віддає формат 100×100 — приходить сторінка A5/A4, де наклейка стоїть у кутку.
+   Знаходимо видиму частину (рамку наклейки) і вкладаємо її на сторінку рівно 100×100 мм. */
+let pdfJsLoading = null;
+function loadPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(pdfJsLoading) return pdfJsLoading;
+  pdfJsLoading = new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload = () => { try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; resolve(window.pdfjsLib); }catch(e){ reject(e); } };
+    sc.onerror = () => { pdfJsLoading = null; reject(new Error('не завантажилась бібліотека pdf.js')); };
+    document.head.appendChild(sc);
+  });
+  return pdfJsLoading;
+}
+async function fitPdfTo100(blob){
+  if(!window.PDFLib) throw new Error('немає pdf-lib');
+  const pdfjs = await loadPdfJs();
+  const bytes = await blob.arrayBuffer();
+  const doc = await pdfjs.getDocument({data: bytes.slice(0)}).promise;
+  const page = await doc.getPage(1);
+  const sc = 1.5, vp = page.getViewport({scale: sc});
+  const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+  const ctx = cv.getContext('2d', {willReadFrequently: true}); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  await page.render({canvasContext: ctx, viewport: vp}).promise;
+  const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+  let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
+  for(let y = 0; y < cv.height; y++){
+    for(let x = 0; x < cv.width; x++){
+      const i = (y * cv.width + x) * 4;
+      if(d[i] < 235 || d[i+1] < 235 || d[i+2] < 235){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; }
+    }
+  }
+  if(x1 < 0) throw new Error('порожня сторінка');
+  const pad = 3 * sc / 0.3528; // ≈3 мм запасу
+  x0 = Math.max(0, x0 - pad / 2); y0 = Math.max(0, y0 - pad / 2); x1 = Math.min(cv.width, x1 + pad / 2); y1 = Math.min(cv.height, y1 + pad / 2);
+  const src = await PDFLib.PDFDocument.load(bytes);
+  const sp = src.getPage(0), H = sp.getHeight();
+  const bb = {left: x0 / sc, right: x1 / sc, bottom: H - y1 / sc, top: H - y0 / sc};
+  const out = await PDFLib.PDFDocument.create();
+  const emb = await out.embedPage(sp, bb);
+  const S = 283.465, w = bb.right - bb.left, h = bb.top - bb.bottom;
+  const k = Math.min((S - 2 * 5.67) / w, (S - 2 * 5.67) / h); // поля 2 мм
+  const pg = out.addPage([S, S]);
+  pg.drawPage(emb, {x: (S - w * k) / 2, y: (S - h * k) / 2, width: w * k, height: h * k});
+  return new Blob([await out.save()], {type: 'application/pdf'});
+}
+async function ukrStickerBlob(o){
+  const raw = await ukrStickerBlobRaw(o);
+  if(stSize() === 'A4') return raw;
+  try{ return await fitPdfTo100(raw); }
+  catch(e){ console.warn('fitPdfTo100', e); toast('Не вдалося вкласти наклейку УП у 100×100 (' + (e.message || e) + ') — віддаю як є'); return raw; }
+}
+async function ukrStickerBlobUrl(o){ return URL.createObjectURL(await ukrStickerBlob(o)); }
+function codBlocked(o){ return !o.labelPrinted && !!o.paid && Number(o.codAmount) > 0; }
+async function printSticker(uid){
+  const o = orders.find(x => uidOf(x) === uid); if(!o) return;
+  const k = stickerKind(o); if(!k) return;
+  if(codBlocked(o)){
+    showErr('Замовлення оплачене, але в ТТН ще є контроль оплати (' + o.codAmount + ' грн). Після друку НП його вже не змінити. Поки не друкуй наклейку і скажи адміну, щоб виправив ТТН.');
+    return;
+  }
+  if(k === 'np'){
+    if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
+    window.open(npStickerUrl([o.ttnNumber]), '_blank');
+    autoPrinted([uid]);
+    return;
+  }
+  toast('Готую наклейку УП…');
+  try{
+    const url = await ukrStickerBlobUrl(o);
+    showPdf(url, 'naklejka_UP_' + (upTtnOf(o) || o.id) + '.pdf', [uid]);
+  }catch(err){
+    showErr('Наклейка УП: ' + (err.message || err));
+  }
+}
+/* Друк PDF без вбудованого переглядача: сторінки малюємо картинками й друкуємо звичайною HTML-сторінкою
+   точного розміру (інакше Chrome друкує всю сторінку кабінету разом із кнопками). */
+async function pdfToPrintHtml(url){
+  const pdfjs = await loadPdfJs();
+  const buf = await (await fetch(url)).arrayBuffer();
+  const doc = await pdfjs.getDocument({data: buf}).promise;
+  const imgs = []; let wmm = 100, hmm = 100;
+  for(let i = 1; i <= doc.numPages; i++){
+    const page = await doc.getPage(i);
+    const base = page.getViewport({scale: 1});
+    if(i === 1){ wmm = Math.round(base.width * 25.4 / 72 * 10) / 10; hmm = Math.round(base.height * 25.4 / 72 * 10) / 10; }
+    const vp = page.getViewport({scale: 3});
+    const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    await page.render({canvasContext: ctx, viewport: vp}).promise;
+    imgs.push(cv.toDataURL('image/png'));
+  }
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Друк</title><style>@page{size:${wmm}mm ${hmm}mm;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:${wmm}mm;height:${hmm}mm;page-break-after:always;break-after:page}img:last-child{page-break-after:auto;break-after:auto}</style></head><body>${imgs.map(u => `<img src="${u}">`).join('')}</body></html>`;
+}
+async function printPdfBox(){
+  const box = document.getElementById('pdfBox'); if(!box) return;
+  const btn = document.getElementById('pdfPrintBtn'); const old = btn ? btn.textContent : '';
+  try{
+    if(btn) btn.textContent = 'Готую…';
+    const html = box._html || await pdfToPrintHtml(box.dataset.url);
+    box._html = html;
+    const fr = document.createElement('iframe'); fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(fr);
+    fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+    let uids = []; try{ uids = JSON.parse(box.dataset.uids || '[]'); }catch(e){}
+    setTimeout(() => {
+      try{
+        fr.contentWindow.addEventListener('afterprint', () => { if(uids.length) autoPrinted(uids); });
+        fr.contentWindow.focus(); fr.contentWindow.print();
+      }catch(e){ showErr('Друк: ' + e.message); }
+      setTimeout(() => fr.remove(), 300000);
+    }, 400);
+  }catch(err){
+    console.warn('printPdfBox', err);
+    toast('Не вдалося підготувати друк (' + (err.message || err) + ') — відкриваю PDF у новій вкладці, друкуй кнопкою 🖨 у ній');
+    window.open(box.dataset.url, '_blank');
+  }finally{ if(btn) btn.textContent = old; }
+}
+function showPdf(url, fname, uids){
+  const old = document.getElementById('pdfBox'); if(old) old.remove();
+  const d = document.createElement('div'); d.id = 'pdfBox'; d.dataset.url = url; d.dataset.uids = JSON.stringify(uids || []);
+  d.style.cssText = 'position:fixed;inset:0;background:#000d;z-index:40;display:flex;flex-direction:column;padding:10px;gap:8px;';
+  d.innerHTML = `<div class="row" style="margin:0;"><a class="btn sm" href="${url}" download="${esc(fname)}" style="text-decoration:none;">⬇ Завантажити PDF</a>
+    <button class="btn sm ghost" id="pdfPrintBtn" onclick="printPdfBox()">🖨 Друк</button>
+    <button class="btn sm ghost" onclick="document.getElementById('pdfBox').remove()">✕ Закрити</button></div>
+    <iframe id="pdfFrame" style="flex:1;border:0;background:#fff;border-radius:8px;" srcdoc="&lt;body style='font-family:sans-serif;color:#555;padding:20px'&gt;Готую перегляд…"></iframe>`;
+  document.body.appendChild(d);
+  // перегляд малюємо картинкою (pdf.js) — вбудований перегляд PDF на телефонах часто показує порожній екран
+  pdfToPrintHtml(url).then(html => {
+    if(!document.body.contains(d)) return;
+    d._html = html;
+    const fr = document.getElementById('pdfFrame'); if(fr) fr.srcdoc = html;
+  }).catch(e => {
+    console.warn('pdf preview', e);
+    const fr = document.getElementById('pdfFrame'); if(fr && document.body.contains(d)) fr.src = url;
+  });
+}
+let upBusy = false;
+async function printAllUp(){
+  if(upBusy) return;
+  let blockedN = 0;
+  const q = ($('q').value || '').trim().toLowerCase();
+  const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'up')
+    .filter(o => !codBlocked(o) || (blockedN++, false))
+    .filter(o => filter === 'printed' ? !!o.labelPrinted : !o.labelPrinted).filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
+    .filter(o => !q || [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  if(blockedN) toast('Пропущено ' + blockedN + ' (оплачено, але в ТТН є контроль оплати), скажи адміну');
+  if(!list.length){ toast('Немає накладних УП для друку'); return; }
+  if(!window.PDFLib){ showErr('Не завантажилась бібліотека обʼєднання PDF. Перевірте інтернет і оновіть сторінку.'); return; }
+  upBusy = true; const btn = $('btnAllUp'); const oldTxt = btn.textContent;
+  try{
+    const merged = await PDFLib.PDFDocument.create();
+    let done = 0;
+    for(const o of list){
+      btn.textContent = `УП: ${done + 1} з ${list.length}…`;
+      const blob = await ukrStickerBlob(o);
+      const src = await PDFLib.PDFDocument.load(await blob.arrayBuffer());
+      (await merged.copyPages(src, src.getPageIndices())).forEach(pg => merged.addPage(pg));
+      done++;
+    }
+    const bytes = await merged.save();
+    showPdf(URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'})), `naklejky_UP_${todayStr()}.pdf`, list.map(o => uidOf(o)));
+  }catch(err){
+    showErr(`Наклейки УП: ${err.message || err}` + (list.length ? ` (оброблено до збою: ${btn.textContent})` : ''));
+  }finally{ upBusy = false; btn.textContent = oldTxt; }
+}
+function printAll(kind){
+  let blockedN = 0;
+  const q = ($('q').value || '').trim().toLowerCase();
+  const list = orders.filter(isActiveUnshipped).filter(o => stickerKind(o) === 'np')
+    .filter(o => !codBlocked(o) || (blockedN++, false))
+    .filter(o => filter === 'printed' ? !!o.labelPrinted : !o.labelPrinted).filter(o => filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed))
+    .filter(o => !q || [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  if(blockedN) toast('Пропущено ' + blockedN + ' (оплачено, але в ТТН є контроль оплати), скажи адміну');
+  if(!list.length){ toast('Немає накладних НП для друку'); return; }
+  if(!cfg.npApiKey){ toast('У програмі не вказано ключ НП'); return; }
+  window.open(npStickerUrl(list.map(o => o.ttnNumber)), '_blank');
+  autoPrinted(list.map(o => uidOf(o)));
+}
+try{ const sv = localStorage.getItem('packerSort'); if(sv) setTimeout(() => { if($('sortSel')) $('sortSel').value = sv; renderOrders(); }, 0); }catch(e){}
+try{ const v = localStorage.getItem('packerStSize'); if(v) setTimeout(() => { if($('stSize')) $('stSize').value = v; }, 0); }catch(e){}
+
+/* ---------- відмальовування ---------- */
+function setTab(t){
+  tab = t;
+  $('tabOrders').classList.toggle('on', t === 'orders');
+  $('tabReports').classList.toggle('on', t === 'reports');
+  $('tabArchive').classList.toggle('on', t === 'archive');
+  $('viewArchive').style.display = t === 'archive' ? '' : 'none';
+  $('viewOrders').style.display = t === 'orders' ? '' : 'none';
+  $('viewReports').style.display = t === 'reports' ? '' : 'none';
+  if(t === 'reports'){
+    if(!$('rFrom').value){ $('rFrom').value = todayStr(); $('rTo').value = todayStr(); }
+  }
+  render();
+}
+function setFilter(f){
+  filter = f;
+  document.querySelectorAll('.chip[data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+  renderOrders();
+}
+function render(){ updateSoundBtn(); if(tab === 'orders') renderOrders(); else if(tab === 'archive') renderArchive(); else renderReports(); }
+
+function renderOrders(){
+  const q = ($('q').value || '').trim().toLowerCase();
+  const base = orders.filter(o => isActiveUnshipped(o) || isPending(o));
+  const open = base.filter(o => !isPending(o));
+  const nPend = base.length - open.length;
+  const nDone = open.filter(o => o.packed).length;
+  $('counts').textContent = `Не відправлено: ${open.length} · зібрано: ${nDone} · лишилось зібрати: ${open.length - nDone}` + (nPend ? ` · чекають підтвердження перевізника: ${nPend}` : '');
+  // стабільна нумерація: за датою й номером замовлення серед усіх не відправлених (фільтр її не змінює)
+  base.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
+  const numOf = new Map(base.map((o, i) => [o, i + 1]));
+  // роздруковані наклейки — в окремій папці, щоб не заважали в основному списку
+  const nPrinted = open.filter(o => o.labelPrinted).length;
+  if($('chipPrinted')) $('chipPrinted').textContent = '🖨 Роздруковані' + (nPrinted ? ' (' + nPrinted + ')' : '');
+  let list = filter === 'printed' ? base.filter(o => o.labelPrinted && !isPending(o))
+    : base.filter(o => (isPending(o) || !o.labelPrinted) && (filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed)));
+  if(q){
+    list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  }
+  const srt = ($('sortSel') && $('sortSel').value) || 'num';
+  const byNum = (a, b) => numOf.get(a) - numOf.get(b);
+  const rankUp = {'Укрпошта': 0, 'Нова Пошта': 1, 'Самовивіз': 2}, rankNp = {'Нова Пошта': 0, 'Укрпошта': 1, 'Самовивіз': 2};
+  const cityOf = o => String(o.deliveryMethod === 'Укрпошта' ? o.ukrCity : o.city || '').toLowerCase();
+  if(srt === 'carrier') list.sort((a, b) => ((rankUp[a.deliveryMethod] ?? 9) - (rankUp[b.deliveryMethod] ?? 9)) || byNum(a, b));
+  else if(srt === 'carrierNp') list.sort((a, b) => ((rankNp[a.deliveryMethod] ?? 9) - (rankNp[b.deliveryMethod] ?? 9)) || byNum(a, b));
+  else if(srt === 'todo') list.sort((a, b) => (!!a.packed - !!b.packed) || byNum(a, b));
+  else if(srt === 'name') list.sort((a, b) => String(a.customer || '').localeCompare(String(b.customer || ''), 'uk') || byNum(a, b));
+  else if(srt === 'city') list.sort((a, b) => cityOf(a).localeCompare(cityOf(b), 'uk') || byNum(a, b));
+  else list.sort(byNum);
+  if(!list.length){ $('list').innerHTML = '<div class="empty">Немає замовлень.</div>'; return; }
+  $('list').innerHTML = list.map(o => {
+    const lines = itemLines(o);
+    const uid = o.uid || ('id' + o.id);
+    const isNew = seen && !seen.has(uidOf(o));
+    return `<div class="card${o.packed ? ' packed' : ''}${isNew ? ' isnew' : ''}"${isPending(o) ? ' style="border-color:var(--saffron);"' : ''}>
+      <div class="name"><span class="num">№${numOf.get(o)}</span> ${esc(o.customer || 'Без імені')}${baseNameTag(o)}${isNew ? '<span class="newtag">НОВЕ</span>' : ''}</div>
+      <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a>` : 'немає телефону'} · ${esc(ukDate(o.date))}</div>
+      <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
+      ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
+      <ul class="items">${lines.map(l => `<li>${esc(l.name)}<span class="qty">× ${esc(l.qty)}</span>${l.comps.length ? `<div class="sub">${esc(l.comps.join(' · '))}</div>` : ''}</li>`).join('') || '<li class="muted">Склад не вказано</li>'}</ul>
+      ${o.notes ? `<div class="note">⚠ ${esc(o.notes)}</div>` : ''}
+      ${stickerBtn(o)}
+      ${shipBtn(o)}
+      ${isPending(o) ? '' : o.packed
+        ? `<div class="muted" style="color:var(--teal);margin-top:6px;">✓ Зібрано ${esc(o.packedAt || '')}</div><button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', false)">Зняти позначку</button>`
+        : `<button class="btn pack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', true)">✓ Набрано</button>`}
+    </div>`;
+  }).join('');
+}
+
+/* ---------- «відправлено» (потім підтверджується реальним статусом НП/УП в основній програмі) ---------- */
+function canShip(o){ return o.deliveryMethod === 'Самовивіз' || !!stickerKind(o); }
+function shipBtn(o){
+  if(isPending(o)){
+    const hrs = o.packerSentAt ? (Date.now() - Date.parse(o.packerSentAt)) / 3600000 : 0;
+    return `<div style="margin-top:8px;color:${hrs > 24 ? 'var(--danger)' : 'var(--saffron)'};font-size:14px;font-weight:600;">${hrs > 24 ? '⚠ Позначено відправленим, але перевізник не підтвердив (понад добу). Перевірте, чи справді відправлено.' : '🚚 Позначено відправленим — чекає підтвердження НП/УП. В архів перейде, коли перевізник підтвердить.'}</div><button class="btn unpack" ${busyUid === uidOf(o) ? 'disabled' : ''} onclick="setShipped('${esc(uidOf(o))}', false)">Скасувати відправлення</button>`;
+  }
+  if(!canShip(o)) return '<div class="muted" style="margin-top:6px;">Відправити можна після створення ТТН.</div>';
+  return `<button class="btn ship" style="width:100%;margin-top:8px;" ${busyUid === uidOf(o) ? 'disabled' : ''} onclick="setShipped('${esc(uidOf(o))}', true)">🚚 Відправлено</button>`;
+}
+let archRange = '7';
+function setArch(r){
+  archRange = r;
+  document.querySelectorAll('.chip[data-a]').forEach(b => b.classList.toggle('on', b.dataset.a === r));
+  renderArchive();
+}
+function carrierStatus(o){
+  if(isReturnedAny(o)) return {t: '⟲ Повернення', c: 'var(--danger)'};
+  if(o.delivered || o.pkDelivered) return {t: '✓ Доставлено' + (o.paid ? ' · оплачено' : ''), c: 'var(--green)'};
+  const real = o.npStatusText || o.ukrStatusText || o.pkText || '';
+  if(o.shipConfirmed || carrierSeen(o) || o.shipped) return {t: '✓ Відправлено' + (real ? ' · ' + real : ''), c: 'var(--green)'};
+  if(o.packerSent){
+    const hrs = o.packerSentAt ? (Date.now() - Date.parse(o.packerSentAt)) / 3600000 : 0;
+    return hrs > 24 ? {t: '⚠ Позначено відправленим, але перевізник не підтвердив (понад добу). Перевірте, чи справді відправлено.', c: 'var(--danger)'}
+                    : {t: '⏳ Позначено відправленим — чекає підтвердження перевізника', c: 'var(--muted)'};
+  }
+  return {t: 'Ще не відправлено перевізником', c: 'var(--muted)'};
+}
+function renderArchive(){
+  const q = ($('qa').value || '').trim().toLowerCase();
+  let list = orders.filter(o => (o.shipped || o.delivered || carrierSeen(o)) && !isPending(o));
+  if(archRange !== 'all'){
+    const lim = new Date(); lim.setDate(lim.getDate() - Number(archRange));
+    const limS = `${lim.getFullYear()}-${z2(lim.getMonth()+1)}-${z2(lim.getDate())}`;
+    list = list.filter(o => String(o.shippedMarkAt || o.date || '').slice(0, 10) >= limS || String(o.date || '').slice(0, 10) >= limS);
+  }
+  if(q) list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
+  list.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.id - a.id));
+  $('archCounts').textContent = `В архіві: ${list.length}`;
+  if(!list.length){ $('archList').innerHTML = '<div class="empty">Нічого немає.</div>'; return; }
+  $('archList').innerHTML = list.map(o => {
+    const uid = uidOf(o);
+    const st = carrierStatus(o);
+    const canUndo = false;
+    return `<div class="card">
+      <div class="name">${esc(o.customer || 'Без імені')}</div>
+      <div class="muted">${o.phone ? `<a href="tel:${esc(String(o.phone).replace(/[^\d+]/g, ''))}">${esc(o.phone)}</a> · ` : ''}${esc(ukDate(o.date))}</div>
+      <div style="margin-top:6px;">${carrierBadge(o)}${esc(destination(o) || '—')}</div>
+      ${ttnOf(o) ? `<div class="mono muted">ТТН ${esc(ttnOf(o))}</div>` : ''}
+      <div class="muted">${esc(itemsText(o))}</div>
+      ${o.notes ? `<div class="muted">Примітка: ${esc(o.notes)}</div>` : ''}
+      <div style="margin-top:6px;color:${st.c};font-size:14px;">${esc(st.t)}</div>
+      ${canUndo ? `<button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setShipped('${esc(uid)}', false)">Скасувати відправлення</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* ---------- оновлення статусів НП і УП ---------- */
+const UP_SHIPPED_EV = [10100,20700,20800,20900,21500,31100,21700,21400,31300,31400];
+let refreshBusy = false, lastRefreshAt = 0;
+function pkFromNp(it){
+  if(!it) return null;
+  const text = it.Status || '', code = String(it.StatusCode || ''), low = text.toLowerCase();
+  const r = {pkText: text, pkShipped: false, pkDelivered: false, pkReturned: false};
+  if(code && code !== '1' && code !== '2' && code !== '3') r.pkShipped = true;   // 1 — створено, 2 — видалено, 3 — не знайдено
+  if(low.includes('отримано') || ['9','10','11'].includes(code)){ r.pkShipped = true; r.pkDelivered = true; }
+  if(low.includes('поверн') || low.includes('відмова')){ r.pkReturned = true; r.pkDelivered = false; }
+  return r;
+}
+function pkFromUp(it){
+  if(!it) return null;
+  const ev = Number(it.event), reason = Number(it.eventReason_id);
+  const r = {pkText: it.eventName || '', pkShipped: false, pkDelivered: false, pkReturned: false};
+  if(UP_SHIPPED_EV.includes(ev)) r.pkShipped = true;
+  else if(ev === 41000 || ev === 48000){ if(reason === 10) r.pkReturned = true; else { r.pkShipped = true; r.pkDelivered = true; } }
+  else if(ev === 31200) r.pkReturned = true;
+  return r;
+}
+async function npStatuses(list){
+  const out = new Map();
+  for(let i = 0; i < list.length; i += 100){
+    const chunk = list.slice(i, i + 100);
+    const res = await fetch('https://api.novaposhta.ua/v2.0/json/', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({apiKey: cfg.npApiKey, modelName: 'TrackingDocument', calledMethod: 'getStatusDocuments',
+        methodProperties: {Documents: chunk.map(o => ({DocumentNumber: o.ttnNumber, Phone: o.phone || ''}))}})});
+    const j = await res.json();
+    if(!j.success) throw new Error((j.errors && j.errors[0]) || 'Помилка НП');
+    chunk.forEach(o => { const it = (j.data || []).find(d => d.Number === o.ttnNumber); const r = pkFromNp(it); if(r) out.set(uidOf(o), r); });
+  }
+  return out;
+}
+async function upStatuses(list){
+  const out = new Map();
+  for(let i = 0; i < list.length; i += 100){
+    const chunk = list.slice(i, i + 100);
+    const res = await fetch(cfg.ukrProxyUrl, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({app: 'tracking', method: 'POST', path: '/statuses/last', token: cfg.ukrToken, bearer: cfg.ukrTrackingBearer || cfg.ukrBearer, body: chunk.map(o => upTtnOf(o))})});
+    const j = await res.json().catch(() => null);
+    const raw = j && typeof j.raw === 'string' ? j.raw : '';
+    if(/<html|<!doctype/i.test(raw) || [502, 503, 504].includes(res.status)) throw new Error('Сервер Укрпошти тимчасово недоступний — спробуйте за кілька хвилин');
+    if(!res.ok || !Array.isArray(j)) throw new Error('Укрпошта: ' + (res.ok ? 'неочікувана відповідь' : res.status));
+    chunk.forEach(o => { const it = j.find(d => d.barcode === upTtnOf(o)); const r = pkFromUp(it); if(r) out.set(uidOf(o), r); });
+  }
+  return out;
+}
+async function refreshStatuses(manual){
+  if(refreshBusy) return;
+  const btn = $('refreshBtn'), info = $('refreshInfo');
+  const todo = orders.filter(o => !isArchived(o) && !o.delivered && !o.npReturned && o.status !== 'Повернено');
+  const np = cfg.npApiKey ? todo.filter(o => !upTtnOf(o) && o.deliveryMethod === 'Нова Пошта' && npTtnOf(o)) : [];
+  const up = (cfg.ukrProxyUrl && (cfg.ukrTrackingBearer || cfg.ukrBearer)) ? todo.filter(o => upTtnOf(o)) : [];
+  if(!np.length && !up.length){ if(manual) toast('Немає посилок для перевірки'); lastRefreshAt = Date.now(); return; }
+  refreshBusy = true; const old = btn.textContent; btn.textContent = '🔄 Оновлюю…'; btn.disabled = true;
+  const errs = [];
+  const got = new Map();
+  try{
+    const res = await Promise.all([
+      np.length ? npStatuses(np).catch(e => { errs.push('НП: ' + (e.message || e)); return new Map(); }) : new Map(),
+      up.length ? upStatuses(up).catch(e => { errs.push('УП: ' + (e.message || e)); return new Map(); }) : new Map()
+    ]);
+    res.forEach(m => m.forEach((v, k) => got.set(k, v)));
+    let changed = 0;
+    if(got.size){
+      const now = new Date().toISOString();
+      await db.runTransaction(t => t.get(docRef).then(snap => {
+        if(!snap.exists) throw new Error('Дані не знайдено');
+        const arr = (snap.data().orders || []).slice();
+        changed = 0;
+        arr.forEach((o, i) => {
+          const r = got.get(o.uid || ('id' + o.id)); if(!r) return;
+          if(o.pkText === r.pkText && !!o.pkShipped === r.pkShipped && !!o.pkDelivered === r.pkDelivered && !!o.pkReturned === r.pkReturned) return;
+          arr[i] = Object.assign({}, o, r, {pkAt: now}); changed++;
+        });
+        if(changed) t.update(docRef, {orders: arr, updatedAt: now});
+      }));
+    }
+    lastRefreshAt = Date.now();
+    const hhmm = new Date().toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit'});
+    info.style.color = errs.length ? 'var(--danger)' : '';
+    info.textContent = `🔄 Статуси перевірено о ${hhmm}: НП ${np.length}, УП ${up.length}, змінилось ${changed}` + (errs.length ? ' · ' + errs.join('; ') : '') + ' · авто кожні 30 хв';
+    if(manual) toast(errs.length ? 'Оновлено з помилками' : (changed ? `Оновлено: змін ${changed}` : 'Змін немає'));
+  }catch(e){
+    info.style.color = 'var(--danger)'; info.textContent = '🔄 Не вдалося оновити: ' + (e.message || e);
+    if(manual) toast('Помилка: ' + (e.message || e));
+  }finally{ refreshBusy = false; btn.textContent = old; btn.disabled = false; }
+}
+// автооновлення: кожні 30 хв, поки сторінка відкрита; і при поверненні на вкладку, якщо минуло понад 30 хв
+setInterval(() => { if(!document.hidden && orders.length) refreshStatuses(false); }, 30 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden && orders.length && Date.now() - lastRefreshAt > 30 * 60 * 1000) refreshStatuses(false); });
+function setShipped(uid, checked){
+  if(busyUid) return;
+  if(checked){
+    const o0 = orders.find(x => uidOf(x) === uid);
+    if(!confirm(`Позначити відправленим: ${o0 ? (o0.customer || '') : ''}${o0 && !o0.packed ? '\n\nУвага: замовлення ще не відмічене як набране.' : ''}`)) return;
+  }
+  busyUid = uid; renderOrders();
+  db.runTransaction(t => t.get(docRef).then(snap => {
+    if(!snap.exists) throw new Error('Дані не знайдено');
+    const arr = (snap.data().orders || []).slice();
+    const i = arr.findIndex(o => (o.uid || ('id' + o.id)) === uid);
+    if(i < 0) throw new Error('Замовлення не знайдено (його могли видалити)');
+    const o = Object.assign({}, arr[i]);
+    if(checked){
+      if(o.shipped || o.packerSent) throw new Error('Це замовлення вже позначене відправленим');
+      // власна відмітка наборщика: статус «відправлено» в основній програмі ставить лише перевізник (НП/УП)
+      o.packerSent = true; o.packerSentAt = new Date().toISOString();
+    } else {
+      if(!o.packerSent) throw new Error('Цього замовлення не було відмічено вами');
+      if(o.shipped || o.shipConfirmed || o.delivered) throw new Error('Перевізник уже підтвердив відправлення — скасувати не можна');
+      o.packerSent = false; o.packerSentAt = '';
+    }
+    arr[i] = o;
+    t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+  })).then(() => toast(checked ? 'Позначено: відправлено' : 'Відправлення скасовано'))
+    .catch(err => { toast('Помилка: ' + (err && err.message ? err.message : err)); })
+    .finally(() => { busyUid = null; render(); });
+}
+
+/* ---------- позначка «наклейку роздруковано» ---------- */
+function setPrinted(uids, val){
+  const set = new Set(uids);
+  const d = new Date();
+  const when = `${z2(d.getDate())}.${z2(d.getMonth()+1)} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+  return db.runTransaction(t => t.get(docRef).then(snap => {
+    if(!snap.exists) throw new Error('Дані не знайдено');
+    const arr = (snap.data().orders || []).slice();
+    let n = 0;
+    arr.forEach((o, i) => {
+      if(!set.has(o.uid || ('id' + o.id))) return;
+      const c = Object.assign({}, o);
+      if(val){ c.labelPrinted = true; c.labelPrintedAt = when; c.labelPrintedBy = 'наборщик'; }
+      else { c.labelPrinted = false; c.labelPrintedAt = ''; c.labelPrintedBy = ''; }
+      arr[i] = c; n++;
+    });
+    if(!n) throw new Error('Замовлення не знайдено');
+    t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+    return n;
+  })).then(n => { toast(val ? `Позначено роздрукованими: ${n}` : 'Позначку знято'); })
+    .catch(err => toast('Помилка: ' + (err && err.message ? err.message : err)));
+}
+function autoPrinted(uids){
+  const todo = [...new Set(uids)].filter(u => { const o = orders.find(x => uidOf(x) === u); return o && !o.labelPrinted; });
+  if(todo.length) setPrinted(todo, true);
+}
+function askPrinted(uids){
+  const uniq = [...new Set(uids)].filter(u => { const o = orders.find(x => uidOf(x) === u); return o && !o.labelPrinted; });
+  const old = document.getElementById('printAsk'); if(old) old.remove();
+  if(!uniq.length) return;
+  const d = document.createElement('div'); d.id = 'printAsk';
+  d.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:60;background:#1c1914;color:#fff;border:2px solid var(--teal,#2bb3a3);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 6px 24px #0008;';
+  d.innerHTML = `<div style="flex:1;min-width:200px;font-weight:700;">🖨 ${uniq.length > 1 ? 'Наклейки (' + uniq.length + ') роздруковано' : 'Наклейку роздруковано'} успішно?</div>
+    <button class="btn sm" id="paYes">✓ Так, позначити</button><button class="btn sm ghost" id="paNo">Ні</button>`;
+  document.body.appendChild(d);
+  d.querySelector('#paYes').onclick = () => { d.remove(); setPrinted(uniq, true); };
+  d.querySelector('#paNo').onclick = () => d.remove();
+}
+
+/* ---------- позначка «набрано» (атомарно, чіпаємо лише замовлення й updatedAt) ---------- */
+function setPacked(uid, checked){
+  if(busyUid) return;
+  busyUid = uid; renderOrders();
+  db.runTransaction(t => t.get(docRef).then(snap => {
+    if(!snap.exists) throw new Error('Дані не знайдено');
+    const arr = (snap.data().orders || []).slice();
+    const i = arr.findIndex(o => (o.uid || ('id' + o.id)) === uid);
+    if(i < 0) throw new Error('Замовлення не знайдено (його могли видалити)');
+    const o = Object.assign({}, arr[i]);
+    if(o.shipped) throw new Error('Це замовлення вже відправлено');
+    o.packed = !!checked;
+    if(checked){
+      const d = new Date();
+      o.packedAt = `${z2(d.getDate())}.${z2(d.getMonth()+1)} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+      o.packedTs = d.toISOString();
+      o.packedBy = 'наборщик';
+    } else { o.packedAt = ''; o.packedTs = ''; o.packedBy = ''; }
+    arr[i] = o;
+    t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
+  })).then(() => toast(checked ? 'Позначено: набрано' : 'Позначку знято'))
+    .catch(err => { toast('Помилка: ' + (err && err.message ? err.message : err)); })
+    .finally(() => { busyUid = null; renderOrders(); });
+}
+
+/* ---------- звіти ---------- */
+function repPeriod(kind){
+  const to = todayStr();
+  let from = to;
+  if(kind === 'week'){ const d = new Date(); d.setDate(d.getDate() - 6); from = `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())}`; }
+  $('rFrom').value = from; $('rTo').value = to;
+  renderReports();
+}
+function repRows(list){
+  if(!list.length) return '<div class="empty">Нічого немає за цей період.</div>';
+  return `<div class="rep-row h"><div>№</div><div>Клієнт</div><div class="hide-m">Телефон</div><div class="hide-m">ТТН</div><div>Товари / куди</div></div>` +
+    list.map((o, i) => `<div class="rep-row"><div>${i+1}</div><div>${esc(o.customer || '—')}<div class="muted">${esc(o.packedAt || ukDate(o.date))}</div></div><div class="hide-m mono">${esc(o.phone || '')}</div><div class="hide-m mono">${esc(ttnOf(o))}</div><div>${esc(itemsText(o))}<div class="muted">${esc(destination(o))}</div></div></div>`).join('');
+}
+function renderReports(){
+  const from = $('rFrom').value || todayStr(), to = $('rTo').value || todayStr();
+  const inRange = d => d && d >= from && d <= to;
+  const packed = orders.filter(o => o.packed && inRange(packedDate(o)))
+    .sort((a, b) => String(a.packedTs || a.packedAt || '').localeCompare(String(b.packedTs || b.packedAt || '')));
+  const shipped = orders.filter(o => o.shipped && inRange(String(o.date || '').slice(0, 10)))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.id - b.id));
+  lastReport = {packed, shipped};
+  $('repPackedTitle').textContent = `Зібрано: ${packed.length}`;
+  $('repShippedTitle').textContent = `Відправлено: ${shipped.length}`;
+  $('repPacked').innerHTML = repRows(packed);
+  $('repShipped').innerHTML = repRows(shipped);
+}
+function reportText(kind){
+  const from = $('rFrom').value, to = $('rTo').value;
+  const title = (kind === 'packed' ? 'Зібрано' : 'Відправлено') + ` (${ukDate(from)}${to !== from ? ' – ' + ukDate(to) : ''}): ${lastReport[kind].length}`;
+  return title + '\n' + lastReport[kind].map((o, i) => `${i+1}. ${o.customer || '—'} ${o.phone || ''} | ${destination(o)}${ttnOf(o) ? ' | ТТН ' + ttnOf(o) : ''} | ${itemsText(o)}`).join('\n');
+}
+function copyReport(kind){
+  const t = reportText(kind);
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(() => toast('Скопійовано'), () => toast('Не вдалось скопіювати'));
+  } else { toast('Копіювання недоступне в цьому браузері'); }
+}
+async function excelReport(kind){
+  const list = lastReport[kind];
+  if(!list.length){ toast('Нічого вивантажувати'); return; }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(kind === 'packed' ? 'Зібрано' : 'Відправлено');
+  ws.columns = [{header:'№', key:'n', width:5}, {header:'Дата', key:'d', width:12}, {header:'Клієнт', key:'c', width:26}, {header:'Телефон', key:'p', width:16},
+    {header:'Доставка', key:'m', width:12}, {header:'Куди', key:'w', width:40}, {header:'ТТН', key:'t', width:22}, {header:'Товари', key:'i', width:50}, {header:'Зібрано', key:'k', width:14}];
+  ws.getRow(1).font = {bold: true};
+  list.forEach((o, i) => ws.addRow({n: i+1, d: ukDate(o.date), c: o.customer || '', p: o.phone || '', m: o.deliveryMethod || '', w: destination(o), t: ttnOf(o), i: itemsText(o), k: o.packedAt || ''}));
+  ws.eachRow(r => r.eachCell(c => { c.alignment = {wrapText: true, vertical: 'top'}; c.border = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}}; }));
+  ws.views = [{state: 'frozen', ySplit: 1}];
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  a.download = `${kind === 'packed' ? 'zibrano' : 'vidpravleno'}_${$('rFrom').value}_${$('rTo').value}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+start();
+</script>
+</body>
+</html>
