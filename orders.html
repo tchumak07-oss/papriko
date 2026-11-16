@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.86 · 16.11.2026 12:30</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.88 · 16.11.2026 13:20</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2650,7 +2650,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86086; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86088; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -4528,10 +4528,17 @@ function addComponent(kitId){
   const select = document.getElementById(`comp-select-${kitId}`);
   const amtInput = document.getElementById(`comp-amt-${kitId}`);
   const raw = select.value;
-  const amount = parseFloat(amtInput.value) || 0;
-  if(!raw || amount <= 0) return;
+  let amount = parseFloat(amtInput.value) || 0;
+  const hl = el => { el.style.outline = '2px solid var(--danger)'; el.focus(); setTimeout(() => { el.style.outline = ''; }, 2500); };
+  if(!raw){ hl(select); return; } // нічого не вибрано — підсвічуємо список, а не мовчки ігноруємо
   const [kind, idStr] = raw.split(':');
   const id = parseInt(idStr, 10);
+  if(amount <= 0){
+    // для штучних компонентів (упаковка, готові набори) кількість за замовчуванням 1; для спецій у грамах — просимо вказати
+    const ci = kind === 'kit' ? null : catalogItem(id);
+    if(kind === 'kit' || (ci && /^(шт|штук)/i.test(String(ci.unit || '')))) amount = 1;
+    else { amtInput.placeholder = 'вкажіть к-сть'; hl(amtInput); return; }
+  }
   const refType = kind === 'kit' ? 'kit' : 'catalog';
   if(refType === 'kit'){
     if(id === kitId || dependsOnKit(id, kitId)){
@@ -4806,7 +4813,18 @@ function kbRowDragStart(e, idx){
 }
 
 let newKitPinId = null; // щойно створений товар: показуємо нагорі списку, поки його не збережено
+// обгортка: фонова перемальовка (синхронізація, інші дії) не має обнуляти вибраний компонент і кількість
 function renderKits(){
+  const keep = {};
+  try{
+    document.querySelectorAll('[id^="comp-select-"],[id^="comp-amt-"]').forEach(el => { if(el.value) keep[el.id] = el.value; });
+  }catch(e){}
+  _renderKitsImpl();
+  try{
+    Object.keys(keep).forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = keep[id]; });
+  }catch(e){}
+}
+function _renderKitsImpl(){
   const list = document.getElementById('kitList');
   const kq = ((document.getElementById('kitSearch') || {}).value || '').trim().toLowerCase();
   const allKits = kits.filter(k => !k.archived);
