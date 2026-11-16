@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.94 · 16.11.2026 15:55</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.95 · 16.11.2026 16:10</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2667,7 +2667,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86094; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86095; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -2852,6 +2852,9 @@ function doConnect(config){
           snapDeferredAt = 0;
           if(!snap.exists || snap.metadata.hasPendingWrites) return;
           const remoteData = snap.data();
+          // відлуння ВЛАСНОГО (раніше зробленого) запису цієї ж вкладки: локальні дані вже новіші — не застосовуємо,
+          // інакше воно «відкочує» щойно вибране місто/відділення та інші поля до попереднього стану
+          if(remoteData.writer && remoteData.writer.s === mySessionId.slice(-5)) return;
           // "єдина активна вкладка": якщо поле activeSessionId змінилось на чужий (не наш) id відносно
           // того, що ми востаннє бачили — значить інша вкладка/пристрій щойно зберегли дані або явно
           // натиснули "зробити активною". Ця вкладка більше не пише в базу, лише показує актуальні дані.
