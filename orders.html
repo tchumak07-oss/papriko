@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.85 · 16.11.2026 00:10</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.86 · 16.11.2026 12:30</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2449,6 +2449,7 @@ function buildStatePayload(full){
     nextCatalogId, nextKitId, nextOrderId, nextClientId, nextMovementId, nextCashId, receipts, nextReceiptId, nextCounterpartyId, nextSupplierOrderId, nextInvoiceId, nextInvoiceNumber,
     quickOrderKitId, tgProcessedIds, tgLastUpdateId, autoSyncEnabled, autoSyncBaselineDone, ownerPhone, tareTypes, nextTareId,
     activeSessionId: mySessionId,
+    minVer: Math.max(APP_VER_NUM, (typeof remoteMinVer === 'number' ? remoteMinVer : 0)),
     updatedAt: new Date().toISOString()
   };
   // запобіжник: якщо aux-документ виявився недоступним (див. auxSaveBroken) — пишемо ці дані й
@@ -2470,8 +2471,19 @@ function buildAuxPayload(){
   };
 }
 
+var remoteMinVer = 0;
+function checkVersionFence(d){
+  const mv = d && Number(d.minVer);
+  if(mv > 0) remoteMinVer = Math.max(remoteMinVer, mv);
+  if(mv > APP_VER_NUM && !staleClient){
+    staleClient = true;
+    try{ setSyncBadge('err', 'Ця вкладка/пристрій має СТАРУ версію програми — збереження вимкнено, щоб не повернути видалені замовлення. Оновіть файл і натисніть Ctrl+F5.'); }catch(e){}
+    try{ alert('Ця вкладка має застарілу версію програми. Щоб не зіпсувати дані (не повернути видалені замовлення), збереження вимкнено. Оновіть файл програми та натисніть Ctrl+F5.'); }catch(e){}
+  }
+}
 function applyRemoteData(data){
   if(!data) return;
+  checkVersionFence(data);
   catalog = data.catalog || [];
   kits = data.kits || [];
   orders = data.orders || [];
@@ -2638,8 +2650,11 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
+var APP_VER_NUM = 86086; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
+  if(staleClient) return; // версія цієї вкладки старіша за ту, що вже працювала з базою — не пишемо, щоб не повертати видалене
   if(sessionLocked) return; // цю вкладку витіснено іншою активною — не пишемо в базу
   if(!fbConnected || !fbDocRef) return;
   try{ stampShippedDates(); }catch(e){}
@@ -2660,6 +2675,7 @@ function scheduleSave(){
     archivePre().then(() => fbDb.runTransaction(t => {
       return t.get(fbDocRef).then(snap => {
         const remote = snap.exists ? snap.data() : null;
+        if(remote && Number(remote.minVer) > APP_VER_NUM){ checkVersionFence(remote); throw new Error('стара версія програми — запис скасовано'); }
         if(remote && lastKnownRemoteUpdatedAt && remote.updatedAt && remote.updatedAt !== lastKnownRemoteUpdatedAt){
           const remoteOrders = Array.isArray(remote.orders) ? remote.orders : [];
           const delK = new Set(((remote.appSettings || {}).delOrderKeys || []).concat(appSettings.delOrderKeys || []));
@@ -2670,6 +2686,7 @@ function scheduleSave(){
             if(!lo){
               // видалене тут користувачем замовлення НЕ повертаємо, навіть якщо воно ще є на сервері
               if(delK.has(ro.uid || ('id:' + ro.id))) return;
+              try{ actAdd('синхр.', ro.id, ro.customer || '', '⚠ Підтягнуто з сервера: замовлення було відсутнє тут, але лишалось у базі (його зберіг інший пристрій/вкладка, ймовірно стара версія)'); }catch(e){}
               orders.push(ro); return; // замовлення, з'явилось деінде — просто додаємо
             }
             ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','shipConfirmed']
