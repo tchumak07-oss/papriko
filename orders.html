@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.93 · 16.11.2026 15:35</span>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.94 · 16.11.2026 15:55</span>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2450,6 +2450,7 @@ function buildStatePayload(full){
     quickOrderKitId, tgProcessedIds, tgLastUpdateId, autoSyncEnabled, autoSyncBaselineDone, ownerPhone, tareTypes, nextTareId,
     activeSessionId: mySessionId,
     minVer: Math.max(APP_VER_NUM, (typeof remoteMinVer === 'number' ? remoteMinVer : 0)),
+    writer: {v: APP_VER_NUM, d: actDeviceTag(), s: mySessionId.slice(-5)},
     updatedAt: new Date().toISOString()
   };
   // запобіжник: якщо aux-документ виявився недоступним (див. auxSaveBroken) — пишемо ці дані й
@@ -2666,7 +2667,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86093; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86094; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -2888,6 +2889,12 @@ function doConnect(config){
           const rescuedOrders = orders.filter(o => !delKeys.has(o.uid || ('id:' + o.id)) && !archiveCache.includes(o) && !remoteOrders.some(ro => (o.uid && ro.uid) ? ro.uid === o.uid : ro.id === o.id));
           applyRemoteData(remoteData);
           lastKnownRemoteUpdatedAt = remoteData.updatedAt || null;
+          try{
+            const w = remoteData.writer;
+            const who = w ? (w.d + ' · v0.' + Math.floor(w.v / 1000) + '.' + (w.v % 1000) + ' · сесія ' + w.s) : 'СТАРА версія програми (без позначки)';
+            actAdd('синхр.', '', '', '⬇ Дані перезаписані з іншого пристрою/вкладки: ' + who);
+            setSyncBadge('warn', 'Оновлення з іншого пристрою: ' + who);
+          }catch(e){}
           if(rescuedOrders.length){
             orders.push(...rescuedOrders);
             resolveDuplicateOrderIds();
