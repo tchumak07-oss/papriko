@@ -14,6 +14,33 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.14.1/firebase-storage-compat.js"></script>
 <style>
+  /* ===== таблиця замовлень ===== */
+  .ot-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface);}
+  .ot{min-width:940px;}
+  .ot-row{display:grid;grid-template-columns:24px 20px minmax(130px,1.1fr) 44px 40px minmax(100px,1fr) 134px 98px 84px 34px 80px 72px;align-items:center;column-gap:8px;padding:0 12px;min-height:54px;border-bottom:1px solid var(--border-soft);font-size:13px;}
+  .ot-head{min-height:38px;position:sticky;top:0;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);z-index:1;}
+  .ot-row[role=row]:not(.ot-head){cursor:default;outline:none;}
+  .ot-row[role=row]:not(.ot-head):hover{background:rgba(227,165,55,.05);}
+  .ot-row.ot-cur{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--saffron);}
+  .ot:focus-within .ot-row.ot-cur{background:#33271b;}
+  .ot-row.ot-sel{background:rgba(227,165,55,.12);}
+  .ot-row:focus-visible{outline:2px solid var(--saffron);outline-offset:-2px;}
+  .ot-name{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ot-sub{font-size:11.5px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ot-dest{color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ot-mono{font-family:'JetBrains Mono',monospace;}
+  .ot-ttn{font-family:'JetBrains Mono',monospace;font-size:12.5px;background:none;border:0;padding:2px 0;color:var(--text);cursor:copy;text-align:left;}
+  .ot-ttn:hover{color:var(--saffron);}
+  .ot-sum{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500;color:var(--saffron);text-align:right;}
+  .ot-acts{display:flex;gap:6px;justify-content:flex-end;}
+  .ot-chip{display:inline-block;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .ot-expanded{padding:10px;border-bottom:1px solid var(--border);position:sticky;left:0;width:var(--otw,100%);box-sizing:border-box;}
+  .ot-hint{font-size:12px;color:var(--text-faint);padding:9px 14px;border-top:1px solid var(--border);background:var(--surface-2);}
+  .ot-hint kbd{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:var(--text);}
+  .ot-menu{position:fixed;z-index:300;min-width:190px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:2px;}
+  .ot-menu button{background:none;border:0;color:var(--text);text-align:left;padding:8px 10px;border-radius:7px;font-size:13px;cursor:pointer;font-family:inherit;}
+  .ot-menu button:hover,.ot-menu button:focus-visible{background:rgba(227,165,55,.15);outline:none;}
+  .ot-menu button.danger{color:var(--danger);}
   :root{
     --bg:#1B1512;
     --surface:#241C17;
@@ -429,7 +456,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.100 · 16.11.2026 17:30</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.101 · 17.11.2026 16:55</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1150,6 +1177,11 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
     </div>
   </div>
 
+  <div style="display:flex;gap:6px;align-items:center;margin:0 0 8px;" role="group" aria-label="Вигляд списку">
+    <span class="hint">Вигляд:</span>
+    <button class="btn btn-sm" type="button" id="ordViewTable" onclick="setOrdView('table')">▦ Таблиця</button>
+    <button class="btn btn-sm" type="button" id="ordViewCards" onclick="setOrdView('cards')">☰ Картки</button>
+  </div>
   <div id="orderList"></div>
 
   </div><!-- /section-orders -->
@@ -2667,7 +2699,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86100; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86101; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -12316,6 +12348,11 @@ function _renderOrdersImpl(){
     if(filtered.length === 0){
       list.innerHTML = '<div class="comp-empty">Нічого не знайдено за цими фільтрами (шукали і в архіві теж).</div>';
     } else {
+      if(ordViewMode === 'table'){
+        list.innerHTML = ordTableHtml(filtered, searching);
+        try{ const w = list.querySelector('.ot-wrap'); if(w) w.style.setProperty('--otw', w.clientWidth + 'px'); }catch(e){}
+        filtered.forEach(o => { if(!o.collapsed) renderOrderItems(o.id); renderOrderTotal(o.id); });
+      } else
       list.innerHTML = filtered.map((o, idx) => {
         const html = o.collapsed ? orderCollapsedHtml(o, idx+1) : orderExpandedHtml(o, idx+1);
         // коли показуємо архівні замовлення разом з активними (бо шукаємо по всіх) — позначаємо, де воно лежить
@@ -12325,6 +12362,7 @@ function _renderOrdersImpl(){
     }
   }
   document.getElementById('orderCount').textContent = active.length;
+  try{ const bt = document.getElementById('ordViewTable'), bc = document.getElementById('ordViewCards'); if(bt && bc){ bt.classList.toggle('btn-primary', ordViewMode === 'table'); bc.classList.toggle('btn-primary', ordViewMode === 'cards'); } }catch(e){}
 
   // прибираємо з виділення id, яких вже немає серед замовлень (видалені деінде)
   if(selectedOrderIds.size){
@@ -14708,6 +14746,178 @@ function renderReports(){
       }).join('');
     }
   }
+}
+
+// ===== таблиця замовлень (з клавіатурою) =====
+var ordViewMode = (function(){ try{ return localStorage.getItem('ordView') === 'cards' ? 'cards' : 'table'; }catch(e){ return 'table'; } })();
+var ordCurId = null;
+function setOrdView(m){
+  ordViewMode = (m === 'cards') ? 'cards' : 'table';
+  try{ localStorage.setItem('ordView', ordViewMode); }catch(e){}
+  renderOrders();
+}
+function ordDateShort(d){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || '');
+  if(!m) return d || '';
+  return m[3] + '.' + m[2] + (m[1] !== String(new Date().getFullYear()) ? '.' + m[1].slice(2) : '');
+}
+function ordDestShort(o){
+  if(o.deliveryMethod === 'Нова Пошта'){
+    if(!o.city) return 'місто не вказане';
+    const w = /^(Відділення|Поштомат|Пункт)[^:(,]*/.exec(o.warehouseDesc || '');
+    return o.city + (w ? ', ' + w[0].trim() : '');
+  }
+  if(o.deliveryMethod === 'Укрпошта'){
+    return (o.ukrCity || o.address || '—') + (o.ukrIndex ? ', ' + o.ukrIndex : '');
+  }
+  return o.deliveryMethod || '—';
+}
+function ordTtnOf(o){ return o.ttnNumber || o.ukrTtnNumber || ''; }
+function ordSmsCellHtml(o){
+  const log = o.smsLog || [], t = todayStr();
+  const today = log.filter(l => l.date === t);
+  const okT = today.filter(l => l.ok), failT = today.filter(l => !l.ok);
+  const circle = (bg, fg, ch, title, label) => `<span role="img" aria-label="${escapeAttr(label)}" title="${escapeAttr(title)}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:${bg};color:${fg};font-size:13px;font-weight:700;">${ch}</span>`;
+  if(okT.length){
+    const tt = okT.map(l => (l.time || '') + ' ' + smsKindLabel(l.kind)).join('; ');
+    return circle('rgba(107,142,90,.28)', '#9fd18a', '✓', 'SMS сьогодні: ' + tt, 'SMS сьогодні надіслано');
+  }
+  if(failT.length) return circle('rgba(193,68,14,.25)', '#ff8a5c', '✗', 'Сьогодні SMS не пройшло: ' + String(failT[failT.length-1].error || ''), 'SMS сьогодні не пройшло');
+  const okOld = log.filter(l => l.ok);
+  if(okOld.length || o.customerSmsSent){
+    const last = okOld[okOld.length - 1];
+    return circle('transparent', 'var(--text-faint)', '✓', 'SMS надсилали раніше' + (last ? ': ' + smsLogDateUa(last.date) : ''), 'SMS надсилали раніше');
+  }
+  return '<span aria-label="SMS не надсилали" title="SMS не надсилали" style="color:var(--text-faint);">—</span>';
+}
+function ordStatusChip(o){
+  let label, bg, fg;
+  if(o.npReturned || o.status === 'Повернено'){ label = 'Повернення'; bg = 'var(--danger)'; fg = '#fff'; }
+  else if(o.delivered){ label = 'Доставлено'; bg = 'rgba(227,165,55,.9)'; fg = 'var(--saffron-text)'; }
+  else if(o.shipped){ label = (isAtBranchAwaitingPickup(o) ? 'На відділенні' : 'Відправлено'); bg = 'rgba(227,165,55,.22)'; fg = 'var(--saffron)'; }
+  else if(o.packed){ label = 'Набрано'; bg = 'rgba(43,179,163,.22)'; fg = '#58e0cf'; }
+  else { label = o.status || 'Нове'; bg = 'var(--surface-2)'; fg = 'var(--text-muted)'; }
+  const extra = (o.labelPrinted ? ' <span title="Наклейку роздруковано" aria-label="Наклейку роздруковано" style="color:#58e0cf;">🖨</span>' : '');
+  return `<span class="ot-chip" style="background:${bg};color:${fg};">${escapeAttr(label)}</span>${extra}`;
+}
+function ordRowHtml(o, num, arch){
+  const c = calcOrder(o);
+  const ttn = ordTtnOf(o);
+  const cur = (ordCurId === o.id);
+  const sel = selectedOrderIds.has(o.id);
+  const cp = o.counterpartyId ? counterpartyById(o.counterpartyId) : null;
+  const sub = [arch ? '🗄 В архіві' : '', o.phone || '', o.items.length + ' поз.', cp ? '🏢 ' + cp.name : '', (o.notes && !o.notes.startsWith(AUTO_IMPORT_NOTE_PREFIX)) ? '💬 ' + o.notes : ''].filter(Boolean).join(' · ');
+  return `<div class="ot-row${cur ? ' ot-cur' : ''}${sel ? ' ot-sel' : ''}" role="row" id="otr-${o.id}" data-order="${o.id}" tabindex="${cur ? 0 : -1}" aria-selected="${cur}">
+    <span class="ot-mono" style="color:var(--text-faint);text-align:right;">${num}</span>
+    <input type="checkbox" aria-label="Вибрати замовлення" ${sel ? 'checked' : ''} onchange="ordToggleSel(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);margin:0;">
+    <span style="min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="ot-name" title="${escapeAttr(o.customer || '')}">${escapeAttr(o.customer || 'Без імені')}</span><span class="ot-sub" title="${escapeAttr(sub)}">${escapeAttr(sub)}</span></span>
+    <span style="color:var(--text-muted);">${escapeAttr(ordDateShort(o.date))}</span>
+    <span>${carrierBadgeHtml(o)}</span>
+    <span class="ot-dest" title="${escapeAttr(deliverySummaryText(o))}">${escapeAttr(ordDestShort(o))}</span>
+    <span>${ttn ? `<button type="button" class="ot-ttn" title="Копіювати номер" onclick="ordCopyTtn(this, '${escapeAttr(ttn)}')">${escapeAttr(ttn)}</button>` : '<span style="color:var(--text-faint);">—</span>'}</span>
+    <span>${ordStatusChip(o)}</span>
+    <span style="display:flex;flex-direction:column;gap:3px;">${o.paid ? '<span style="color:#9fd18a;">✓ Оплачено</span>' : '<span style="color:var(--text-faint);">Не оплачено</span>'}${c.discount > 0 ? `<span class="ot-chip" style="background:var(--danger);color:#fff;font-size:11px;padding:1px 7px;width:fit-content;" title="Знижка клієнту">−${fmt(c.discount)}</span>` : ''}</span>
+    <span style="text-align:center;">${ordSmsCellHtml(o)}</span>
+    <span class="ot-sum" id="order-total-${o.id}">${fmt(c.total)} грн</span>
+    <span class="ot-acts"><button class="btn btn-sm" type="button" aria-label="Редагувати" title="Редагувати (Enter)" onclick="editOrder(${o.id})">✎</button><button class="btn btn-sm" type="button" aria-haspopup="menu" aria-label="Інші дії" onclick="ordMenu(${o.id}, this)">⋯</button></span>
+  </div>`;
+}
+function ordTableHtml(list, searching){
+  const head = `<div class="ot-row ot-head" role="row"><span role="columnheader" style="text-align:right;">№</span><span role="columnheader"></span><span role="columnheader">Клієнт</span><span role="columnheader">Дата</span><span role="columnheader">Дост.</span><span role="columnheader">Куди</span><span role="columnheader">ТТН</span><span role="columnheader">Статус</span><span role="columnheader">Оплата</span><span role="columnheader" style="text-align:center;">SMS</span><span role="columnheader" style="text-align:right;">Сума</span><span role="columnheader"></span></div>`;
+  if(!list.some(o => o.id === ordCurId)) ordCurId = list.length ? list[0].id : null;
+  const body = list.map((o, i) => {
+    if(!o.collapsed) return `<div class="ot-expanded" data-order-wrap="${o.id}">${orderExpandedHtml(o, i + 1)}</div>`;
+    return ordRowHtml(o, i + 1, searching && isArchived(o));
+  }).join('');
+  return `<div class="ot-wrap"><div class="ot" role="grid" aria-label="Список замовлень" onkeydown="ordKey(event)" onmousedown="ordRowMouse(event)" ondblclick="ordRowDbl(event)">${head}${body}</div>
+    <div class="ot-hint"><kbd>↑</kbd> <kbd>↓</kbd> рух · <kbd>Пробіл</kbd> вибрати · <kbd>Enter</kbd> редагувати · <kbd>M</kbd> меню дій · <kbd>Home</kbd>/<kbd>End</kbd> початок/кінець</div></div>`;
+}
+function ordToggleSel(id, checked){
+  toggleOrderSelect(id, checked);
+  const r = document.getElementById('otr-' + id);
+  if(r) r.classList.toggle('ot-sel', !!checked);
+}
+function ordRows(){ return [...document.querySelectorAll('#orderList .ot-row[data-order]')]; }
+function ordFocus(id, doFocus){
+  ordRows().forEach(r => { const on = (Number(r.getAttribute('data-order')) === id); r.classList.toggle('ot-cur', on); r.tabIndex = on ? 0 : -1; r.setAttribute('aria-selected', on ? 'true' : 'false'); });
+  ordCurId = id;
+  const r = document.getElementById('otr-' + id);
+  if(r && doFocus){ r.focus({preventScroll: true}); r.scrollIntoView({block: 'nearest'}); }
+}
+function ordRowMouse(e){
+  const r = e.target.closest && e.target.closest('.ot-row[data-order]');
+  if(r) ordFocus(Number(r.getAttribute('data-order')), false);
+}
+function ordRowDbl(e){
+  if(e.target.closest && e.target.closest('button,input,select,textarea,a')) return;
+  const r = e.target.closest && e.target.closest('.ot-row[data-order]');
+  if(r) editOrder(Number(r.getAttribute('data-order')));
+}
+function ordKey(e){
+  const t = e.target;
+  const tag = t && t.tagName;
+  const inForm = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+  const rows = ordRows(); if(!rows.length) return;
+  const ids = rows.map(r => Number(r.getAttribute('data-order')));
+  let i = ids.indexOf(ordCurId); if(i < 0) i = 0;
+  const go = n => { e.preventDefault(); ordFocus(ids[Math.max(0, Math.min(ids.length - 1, n))], true); };
+  switch(e.key){
+    case 'ArrowDown': return go(i + 1);
+    case 'ArrowUp': return go(i - 1);
+    case 'PageDown': return go(i + 10);
+    case 'PageUp': return go(i - 10);
+    case 'Home': return go(0);
+    case 'End': return go(ids.length - 1);
+    case ' ': case 'Spacebar':
+      if(inForm) return;
+      e.preventDefault();
+      { const cb = document.querySelector('#otr-' + ids[i] + ' input[type=checkbox]'); if(cb){ cb.checked = !cb.checked; ordToggleSel(ids[i], cb.checked); } }
+      return;
+    case 'Enter':
+      if(inForm) return;
+      e.preventDefault(); editOrder(ids[i]); return;
+    case 'm': case 'M': case 'ь': case 'Ь': case 'ContextMenu':
+      if(inForm && tag !== 'BUTTON') return;
+      if(e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      { const b = document.querySelector('#otr-' + ids[i] + ' [aria-haspopup]'); if(b) ordMenu(ids[i], b); }
+      return;
+  }
+}
+function ordCopyTtn(btn, ttn){
+  const done = () => { const old = btn.textContent; btn.textContent = 'Скопійовано ✓'; setTimeout(() => { btn.textContent = old; }, 1100); };
+  try{ navigator.clipboard.writeText(ttn).then(done, () => { prompt('Скопіюйте номер:', ttn); }); }
+  catch(e){ prompt('Скопіюйте номер:', ttn); }
+}
+function ordMenu(id, btn){
+  const old = document.getElementById('otMenu'); if(old){ old.remove(); }
+  const items = [
+    ['Редагувати', `editOrder(${id})`], ['Копіювати', `duplicateOrder(${id})`], ['✉ SMS клієнту', `customSmsOpen(${id})`],
+    ['📊 Excel', `exportSingleOrderExcel(${id})`], ['🧾 Накладна', `orderDocChoose(${id})`], ['🧮 Рахунок', `waybillFromOrder(${id}, 'invoice')`],
+    ['Видалити', `removeOrder(${id})`, 'danger']
+  ];
+  const m = document.createElement('div');
+  m.id = 'otMenu'; m.className = 'ot-menu'; m.setAttribute('role', 'menu');
+  m.innerHTML = items.map(it => `<button type="button" role="menuitem" class="${it[2] || ''}" data-act="${escapeAttr(it[1])}">${it[0]}</button>`).join('');
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect();
+  m.style.top = Math.min(window.innerHeight - m.offsetHeight - 8, r.bottom + 4) + 'px';
+  m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, r.right - m.offsetWidth)) + 'px';
+  const close = (refocus) => { m.remove(); document.removeEventListener('mousedown', onDoc, true); if(refocus){ const row = document.getElementById('otr-' + id); if(row) row.focus({preventScroll: true}); } };
+  const onDoc = ev => { if(!m.contains(ev.target)) close(false); };
+  document.addEventListener('mousedown', onDoc, true);
+  m.addEventListener('click', ev => {
+    const b = ev.target.closest('button'); if(!b) return;
+    const act = b.getAttribute('data-act'); close(false);
+    try{ new Function(act)(); }catch(err){ console.warn(err); }
+  });
+  m.addEventListener('keydown', ev => {
+    const bs = [...m.querySelectorAll('button')], i = bs.indexOf(document.activeElement);
+    if(ev.key === 'Escape'){ ev.preventDefault(); close(true); }
+    else if(ev.key === 'ArrowDown'){ ev.preventDefault(); bs[(i + 1) % bs.length].focus(); }
+    else if(ev.key === 'ArrowUp'){ ev.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
+  });
+  m.querySelector('button').focus();
 }
 
 function orderCollapsedHtml(o, num){
