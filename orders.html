@@ -429,7 +429,7 @@ body.entry [data-order] div:has(> button[onclick^="deductStockForOrder"]){displa
       <div class="hdr-title">
         <p class="eyebrow"></p>
         <h1>Папріко · Нове замовлення</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.97 · 16.11.2026 17:05</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.100 · 16.11.2026 17:30</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2667,7 +2667,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86097; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86100; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -2758,7 +2758,7 @@ function doConnect(config){
       const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(config);
       fbDb = firebase.firestore();
       try{ fbStorage = firebase.storage(); }catch(e){ fbStorage = null; } // не критично, якщо Storage не увімкнено в проєкті
-      fbDocRef = fbDb.collection('spice-app').doc('data');
+      fbDocRef = fbDb.collection('spice-app').doc('data2'); // «data» — старий документ (лишається як резервна копія): старі вкладки/пристрої пишуть тепер лише туди й не псують дані
       fbAuxDocRef = fbDb.collection('spice-app').doc('aux');
       // ВАЖЛИВО: основний документ ("data" — товари/замовлення/клієнти) і aux-документ ("aux" —
       // рух товарів/кеш міст) завантажуються НЕЗАЛЕЖНО один від одного. Якщо їх завантажувати
@@ -2782,8 +2782,21 @@ function doConnect(config){
           }
           return null;
         } else {
-          const payload = buildStatePayload();
-          return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; });
+          // перший запуск на новому документі «data2»: переносимо дані зі старого «data» (він лишається незайманим як копія)
+          return fbDb.collection('spice-app').doc('data').get().then(old => {
+            if(old.exists){
+              const d = old.data();
+              d.migratedFrom = 'data'; d.migratedAt = new Date().toISOString();
+              return fbDocRef.set(d).then(() => {
+                applyRemoteData(d);
+                lastKnownRemoteUpdatedAt = d.updatedAt || null;
+                seenSessionId = d.activeSessionId || null;
+                if(d.stockMovements || d.npCityOblastCache){ stockMovements = d.stockMovements || []; npCityOblastCache = d.npCityOblastCache || {}; }
+              });
+            }
+            const payload = buildStatePayload();
+            return fbDocRef.set(payload).then(() => { lastKnownRemoteUpdatedAt = payload.updatedAt; seenSessionId = mySessionId; });
+          });
         }
       }).then(() => loadArchives()).then(() => {
         // дублікати замовлень з сайту (їх могла створити стара версія, що не бачила архіву) — прибираємо
@@ -4032,7 +4045,7 @@ function catQuickCreate(kind, preName, done){
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10001;display:flex;align-items:center;justify-content:center;padding:12px;';
   ov.innerHTML = `<div style="background:var(--surface,#251d16);color:var(--text,#f1e7da);border:1px solid var(--border-soft,#3a2e24);border-radius:12px;max-width:440px;width:100%;padding:16px 18px;">
     <div style="font-size:17px;font-weight:700;margin-bottom:10px;">＋ Нова позиція довідника${any ? '' : ': ' + (isSp ? 'спеція' : 'упаковка')}</div>
-    ${any ? `<label style="font-size:13px;display:block;margin-bottom:8px;">Категорія<br><select id="qcCat" style="width:100%;"><option>Спеція</option><option selected>Упаковка</option><option>Інше</option></select></label>` : ''}
+    ${any ? `<label style="font-size:13px;display:block;margin-bottom:8px;">Категорія<br><select id="qcCat" style="width:100%;"><option selected>Спеція</option><option>Упаковка</option><option>Інше</option></select></label>` : ''}
     <label style="font-size:13px;">Назва<br><input type="text" id="qcName" value="${escapeAttr(preName||'')}" style="width:100%;"></label>
     <div style="display:flex;gap:10px;margin-top:8px;font-size:13px;">
       <label>Одиниця<br><select id="qcUnit" style="width:90px;">${['г','кг','мл','шт'].map(u => `<option ${u===(isSp?'кг':'шт')?'selected':''}>${u}</option>`).join('')}</select></label>
@@ -4564,9 +4577,24 @@ function compSelChange(kitId, sel){
   if(sel.value !== '__new') return;
   const pre = sel.dataset.newName || ''; sel.dataset.newName = '';
   catQuickCreate('any', pre, it => {
-    sel.innerHTML = catalogOptionsHtml(kitId) + '<option value="__new">＋ Створити новий компонент…</option>';
-    sel.value = it ? 'cat:' + it.id : '';
+    // поки було відкрите вікно, картку міг перемалювати фоновий запис — беремо актуальний select, а не старий вузол
+    const sel2 = document.getElementById(`comp-select-${kitId}`) || sel;
+    sel2.innerHTML = catalogOptionsHtml(kitId) + '<option value="__new">＋ Створити новий компонент…</option>';
+    sel2.value = it ? 'cat:' + it.id : '';
     const amt = document.getElementById(`comp-amt-${kitId}`); if(it && amt) amt.focus();
+    if(it){
+      try{ actAdd('вручну', '', it.name, '➕ Нова позиція довідника: ' + it.name); }catch(e){}
+      // якщо через 2 с позиції вже нема — її стерла чужа вкладка зі старою версією: кажемо про це одразу
+      setTimeout(() => {
+        if(!catalog.some(c => c.id === it.id)){
+          catalog.push(it); renderCatalog();
+          const s3 = document.getElementById(`comp-select-${kitId}`);
+          if(s3){ s3.innerHTML = catalogOptionsHtml(kitId) + '<option value="__new">＋ Створити новий компонент…</option>'; s3.value = 'cat:' + it.id; }
+          scheduleSave();
+          alert('Нова позиція «' + it.name + '» зникла після створення — її стерла інша вкладка/пристрій зі старою версією програми. Я повернув її. Відкрийте «📡 Пристрої» і закрийте/оновіть стару вкладку.');
+        }
+      }, 2000);
+    }
   });
 }
 function addComponent(kitId){
