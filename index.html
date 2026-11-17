@@ -302,6 +302,15 @@
     padding:8px 0;
   }
   .app-main{flex:1;min-width:0;}
+  .app-nav-toggle{align-self:flex-end;background:none;border:1px solid var(--border-soft);color:var(--text-muted);border-radius:6px;font-size:12px;line-height:1;padding:4px 8px;margin:0 0 6px;cursor:pointer;}
+  .app-nav-toggle:hover{color:var(--saffron);border-color:var(--saffron);}
+  .app-layout.nav-compact{gap:1.1rem;}
+  .app-layout.nav-compact .app-sidebar{width:52px;}
+  .app-layout.nav-compact .app-nav-toggle{align-self:center;}
+  .app-layout.nav-compact .app-nav-btn{font-size:0;gap:0;justify-content:center;padding:10px 0;border-radius:8px;border-left:2px solid var(--border-soft);}
+  .app-layout.nav-compact .app-nav-btn .nav-icon{font-size:19px;width:auto;}
+  .app-layout.nav-compact .app-nav-btn:hover{padding-left:0;}
+  .app-layout.nav-compact .app-nav-btn.active{padding-left:0;}
   .app-nav-btn{
     display:flex;align-items:center;gap:10px;
     background:none;border:1px solid transparent;border-left:2px solid var(--border-soft);
@@ -331,6 +340,7 @@
     .kit-collapsed-actions{flex-shrink:1;}
     .app-layout{flex-direction:column;gap:1rem;align-items:stretch;}
     .app-main{width:100%;max-width:100%;}
+    .app-nav-toggle{display:none;}
     .app-sidebar{
       width:100%;flex-direction:row;overflow-x:auto;position:static;
       border-bottom:1px solid var(--border-soft);padding-bottom:10px;gap:6px;
@@ -425,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.102 · 17.11.2026 17:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.103 · 17.11.2026 17:40</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -573,6 +583,7 @@
 
   <div class="app-layout">
     <nav class="app-sidebar">
+      <button type="button" class="app-nav-toggle" id="navToggle" onclick="toggleNavCompact()" aria-label="Згорнути меню" title="Згорнути / розгорнути меню">«</button>
       <button class="app-nav-btn" id="nav-orders" onclick="showSection('orders')"><span class="nav-icon">🧾</span>Замовлення</button>
       <button class="app-nav-btn" id="nav-products" onclick="showSection('products')"><span class="nav-icon">📦</span>Товари</button>
       <button class="app-nav-btn" id="nav-kitbuilder" style="display:none" onclick="showSection('kitbuilder')"><span class="nav-icon">🧪</span>Конструктор наборів</button>
@@ -2668,7 +2679,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86102; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86103; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -16122,6 +16133,28 @@ function loCreateOrder(){
   showSection('orders'); renderOrders(); renderOrdersSummary(); if(last) scrollToOrderCard(last);
   showUndoToast(`Створено замовлень: ${tot.stores.length}`, false);
 }
+
+// компактне (іконки) бічне меню: щоб на вужчих екранах таблиці замовлень вистачало місця
+function applyNavCompact(on){
+  const lay = document.querySelector('.app-layout'); if(!lay) return;
+  lay.classList.toggle('nav-compact', !!on);
+  const t = document.getElementById('navToggle');
+  if(t){ t.textContent = on ? '»' : '«'; t.setAttribute('aria-label', on ? 'Розгорнути меню' : 'Згорнути меню'); }
+  document.querySelectorAll('.app-nav-btn').forEach(b => {
+    if(!b.dataset.t) b.dataset.t = (b.textContent || '').trim();
+    if(on) b.title = b.dataset.t; else b.removeAttribute('title');
+  });
+}
+function toggleNavCompact(){
+  const lay = document.querySelector('.app-layout');
+  const on = !(lay && lay.classList.contains('nav-compact'));
+  try{ localStorage.setItem('navCompact', on ? '1' : '0'); }catch(e){}
+  applyNavCompact(on);
+}
+(function(){
+  let pref = null; try{ pref = localStorage.getItem('navCompact'); }catch(e){}
+  applyNavCompact(pref === null ? true : pref === '1');
+})();
 
 function showSection(name){
   const navName = (NAV_GROUPS[name] || name);
