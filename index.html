@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.105 · 18.11.2026 17:10</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.106 · 18.11.2026 17:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2679,7 +2679,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86105; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86106; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -18330,7 +18330,16 @@ function receiptOpen(id){ receiptEditId = id; renderReceipts(); }
 function receiptClose(){ receiptEditId = null; renderReceipts(); }
 function receiptField(id, field, value){
   const r = receiptById(id); if(!r || r.status === 'posted') return;
-  r[field] = value; scheduleSave();
+  r[field] = value;
+  if(field === 'supplier'){
+    const nm = String(value||'').trim();
+    if(nm && !counterparties.find(c => String(c.name).trim().toLowerCase() === nm.toLowerCase())){
+      counterparties.push(newCounterpartyDefaults(nextCounterpartyId++, nm, ''));
+      try{ renderCounterparties(); renderCashCounterpartySelect(); }catch(e){}
+      renderReceipts();
+    }
+  }
+  scheduleSave();
   if(field === 'costMethod') renderReceipts();
 }
 function receiptAddLine(id, pre){
