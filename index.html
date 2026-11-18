@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.103 · 17.11.2026 17:40</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.105 · 18.11.2026 17:10</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2679,7 +2679,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86103; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86105; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -13330,8 +13330,12 @@ function syncCashFromArchive(){
   });
   const paidIds = new Set(paidOrders.map(o=>o.id));
   const before = cashTransactions.length;
-  cashTransactions = cashTransactions.filter(t => t.source!=='order' || paidIds.has(t.orderId));
-  if(cashTransactions.length !== before) changed = true;
+  // записи каси за замовленнями прибираємо лише коли архів уже прочитано: інакше (замовлення з архіву ще не в списку)
+  // вони б зникали, а потім створювались знов під іншими номерами при кожному відкритті програми
+  if(typeof archiveOk !== 'undefined' && archiveOk){
+    cashTransactions = cashTransactions.filter(t => t.source!=='order' || paidIds.has(t.orderId));
+    if(cashTransactions.length !== before) changed = true;
+  }
   if(changed){
     const el = document.getElementById('cashTable');
     if(el) renderCash();
@@ -18334,9 +18338,17 @@ function receiptAddLine(id, pre){
   r.lines.push(Object.assign({catalogId:'', name:'', qty:'', unit:'', price:''}, pre || {}));
   renderReceipts(); scheduleSave();
 }
-function receiptLineField(id, i, field, value){
+function receiptLineField(id, i, field, value, selEl){
   const r = receiptById(id); if(!r || r.status === 'posted') return;
   const l = r.lines[i]; if(!l) return;
+  if(field === 'catalogId' && value === '__new'){
+    const pre = (selEl && selEl.dataset.newName) || l.name || '';
+    catQuickCreate('any', pre, it => {
+      if(it){ l.catalogId = it.id; if(!receiptUnitsFor(it.unit).includes(l.unit)) l.unit = it.unit; scheduleSave(); }
+      renderReceipts();
+    });
+    return;
+  }
   if(field === 'catalogId'){
     l.catalogId = value ? parseInt(value, 10) : '';
     const c = l.catalogId ? catalogItem(l.catalogId) : null;
@@ -18438,7 +18450,7 @@ function renderReceipts(){
   const supOpts = counterparties.map(c => `<option value="${escapeAttr(c.name)}">`).join('');
   const catOpts = sel => '<option value="">— оберіть позицію —</option>' +
     catalog.filter(c => !c.archived || c.id === sel).slice().sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'uk'))
-      .map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${escapeAttr(c.name)} (${escapeAttr(c.unit)})</option>`).join('');
+      .map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${escapeAttr(c.name)} (${escapeAttr(c.unit)})</option>`).join('') + '<option value="__new">＋ Створити нову позицію…</option>';
   const rows = r.lines.map((l, i) => {
     const k = receiptLineCalc(l);
     const units = k ? receiptUnitsFor(k.c.unit) : ['г','кг','мл','л','шт'];
@@ -18451,7 +18463,7 @@ function renderReceipts(){
     return `<div class="rc-row">
       <div>
         ${unmatched ? `<div class="hint" style="color:var(--danger);margin-bottom:3px;">З накладної: «${escapeAttr(l.name)}» — не знайдено в довіднику <button class="btn btn-sm" ${dis} onclick="receiptCreateCatalogFromLine(${r.id},${i})">+ створити</button></div>` : ''}
-        <select ${dis} onchange="receiptLineField(${r.id},${i},'catalogId',this.value)">${catOpts(l.catalogId)}</select>
+        <select ${dis} onchange="receiptLineField(${r.id},${i},'catalogId',this.value,this)">${catOpts(l.catalogId)}</select>
         ${hint ? `<div class="hint" style="margin-top:3px;">${hint}</div>` : ''}
       </div>
       <input type="number" step="0.001" min="0" ${dis} value="${escapeAttr(l.qty)}" placeholder="к-сть" onchange="receiptLineField(${r.id},${i},'qty',this.value)">
