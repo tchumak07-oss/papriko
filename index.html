@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.106 · 18.11.2026 17:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.110 · 19.11.2026 13:00</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -585,6 +585,7 @@
     <nav class="app-sidebar">
       <button type="button" class="app-nav-toggle" id="navToggle" onclick="toggleNavCompact()" aria-label="Згорнути меню" title="Згорнути / розгорнути меню">«</button>
       <button class="app-nav-btn" id="nav-orders" onclick="showSection('orders')"><span class="nav-icon">🧾</span>Замовлення</button>
+      <button class="app-nav-btn" id="nav-returns" onclick="showSection('returns')"><span class="nav-icon">↩️</span>Повернення <span class="n" id="returnsNavCount"></span></button>
       <button class="app-nav-btn" id="nav-products" onclick="showSection('products')"><span class="nav-icon">📦</span>Товари</button>
       <button class="app-nav-btn" id="nav-kitbuilder" style="display:none" onclick="showSection('kitbuilder')"><span class="nav-icon">🧪</span>Конструктор наборів</button>
       <button class="app-nav-btn" id="nav-composition" style="display:none" onclick="showSection('composition')"><span class="nav-icon">🏷️</span>Склад (етикетка)</button>
@@ -1325,6 +1326,20 @@
   </div></div>
 
   </div><!-- /section-supplierorder -->
+
+  <div id="section-returns" class="app-section">
+  <div class="section-title" style="margin-top:0;">
+    Повернення <span class="n" id="returnsCount"></span>
+    <span class="btns"><button class="btn btn-sm" type="button" onclick="renderReturns()">🔄 Оновити</button></span>
+  </div>
+  <p class="hint" style="margin:-8px 0 14px;">Сюди автоматично потрапляють посилки, які повернулись або від яких відмовились (за статусом НП/Укрпошти). Зі списку «Замовлення» вони зникають. Якщо замовлення було оплачене — потрібно повернути кошти клієнту; після цього натисніть «✓ Опрацьовано».</p>
+  <div class="catalog-panel" style="margin-bottom:14px;"><div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+    <select id="rt-filter" onchange="renderReturns()" style="max-width:240px;"><option value="open">Ще не опрацьовані</option><option value="done">Опрацьовані</option><option value="all">Усі</option></select>
+    <input type="text" id="rt-search" placeholder="Клієнт, телефон, ТТН…" oninput="renderReturns()" style="max-width:260px;">
+    <span class="hint" id="rt-sum"></span>
+  </div></div>
+  <div id="returnsList"></div>
+  </div><!-- /section-returns -->
 
   <div id="section-archive" class="app-section">
 
@@ -2679,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86106; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86110; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -2718,7 +2733,7 @@ function scheduleSave(){
               try{ actAdd('синхр.', ro.id, ro.customer || '', '⚠ Підтягнуто з сервера: замовлення було відсутнє тут, але лишалось у базі (його зберіг інший пристрій/вкладка, ймовірно стара версія)'); }catch(e){}
               orders.push(ro); return; // замовлення, з'явилось деінде — просто додаємо
             }
-            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','shipped','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','shipConfirmed']
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','returnDone','returnKeep','shipped','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','shipConfirmed']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
@@ -12034,6 +12049,43 @@ function deliveryBlockHtml(o){
 
 // в архів потрапляє замовлення, де одночасно «Оплачено» і «Доставлено», або яке відправили туди вручну.
 // keepActive — «повернули з архіву» вручну: автоправило не діє, поки замовлення не перестане бути «оплачене+доставлене»
+/* ---------- реєстр повернень: повернені/відмовні посилки не засмічують список замовлень ---------- */
+var retPeek = new Set(); // замовлення, відкриті з реєстру для редагування (лише на час сесії)
+function isReturnedOrder(o){
+  if(!o || o.returnKeep || retPeek.has(o.id)) return false;
+  return !!(o.npReturned || o.status === 'Повернено');
+}
+function renderReturns(countOnly){
+  const all = orders.filter(o => o.npReturned || o.status === 'Повернено').filter(o => !o.returnKeep);
+  const open = all.filter(o => !o.returnDone);
+  const nc = document.getElementById('returnsNavCount'); if(nc) nc.textContent = open.length || '';
+  const cc = document.getElementById('returnsCount'); if(cc) cc.textContent = all.length;
+  if(countOnly) return;
+  const el = document.getElementById('returnsList'); if(!el) return;
+  const f = (document.getElementById('rt-filter') || {}).value || 'open';
+  const q = ((document.getElementById('rt-search') || {}).value || '').trim().toLowerCase();
+  const qd = q.replace(/\D/g, '');
+  let list = f === 'open' ? open : f === 'done' ? all.filter(o => o.returnDone) : all;
+  if(q) list = list.filter(o => (o.customer||'').toLowerCase().includes(q) || (qd.length >= 3 && ((o.phone||'').replace(/\D/g,'').includes(qd) || (o.ttnNumber||'').includes(qd) || (o.ukrTtnNumber||'').includes(qd))));
+  list = list.slice().sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date));
+  const refund = list.filter(o => o.paid && !o.returnDone).reduce((a,o) => a + calcOrder(o).total, 0);
+  const sm = document.getElementById('rt-sum'); if(sm) sm.textContent = list.length ? `Усього: ${list.length}` + (refund ? ` · оплачено, треба повернути кошти: ${fmt(refund)} грн` : '') : '';
+  if(!list.length){ el.innerHTML = '<div class="comp-empty">Повернень немає.</div>'; return; }
+  el.innerHTML = '<div class="catalog-panel"><div style="padding:6px 10px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:var(--text-muted);"><th style="padding:6px;">Дата</th><th>Клієнт</th><th>Служба / ТТН</th><th style="text-align:right;padding-right:14px;">Сума</th><th>Кошти</th><th></th></tr></thead><tbody>' +
+    list.map(o => {
+      const c = calcOrder(o), ttn = o.ttnNumber || o.ukrTtnNumber || '';
+      const money = o.returnDone ? '<span class="ot-chip" style="background:rgba(43,179,163,.22);color:#58e0cf;">✓ опрацьовано</span>' : (o.paid ? '<span class="ot-chip" style="background:var(--danger);color:#fff;">оплачено — повернути гроші</span>' : '<span class="ot-chip" style="background:var(--surface-2);color:var(--text-muted);">не оплачено</span>');
+      return `<tr style="border-top:1px solid var(--border);"><td style="padding:8px 6px;white-space:nowrap;">${escapeHtml(String(o.date||'').slice(5).split('-').reverse().join('.'))}</td>
+        <td><strong>${escapeHtml(o.customer||'Без імені')}</strong><div class="hint">${escapeHtml(o.phone||'')}</div></td>
+        <td>${escapeHtml(o.deliveryMethod||'')}<div class="hint" style="font-family:'JetBrains Mono',monospace;">${escapeHtml(ttn)}</div></td>
+        <td style="text-align:right;padding-right:14px;font-family:'JetBrains Mono',monospace;color:var(--saffron);white-space:nowrap;">${fmt(c.total)} грн</td>
+        <td>${money}</td>
+        <td style="white-space:nowrap;text-align:right;"><button class="btn btn-sm" type="button" onclick="retToggleDone(${o.id})">${o.returnDone ? '↺ Не опрацьовано' : '✓ Опрацьовано'}</button> <button class="btn btn-sm" type="button" onclick="retOpen(${o.id})">✎</button> <button class="btn btn-sm" type="button" title="Повернути це замовлення назад у список «Замовлення»" onclick="retRestore(${o.id})">↩ У список</button></td></tr>`;
+    }).join('') + '</tbody></table></div></div>';
+}
+function retToggleDone(id){ const o = orderById(id); if(!o) return; o.returnDone = !o.returnDone; renderReturns(); scheduleSave(); }
+function retOpen(id){ retPeek.add(id); showSection('orders'); editOrder(id); }
+function retRestore(id){ const o = orderById(id); if(!o) return; o.returnKeep = true; renderOrders(); scheduleSave(); }
 function isArchived(o){
   if(o.keepActive){
     if(!(o.paid && o.delivered)) o.keepActive = false; // замовлення змінилось — автоархів знову діє
@@ -12316,9 +12368,10 @@ function renderOrders(){
 }
 function _renderOrdersImpl(){
   const list = document.getElementById('orderList');
-  const active = orders.filter(o => !isArchived(o));
+  const active = orders.filter(o => !isArchived(o) && !isReturnedOrder(o));
   const searching = hasActiveOrderFilter();
   const base = searching ? orders : active;
+  try{ renderReturns(true); }catch(e){}
   if(orders.length === 0){
     list.innerHTML = '<div class="comp-empty">Ще немає жодного замовлення. Натисніть «+ Нове замовлення».</div>';
   } else if(base.length === 0){
@@ -12877,7 +12930,20 @@ function counterpartySelectOptionsHtml(selectedId){
 
 function renderCashCounterpartySelect(){
   const sel = document.getElementById('cash-counterparty');
-  if(sel) sel.innerHTML = counterpartySelectOptionsHtml('');
+  if(sel){
+    sel.innerHTML = counterpartySelectOptionsHtml('') + '<option value="__new">＋ Створити нового контрагента…</option>';
+    sel.onchange = function(){
+      if(sel.value !== '__new') return;
+      const pre = sel.dataset.newName || ''; sel.dataset.newName = '';
+      const nm = (prompt('Назва нового контрагента:', pre) || '').trim();
+      if(!nm){ sel.value = ''; return; }
+      let c = counterparties.find(x => String(x.name).trim().toLowerCase() === nm.toLowerCase());
+      if(!c){ c = newCounterpartyDefaults(nextCounterpartyId++, nm, ''); counterparties.push(c); scheduleSave(); }
+      try{ renderCounterparties(); }catch(e){}
+      renderCashCounterpartySelect();
+      sel.value = String(c.id);
+    };
+  }
 
   const filterSel = document.getElementById('cf-counterparty');
   if(filterSel){
@@ -14793,7 +14859,7 @@ var ordFiltTimer = null;
 function ordStatusLabel(o){
   if(o.npReturned || o.status === 'Повернено') return 'Повернення';
   if(o.delivered) return 'Доставлено';
-  if(o.shipped) return 'Відправлено';
+  if(o.shipped) return isAtBranchAwaitingPickup(o) ? 'На відділенні' : 'Відправлено';
   if(o.packed) return 'Набрано';
   return o.status || 'Нове';
 }
@@ -14829,7 +14895,7 @@ function ordApplyColFilters(list){
 }
 function ordApplySort(list){
   if(!ordSortKey) return list;
-  const rank = {'Нове':0, 'Набрано':1, 'Відправлено':2, 'Доставлено':3, 'Повернення':4};
+  const rank = {'Нове':0, 'Набрано':1, 'Відправлено':2, 'На відділенні':2.5, 'Доставлено':3, 'Повернення':4};
   const smsR = {none:0, earlier:1, fail:2, today:3};
   const key = {
     num: o => o.id,
@@ -14892,7 +14958,7 @@ function ordFiltHtml(total, shown){
     <span>${inp('name', 'ім\'я / тел.')}</span><span>${inp('date', 'дата')}</span>
     <span>${sel('carrier', [['', 'Усі'], ['Нова Пошта', 'НП'], ['Укрпошта', 'УП'], ['Самовивіз', 'СВ']])}</span>
     <span>${inp('dest', 'місто')}</span><span>${inp('ttn', 'ТТН')}</span>
-    <span>${sel('status', [['', 'Усі'], ['Нове', 'Нове'], ['Набрано', 'Набрано'], ['Відправлено', 'Відправлено'], ['Доставлено', 'Доставлено'], ['Повернення', 'Повернення']])}</span>
+    <span>${sel('status', [['', 'Усі'], ['Нове', 'Нове'], ['Набрано', 'Набрано'], ['Відправлено', 'Відправлено'], ['На відділенні', 'На відділенні'], ['Доставлено', 'Доставлено'], ['Повернення', 'Повернення']])}</span>
     <span>${sel('pay', [['', 'Усі'], ['paid', 'Оплачено'], ['unpaid', 'Не оплачено'], ['disc', 'Зі знижкою']])}</span>
     <span>${sel('sms', [['', 'Усі'], ['today', 'Сьогодні так'], ['notoday', 'Сьогодні ні'], ['none', 'Ніколи'], ['fail', 'Помилка']])}</span>
     <span></span>
@@ -15917,7 +15983,7 @@ function buildSubTabs(){
     });
   });
 }
-const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','log','cash','invoices','legalorders','reports','settings'];
+const SECTIONS = ['products','kitbuilder','composition','orders','clients','warehouse','supplierorder','archive','log','cash','invoices','legalorders','reports','settings','returns'];
 
 /* ---------- Замовлення юросіб: розрахунок за продажами й залишками точок ---------- */
 var lo = {sales: null, stock: null, overrides: {}};
@@ -16173,6 +16239,7 @@ function showSection(name){
   if(name === 'warehouse'){ renderBalances(); renderMovements(); renderInventory(); populateMovementItemSelect(); }
   if(name === 'supplierorder') renderSupplierOrder();
   if(name === 'archive') renderArchive();
+  if(name === 'returns') renderReturns();
   if(name === 'log') renderActLog();
   if(name === 'cash') renderCash();
   if(name === 'invoices') initInvoicesSection();
@@ -17682,13 +17749,16 @@ function findKitBySkuOrName(skuVal, nameVal){
     let m = kits.find(k => !k.archived && (normKeepDigits(k.sku) === rk || normKeepDigits(k.name) === rk));
     if(m) return m;
     // 2. значення з файлу входить в SKU/назву набору, або навпаки (напр. "740" всередині "Набір за 740 грн")
-    m = kits.find(k => {
+    // якщо збігів кілька (напр. «Блокнот для рецептів» і «Блокнот для рецептів Банка з медом») — НЕ вгадуємо першого,
+    // а вважаємо товар нерозпізнаним, щоб користувач обрав набір сам
+    const cands = kits.filter(k => {
       if(k.archived) return false;
       const sku = normKeepDigits(k.sku);
       const name = normKeepDigits(k.name);
       return (sku && (sku.includes(rk) || rk.includes(sku))) || (name && (name.includes(rk) || rk.includes(name)));
     });
-    if(m) return m;
+    if(cands.length === 1) return cands[0];
+    if(cands.length > 1) return null;
   }
   return null;
 }
