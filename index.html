@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.116 · 21.11.2026 21:05</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.117 · 21.11.2026 21:15</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86116; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86117; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -7790,15 +7790,37 @@ function selectSenderCity(index){
 }
 
 // НП віддає відділення сторінками; великі міста (Київ — 1000+ з поштоматами) раніше обрізались до перших 300
+const npWhCache = {}; // cityRef -> {t, list} або {p: проміс} — щоб не бити по API повторно
 async function npFetchAllWarehouses(cityRef){
-  const PAGE = 500, all = [];
-  for(let page = 1; page <= 12; page++){
-    const chunk = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: PAGE, Page: page}) || [];
-    all.push(...chunk);
-    if(chunk.length < PAGE) break;
-  }
-  const seen = new Set();
-  return all.filter(w => w && !seen.has(w.Ref) && seen.add(w.Ref));
+  const hit = npWhCache[cityRef];
+  if(hit && hit.list && Date.now() - hit.t < 10*60*1000) return hit.list;
+  if(hit && hit.p) return hit.p;
+  const p = (async () => {
+    const PAGE = 500, all = [];
+    const call = async (page) => {
+      for(let attempt = 0; ; attempt++){
+        try{ return await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: PAGE, Page: page}) || []; }
+        catch(e){
+          if(attempt >= 5 || !/many requests|too many|429|ліміт/i.test(String(e.message))) throw e;
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      }
+    };
+    for(let page = 1; page <= 12; page++){
+      const chunk = await call(page);
+      all.push(...chunk);
+      if(chunk.length < PAGE) break;
+      await new Promise(r => setTimeout(r, 400));
+    }
+    const seen = new Set();
+    return all.filter(w => w && !seen.has(w.Ref) && seen.add(w.Ref));
+  })();
+  npWhCache[cityRef] = {p};
+  try{
+    const list = await p;
+    npWhCache[cityRef] = {t: Date.now(), list};
+    return list;
+  }catch(e){ delete npWhCache[cityRef]; throw e; }
 }
 
 async function loadSenderWarehouses(cityRef){
