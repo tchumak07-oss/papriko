@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.112 · 21.11.2026 10:10</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.113 · 21.11.2026 11:30</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -678,6 +678,7 @@
       <button class="btn btn-sm" id="editListToggleBtn" onclick="toggleEditListPanel()">Редагувати існуючі</button>
       <button class="btn btn-sm" id="costsToggleBtn" onclick="toggleCostsPanel()">Показати собівартості</button>
       <button class="btn btn-sm" onclick="exportKitsExcel()">⬇ Excel</button>
+      <button class="btn btn-sm" onclick="exportKitsCompositionExcel()" title="Усі товари й набори, під кожним — інгредієнти, кількість, ціна і сума">⬇ Excel зі складом</button>
       <button class="btn btn-sm" onclick="document.getElementById('catImportInput').click()" title="Завантажити каталог з цінами з Excel: співставити товари, оновити ціни, архівувати зайве">📥 Імпорт каталогу з цінами</button>
       <button class="btn btn-sm" onclick="ingPullOpen()" title="Підтягнути в готові товари інгредієнти (спеція + тара) з довідника — за назвою, з підказками">🧂 Підтягнути інгредієнти</button>
       <button class="btn btn-sm" onclick="toggleTarePanel()" title="Види тари та сортування товарів за тарою">📦 Тара</button>
@@ -2694,7 +2695,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86112; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86113; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -3798,6 +3799,41 @@ function exportKitsExcel(){
       const c = calcKit(kits[idx]);
       row.getCell(10).fill = c.profit >= 0 ? XLS_GREEN : XLS_RED;
       row.getCell(11).fill = c.margin >= 0 ? XLS_GREEN : XLS_RED;
+    }
+  });
+}
+
+function exportKitsCompositionExcel(){
+  const list = kits.filter(k => !k.archived);
+  if(!list.length){ alert('Ще немає жодного набору.'); return; }
+  const r2 = x => Math.round((Number(x) || 0) * 100) / 100;
+  const rows = [], kinds = [];
+  list.slice().sort((a, b) => String(a.name||'').localeCompare(String(b.name||''), 'uk')).forEach(k => {
+    const c = calcKit(k);
+    const manual = Number(k.costManual) || 0;
+    rows.push([k.name || '', k.sku || '', k.type || '', '', '', '', r2(c.unitCost), r2(k.price)]); kinds.push('kit');
+    if(manual > 0){ rows.push(['   Собівартість задана вручну', '', '', '', '', '', r2(manual), '']); kinds.push('line'); }
+    else (k.components || []).forEach(comp => {
+      const isKit = comp.refType === 'kit';
+      const ref = isKit ? kitById(comp.catalogId) : catalogItem(comp.catalogId);
+      const unit = isKit ? kitUnitCost(comp.catalogId, new Set([k.id])) : (ref ? Number(ref.cost) || 0 : 0);
+      const amt = Number(comp.amount) || 0;
+      rows.push(['   ' + (ref ? ref.name : '(видалено)') + (isKit ? ' (набір)' : ''), ref && !isKit ? '' : (ref && ref.sku) || '', ref && !isKit ? (ref.category || '') : '', ref && !isKit ? (ref.unit || '') : 'шт', amt, r2(unit), r2(unit * amt), '']);
+      kinds.push('line');
+    });
+    if(Number(k.logistics) > 0){ rows.push(['   Логістика', '', '', '', '', '', r2(k.logistics), '']); kinds.push('line'); }
+    if(Number(k.marketing) > 0){ rows.push(['   Маркетинг', '', '', '', '', '', r2(k.marketing), '']); kinds.push('line'); }
+  });
+  exportStyledExcel({
+    downloadName: `sklad_naboriv_${todayStr()}.xlsx`,
+    sheetName: 'Склад наборів',
+    headers: [
+      {header:'Товар / інгредієнт', width:46}, {header:'SKU', width:10}, {header:'Тип / категорія', width:16}, {header:'Од.', width:8},
+      {header:'Кількість', width:11}, {header:'Ціна за од., грн', width:15}, {header:'Сума, грн', width:13}, {header:'Ціна продажу, грн', width:16}
+    ],
+    rows,
+    rowStyleFn: (row, values, idx) => {
+      if(kinds[idx] === 'kit'){ row.font = {bold:true}; row.eachCell({includeEmpty:true}, cell => { cell.fill = XLS_YELLOW; }); }
     }
   });
 }
