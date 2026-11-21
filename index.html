@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.110 · 19.11.2026 13:00</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.112 · 21.11.2026 10:10</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86110; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86112; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -3774,13 +3774,24 @@ function exportKitsExcel(){
       {header:'Тип', width:12}, {header:'SKU', width:10}, {header:'Назва', width:26}, {header:'Вага, г', width:10},
       {header:'Собівартість/од', width:16}, {header:'Логістика/од', width:14}, {header:'Маркетинг/од', width:14},
       {header:'Ціна продажу/од', width:16}, {header:'Кількість продано', width:16},
-      {header:'Прибуток', width:14}, {header:'Маржа, %', width:10}
+      {header:'Прибуток', width:14}, {header:'Маржа, %', width:10},
+      {header:'Компоненти, грн', width:16}, {header:'Склад (кількість × ціна = сума)', width:70}
     ],
     rows: kits.map(k => {
       const c = calcKit(k);
+      const parts = (k.components || []).map(comp => {
+        const isKit = comp.refType === 'kit';
+        const ref = isKit ? kitById(comp.catalogId) : catalogItem(comp.catalogId);
+        const unit = isKit ? kitUnitCost(comp.catalogId, new Set([k.id])) : (ref ? Number(ref.cost) || 0 : 0);
+        const amt = Number(comp.amount) || 0;
+        return { txt: `${ref ? ref.name : '(видалено)'}: ${amt} × ${fmt1(unit)} = ${fmt1(unit * amt)}`, sum: unit * amt };
+      });
+      const manual = Number(k.costManual) || 0;
+      const compCost = manual > 0 ? manual : parts.reduce((a, x) => a + x.sum, 0);
+      const compTxt = (manual > 0 ? ['Собівартість задано вручну: ' + fmt1(manual)] : []).concat(parts.map(x => x.txt)).join('; ');
       return [
         k.type||'', k.sku||'', k.name||'', k.weight||0, fmt1(c.unitCost), k.logistics||0, k.marketing||0,
-        k.price||0, k.qty||0, fmt1(c.profit), fmt1(c.margin)
+        k.price||0, k.qty||0, fmt1(c.profit), fmt1(c.margin), fmt1(compCost), compTxt
       ];
     }),
     rowStyleFn: (row, values, idx) => {
@@ -9075,7 +9086,12 @@ async function cancelCodControlOnPaid(o){
         await npApiCall('InternetDocument','update',{Ref:o.ttnRef, AfterpaymentOnGoodsCost:''});
       }
     } else if(o.ukrShipmentUuid){
-      await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, { postPay: 0 });
+      try{
+        await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, { postPay: 0, transferPostPayToBankAccount: false });
+      }catch(e2){
+        // деякі відправлення не приймають transfer=false разом з нулем — пробуємо лише обнулити суму
+        await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, { postPay: 0 });
+      }
     } else return;
     o.codAmountWas = amount;
     o.codAmount = 0;
@@ -9606,6 +9622,7 @@ async function updateUkrCodAmount(orderId){
   try{
     const body = { postPay: newAmount };
     if(newAmount > 0 && ukrSender.iban) body.transferPostPayToBankAccount = true;
+    if(newAmount === 0) body.transferPostPayToBankAccount = false;
     await ukrApiCall('PUT', `/shipments/${o.ukrShipmentUuid}`, body);
     o.codAmount = newAmount;
     if(statusEl) statusEl.innerHTML = ` <span style="color:var(--cardamom);">✓ Оновлено: ${fmt(newAmount)} грн</span>`;
