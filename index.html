@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.115 · 21.11.2026 11:50</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.116 · 21.11.2026 21:05</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86115; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86116; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -7789,11 +7789,23 @@ function selectSenderCity(index){
   loadSenderWarehouses(c.ref);
 }
 
+// НП віддає відділення сторінками; великі міста (Київ — 1000+ з поштоматами) раніше обрізались до перших 300
+async function npFetchAllWarehouses(cityRef){
+  const PAGE = 500, all = [];
+  for(let page = 1; page <= 12; page++){
+    const chunk = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: PAGE, Page: page}) || [];
+    all.push(...chunk);
+    if(chunk.length < PAGE) break;
+  }
+  const seen = new Set();
+  return all.filter(w => w && !seen.has(w.Ref) && seen.add(w.Ref));
+}
+
 async function loadSenderWarehouses(cityRef){
   const select = document.getElementById('sender-warehouse-select');
   select.innerHTML = '<option>Завантаження...</option>';
   try{
-    const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
+    const data = await npFetchAllWarehouses(cityRef);
     const list = data || [];
     select.innerHTML = '<option value="">Оберіть відділення…</option>' +
       list.map(w => `<option value="${escapeAttr(w.Ref)}">${escapeAttr(w.Description)}</option>`).join('');
@@ -10435,7 +10447,7 @@ async function loadNpWarehouses(orderId, cityRef){
   if(!selectNow) return;
   selectNow.innerHTML = '<option>Завантаження...</option>';
   try{
-    const data = await npApiCall('Address', 'getWarehouses', {CityRef: cityRef, Limit: 300});
+    const data = await npFetchAllWarehouses(cityRef);
     const list = data || [];
     const o = orderById(orderId);
     if(!o) return;
