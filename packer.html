@@ -285,7 +285,9 @@ function subscribe(){
     gotSnap = true; clearTimeout(connTimer);
     if(!snap.exists){ setSync('err', 'Дані не знайдено'); return; }
     const d = snap.data();
-    orders = Array.isArray(d.orders) ? d.orders : [];
+    // видалені в головній програмі замовлення (їх «воскрешає» стара копія програми) в наборщику не показуємо
+    const delK = new Set(((d.appSettings || {}).delOrderKeys) || []);
+    orders = (Array.isArray(d.orders) ? d.orders : []).filter(o => !delK.has(o.uid || ('id:' + o.id)));
     kits = Array.isArray(d.kits) ? d.kits : [];
     catalog = Array.isArray(d.catalog) ? d.catalog : [];
     clientsDb = Array.isArray(d.clients) ? d.clients : []; cpDb = Array.isArray(d.counterparties) ? d.counterparties : [];
@@ -701,7 +703,7 @@ function renderOrders(){
   const nPrinted = open.filter(o => o.labelPrinted).length;
   if($('chipPrinted')) $('chipPrinted').textContent = '🖨 Роздруковані' + (nPrinted ? ' (' + nPrinted + ')' : '');
   let list = filter === 'printed' ? base.filter(o => o.labelPrinted && !isPending(o))
-    : base.filter(o => (isPending(o) || !o.labelPrinted) && (filter === 'all' ? true : (filter === 'done' ? !!o.packed : !o.packed)));
+    : base.filter(o => (isPending(o) || !o.labelPrinted) && (filter === 'all' ? true : (filter === 'done' ? (!!o.packed || isPending(o)) : (!o.packed && !isPending(o)))));
   if(q){
     list = list.filter(o => [o.customer, o.phone, ttnOf(o), destination(o)].join(' ').toLowerCase().includes(q));
   }
