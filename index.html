@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.123 · 23.11.2026 16:05</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.126 · 24.11.2026 00:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86123; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86126; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -2733,7 +2733,7 @@ function scheduleSave(){
               try{ actAdd('синхр.', ro.id, ro.customer || '', '⚠ Підтягнуто з сервера: замовлення було відсутнє тут, але лишалось у базі (його зберіг інший пристрій/вкладка, ймовірно стара версія)'); }catch(e){}
               orders.push(ro); return; // замовлення, з'явилось деінде — просто додаємо
             }
-            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','labelPrinted','labelPrintedAt','labelPrintedBy','returnDone','returnKeep','shipped','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','shipConfirmed']
+            ['ttnNumber','ttnRef','ukrTtnNumber','ukrShipmentUuid','npStatusText','npStatusCode','npReturned','status','atBranchSince','delivered','deliveredDate','packed','packedAt','packedTs','packedBy','packPhotoId','packPhotoN','packNoPhoto','packPhotoPurged','labelPrinted','labelPrintedAt','labelPrintedBy','returnDone','returnKeep','shipped','shippedBy','shippedMarkAt','packerSent','packerSentAt','shippedDate','shipConfirmed']
               .forEach(f => { if(ro[f] && !lo[f]) lo[f] = ro[f]; });
           });
           resolveDuplicateOrderIds();
@@ -2836,6 +2836,7 @@ function doConnect(config){
         fbConnected = true;
         setTimeout(() => { if(archiveDirty()) scheduleSave(); }, 3000);
         presenceStart();
+        setTimeout(() => { try{ cleanupPackPhotos(); }catch(e){} }, 20000);
         setSyncBadge('on', 'Синхронізовано');
         updateDbSizeMeter();
         setTimeout(() => runAutoSyncDelivery('start'), 4000);
@@ -8059,7 +8060,7 @@ function duplicateOrder(sourceId){
   copy.shipped = false;
   copy.delivered = false;
   copy.manualArchive = false;
-  copy.packed = false; copy.packedAt = '';
+  copy.packed = false; copy.packedAt = ''; copy.packPhotoId = ''; copy.packPhotoN = 0; copy.packNoPhoto = false;
   copy.npReturned = false;
   copy.collapsed = false;
   copy.stockDeducted = false;
@@ -15089,7 +15090,7 @@ function ordRowHtml(o, num, arch){
   const cur = (ordCurId === o.id);
   const sel = selectedOrderIds.has(o.id);
   const cp = o.counterpartyId ? counterpartyById(o.counterpartyId) : null;
-  const sub = [arch ? '🗄 В архіві' : '', o.fromSite ? '🌐 сайт' : '✍ вручну', o.phone || '', o.items.length + ' поз.', cp ? '🏢 ' + cp.name : '', (o.notes && !o.notes.startsWith(AUTO_IMPORT_NOTE_PREFIX)) ? '💬 ' + o.notes : ''].filter(Boolean).join(' · ');
+  const sub = [arch ? '🗄 В архіві' : '', o.fromSite ? '🌐 сайт' : '✍ вручну', o.packPhotoN ? '📷 ' + o.packPhotoN : (o.packed && o.packNoPhoto ? '⚠ без фото' : ''), o.phone || '', o.items.length + ' поз.', cp ? '🏢 ' + cp.name : '', (o.notes && !o.notes.startsWith(AUTO_IMPORT_NOTE_PREFIX)) ? '💬 ' + o.notes : ''].filter(Boolean).join(' · ');
   return `<div class="ot-row${cur ? ' ot-cur' : ''}${sel ? ' ot-sel' : ''}" role="row" id="otr-${o.id}" data-order="${o.id}" tabindex="${cur ? 0 : -1}" aria-selected="${cur}">
     <span class="ot-mono" style="color:var(--text-faint);text-align:right;">${num}</span>
     <input type="checkbox" aria-label="Вибрати замовлення" ${sel ? 'checked' : ''} onchange="ordToggleSel(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);margin:0;">
@@ -15179,6 +15180,7 @@ function ordMenu(id, btn){
   const old = document.getElementById('otMenu'); if(old){ old.remove(); }
   const items = [
     ['Редагувати', `editOrder(${id})`], ['Копіювати', `duplicateOrder(${id})`], ['✉ SMS клієнту', `customSmsOpen(${id})`],
+    ...(((orderById(id) || {}).packPhotoN) ? [['📷 Фото ящика', `showPackPhotos(${id})`]] : []),
     ['📊 Excel', `exportSingleOrderExcel(${id})`], ['🧾 Накладна', `orderDocChoose(${id})`], ['🧮 Рахунок', `waybillFromOrder(${id}, 'invoice')`],
     ['Видалити', `removeOrder(${id})`, 'danger']
   ];
@@ -15350,6 +15352,7 @@ function orderExpandedHtml(o, num){
             <input type="checkbox" ${o.packed?'checked':''} onchange="togglePacked(${o.id}, this.checked)" style="width:auto;accent-color:#2dd4bf;">
             ✓ Набрано${o.packed && o.packedAt ? ' <span class="hint">(' + escapeAttr(o.packedAt) + ')</span>' : ''}
           </label>
+          ${o.packPhotoN ? `<button class="btn btn-sm" type="button" onclick="showPackPhotos(${o.id})">📷 Фото ящика (${o.packPhotoN})</button>` : (o.packed && o.packNoPhoto ? '<span class="hint" style="color:var(--saffron);">⚠ набрано без фото</span>' : '')}
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;" title="Якщо позначено — при натисканні «Зберегти» надішле сповіщення про це замовлення в Telegram-групу">
             <input type="checkbox" ${o.sendToTelegram?'checked':''} onchange="updateOrderField(${o.id},'sendToTelegram',this.checked)" style="width:auto;accent-color:var(--saffron);">
             Відправити в Telegram
@@ -15950,7 +15953,11 @@ function dupGroups(){
       const t = o.ttnNumber || o.ukrTtnNumber || '';
       const kt = keep.ttnNumber || keep.ukrTtnNumber || '';
       const safe = !o.shipped && !(t && t !== kt) && dupProgress(o) < dupProgress(keep);
-      return {o, safe};
+      // «явний дубль»: та сама ТТН, що й у лишеного; або обидва без ТТН і однаково (не)оброблені
+      const sameTtn = !!t && t === kt;
+      const bothNoTtn = !t && !kt && !o.shipped && !keep.shipped;
+      const auto = safe || sameTtn || bothNoTtn;
+      return {o, safe: auto};
     });
     res.push({keep, rest});
   });
@@ -15975,10 +15982,21 @@ function showDupOrders(){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;"><strong>Можливі дублі замовлень (${groups.length})</strong>
     <button class="btn btn-sm" type="button" onclick="document.getElementById('dupModal').remove()">✕</button></div>
     <div class="hint" style="margin-bottom:8px;">Дубль = той самий номер із сайту, або той самий клієнт/телефон + дата + сума. «Лишити» — найдалі оброблене (в архіві, відправлене, з ТТН, оплачене). Галочками позначено безпечні для видалення; сумнівні — без галочки.</div>
-    ${groups.length ? body + `<div style="margin-top:12px;text-align:right;"><button class="btn btn-sm" type="button" onclick="deleteDupChecked()">🗑 Видалити позначені</button></div>` : '<div class="hint">Дублів не знайдено.</div>'}
+    ${groups.length ? body + `<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;"><button class="btn btn-sm" type="button" onclick="deleteDupChecked()">🗑 Видалити позначені</button><button class="btn btn-sm" type="button" style="background:var(--chili,#c0392b);color:#fff;" onclick="deleteAllDups()">🗑 Видалити всі дублі (${groups.reduce((n, g) => n + g.rest.filter(r => r.safe).length, 0)})</button></div>` : '<div class="hint">Дублів не знайдено.</div>'}
   </div>`;
   box.onclick = e => { if(e.target === box) box.remove(); };
   document.body.appendChild(box);
+}
+function deleteAllDups(){
+  const ids = new Set();
+  dupGroups().forEach(g => g.rest.forEach(r => { if(r.safe) ids.add(r.o.id); }));
+  if(!ids.size){ alert('Явних дублів немає.'); return; }
+  if(!confirm(`Видалити ВСІ явні дублі: ${ids.size} шт.?\n\nУ кожній групі лишається найбільш оброблене замовлення. Позиції з іншою ТТН або позначені «перевірте самі» не чіпаються. Цю дію не можна скасувати.`)) return;
+  siteTombstone(orders.filter(o => ids.has(o.id)));
+  orders = orders.filter(o => !ids.has(o.id));
+  renderOrders(); renderOrdersSummary(); scheduleSave();
+  const dm = document.getElementById('dupModal'); if(dm) dm.remove();
+  showDupOrders();
 }
 function deleteDupChecked(){
   const ids = new Set([...document.querySelectorAll('#dupModal .dup-chk:checked')].map(x => parseInt(x.dataset.id, 10)));
@@ -16000,6 +16018,37 @@ function presenceBeat(){
     const o = {}; o['s_' + mySessionId.slice(-5)] = {t: Date.now(), v: APP_VER_NUM, d: actDeviceTag(), vis: document.visibilityState, lock: !!sessionLocked};
     ref.set(o, {merge: true}).catch(() => {});
   }catch(e){}
+}
+/* ---------- фото вмісту ящика (знімає наборщик у packer.html) ---------- */
+async function showPackPhotos(id){
+  const o = orderById(id); if(!o || !o.packPhotoId){ alert('Для цього замовлення фото немає.'); return; }
+  const old = document.getElementById('ppView'); if(old) old.remove();
+  const box = document.createElement('div'); box.id = 'ppView';
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.85);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:20px;';
+  box.onclick = e => { if(e.target === box) box.remove(); };
+  box.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;max-width:900px;width:100%;margin:auto;"><div style="display:flex;justify-content:space-between;align-items:center;"><strong>📷 Фото ящика — ' + escapeAttr(o.customer || '') + '</strong><button class="btn btn-sm" type="button" onclick="document.getElementById(\'ppView\').remove()">✕</button></div><div id="ppViewBody" class="hint" style="margin-top:10px;">Завантажую…</div></div>';
+  document.body.appendChild(box);
+  try{
+    const snap = await fbDb.collection('spice-app').doc(o.packPhotoId).get();
+    const d = snap.exists ? snap.data() : null;
+    const body = document.getElementById('ppViewBody'); if(!body) return;
+    if(!d || !(d.photos || []).length){ body.textContent = 'Фото не знайдено (фото зберігаються 17 днів після отримання замовлення клієнтом, далі видаляються автоматично).'; return; }
+    body.innerHTML = '<div style="color:var(--text-muted);margin-bottom:8px;">' + escapeAttr(o.packedAt || '') + (d.by ? ' · ' + escapeAttr(d.by) : '') + '</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">' +
+      d.photos.map(p => '<a href="' + p + '" target="_blank" rel="noopener"><img src="' + p + '" style="width:100%;border-radius:10px;display:block;"></a>').join('') + '</div>';
+  }catch(e){
+    const body = document.getElementById('ppViewBody'); if(body) body.textContent = 'Не вдалося завантажити фото: ' + (e && e.message || e);
+  }
+}
+// фото займають місце в Firestore — зберігаємо 17 днів після отримання замовлення клієнтом (дата «доставлено»), далі видаляємо автоматично
+async function cleanupPackPhotos(){
+  if(!fbDb || typeof fbConnected === 'undefined' || !fbConnected) return;
+  const limit = Date.now() - 17 * 86400000;
+  const old = orders.filter(o => o.packPhotoId && !o.packPhotoPurged && o.delivered && !o.npReturned && o.deliveredDate && Date.parse(o.deliveredDate) < limit).slice(0, 25);
+  let n = 0;
+  for(const o of old){
+    try{ await fbDb.collection('spice-app').doc(o.packPhotoId).delete(); o.packPhotoPurged = true; o.packPhotoId = ''; o.packPhotoN = 0; n++; }catch(e){ console.warn('cleanupPackPhotos', e); break; }
+  }
+  if(n){ scheduleSave(); try{ renderOrders(); }catch(e){} }
 }
 function presenceStart(){
   if(presenceTimer) return;
