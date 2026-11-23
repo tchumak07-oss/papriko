@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.121 · 23.11.2026 15:35</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.122 · 23.11.2026 15:50</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86121; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86122; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -10577,13 +10577,33 @@ async function resolveNpRecipientAddressRef(o){
   });
   const cp = cpData && cpData[0];
   if(!cp || !cp.Ref) throw new Error('Не вдалося створити отримувача (Counterparty) в НП');
-  const addrData = await npApiCall('Address', 'save', {
-    CounterpartyRef: cp.Ref,
-    StreetRef: o.npStreetRef,
-    BuildingNumber: o.npHouse,
-    Flat: o.npFlat || '',
-    Note: 'Адреса отримувача'
-  });
+  // Address/save приймає StreetRef з класичного довідника вулиць (Address/getStreet), а не завжди SettlementStreetRef
+  // з пошуку населених пунктів — тому спершу шукаємо вулицю там; якщо не знайшли — пробуємо збережений Ref.
+  const refs = [];
+  try{
+    const bare = String(o.npStreet || '').replace(/^(вул\.|вулиця|просп\.|проспект|пров\.|провулок|бульв\.|бульвар|пл\.|площа|узвіз|шосе|наб\.|набережна|тупик|алея|майдан)\s*/i, '').trim();
+    if(bare && o.cityRef){
+      const st = await npApiCall('Address', 'getStreet', {CityRef: o.cityRef, FindByString: bare, Limit: 20}) || [];
+      const norm = x => String(x || '').toLowerCase().replace(/[’'`ʼ]/g, "'").trim();
+      const exact = st.filter(x => norm(x.Description) === norm(bare));
+      (exact.length ? exact : st).forEach(x => { if(x.Ref && !refs.includes(x.Ref)) refs.push(x.Ref); });
+    }
+  }catch(e){ /* довідник недоступний — лишається запасний варіант нижче */ }
+  if(o.npStreetRef && !refs.includes(o.npStreetRef)) refs.push(o.npStreetRef);
+  let addrData = null, lastErr = null;
+  for(const sref of refs.slice(0, 4)){
+    try{
+      addrData = await npApiCall('Address', 'save', {
+        CounterpartyRef: cp.Ref,
+        StreetRef: sref,
+        BuildingNumber: o.npHouse,
+        Flat: o.npFlat || '',
+        Note: 'Адреса отримувача'
+      });
+      if(addrData && addrData[0] && addrData[0].Ref) break;
+    }catch(e){ lastErr = e; addrData = null; }
+  }
+  if(!addrData && lastErr) throw lastErr;
   const addr = addrData && addrData[0];
   if(!addr || !addr.Ref) throw new Error('Не вдалося зберегти адресу отримувача в НП');
   o.npRecipientAddressRef = addr.Ref;
