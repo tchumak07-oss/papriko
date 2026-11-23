@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.122 · 23.11.2026 15:50</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.123 · 23.11.2026 16:05</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86122; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86123; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -10450,7 +10450,7 @@ function selectNpCity(orderId, index){
   o.city = c.fullName || c.name;
   o.cityRef = c.ref;
   o.settlementRef = c.settlementRef || ''; // для пошуку вулиць (searchSettlementStreets хоче Ref населеного пункту, а не DeliveryCity)
-  o.npStreet = ''; o.npStreetRef = ''; o.npRecipientAddressRef = '';
+  o.npStreet = ''; o.npStreetRef = ''; o.npRecipientAddressRef = ''; o.npRecipientCpRef = ''; o.npRecipientContactRef = '';
   o.warehouseRef = '';
   o.warehouseDesc = '';
   delete npWarehousesCache[orderId]; // місто змінилось — старий список відділень більше не актуальний
@@ -10563,20 +10563,14 @@ function selectNpStreet(orderId, index){
 // для кур'єрської доставки — потрібен НП саме як RecipientAddress при ServiceType з "Doors".
 // Кешується в o.npRecipientAddressRef, щоб не створювати нову адресу в кабінеті НП щоразу повторно.
 async function resolveNpRecipientAddressRef(o){
-  if(o.npRecipientAddressRef) return o.npRecipientAddressRef;
+  if(o.npRecipientAddressRef && o.npRecipientCpRef && o.npRecipientContactRef) return o.npRecipientAddressRef;
   if(!o.npStreetRef) throw new Error('Спочатку виберіть вулицю зі списку підказок.');
   if(!o.npHouse) throw new Error('Вкажіть номер будинку.');
   const name = splitFullName(o.customer);
-  const cpData = await npApiCall('Counterparty', 'save', {
-    CounterpartyType: 'PrivatePerson',
-    CounterpartyProperty: 'Recipient',
-    FirstName: name.FirstName,
-    MiddleName: name.MiddleName,
-    LastName: name.LastName,
-    Phone: npPhone(o.phone)
-  });
-  const cp = cpData && cpData[0];
-  if(!cp || !cp.Ref) throw new Error('Не вдалося створити отримувача (Counterparty) в НП');
+  // Адреса має належати ТОМУ Ж отримувачу, якого потім вкажемо в накладній (інакше НП:
+  // «RecipientAddress does not belong to this Recipient») — тому беремо отримувача один раз і запам'ятовуємо
+  const rec = await resolveNpRecipientByPhone(o, name);
+  const cp = {Ref: rec.counterpartyRef};
   // Address/save приймає StreetRef з класичного довідника вулиць (Address/getStreet), а не завжди SettlementStreetRef
   // з пошуку населених пунктів — тому спершу шукаємо вулицю там; якщо не знайшли — пробуємо збережений Ref.
   const refs = [];
@@ -10607,6 +10601,8 @@ async function resolveNpRecipientAddressRef(o){
   const addr = addrData && addrData[0];
   if(!addr || !addr.Ref) throw new Error('Не вдалося зберегти адресу отримувача в НП');
   o.npRecipientAddressRef = addr.Ref;
+  o.npRecipientCpRef = rec.counterpartyRef;
+  o.npRecipientContactRef = rec.contactRef;
   scheduleSave();
   return addr.Ref;
 }
@@ -10803,7 +10799,7 @@ async function updateNpRecipient(orderId){
       weight: weightPerSeat.toFixed(2)
     }));
     const isCourier = o.npDeliveryType === 'courier';
-    const recipientAddress = isCourier ? (o.npRecipientAddressRef || await resolveNpRecipientAddressRef(o)) : o.warehouseRef;
+    const recipientAddress = isCourier ? await resolveNpRecipientAddressRef(o) : o.warehouseRef;
     const docDate = (typeof dateSortValue === 'function' && dateSortValue(o.date) < dateSortValue(todayStr())) ? todayStr() : o.date;
     const upd = {
       Ref: o.ttnRef,
@@ -10824,7 +10820,7 @@ async function updateNpRecipient(orderId){
       SendersPhone: npSender.sendersPhone,
       CityRecipient: o.cityRef,
       RecipientAddress: recipientAddress,
-      Recipient: rec.counterpartyRef, ContactRecipient: rec.contactRef, RecipientsPhone: npPhone(o.phone)
+      Recipient: (isCourier && o.npRecipientCpRef) || rec.counterpartyRef, ContactRecipient: (isCourier && o.npRecipientContactRef) || rec.contactRef, RecipientsPhone: npPhone(o.phone)
     };
     if(o.codAmount && Number(o.codAmount) > 0) upd.AfterpaymentOnGoodsCost = String(o.codAmount);
     await npApiCall('InternetDocument', 'update', upd);
@@ -10966,6 +10962,11 @@ async function createNpWaybill(orderId){
       // «Контроль оплати» — кошти йдуть напряму на розрахунковий рахунок ФОП (за договором з NovaPay),
       // на відміну від звичайної післяплати з поверненням на картку.
       docParams.AfterpaymentOnGoodsCost = String(o.codAmount);
+    }
+    if(isCourier){
+      // отримувач — той самий контрагент, під яким створена адреса
+      docParams.Recipient = o.npRecipientCpRef; docParams.ContactRecipient = o.npRecipientContactRef;
+      delete docParams.RecipientName; delete docParams.RecipientContactName; delete docParams.RecipientType; delete docParams.NewAddress;
     }
     let docData, recipientNote = '';
     try{
