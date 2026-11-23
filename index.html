@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.117 · 21.11.2026 21:15</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.120 · 23.11.2026 15:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86117; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86120; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -15059,7 +15059,7 @@ function ordRowHtml(o, num, arch){
   const cur = (ordCurId === o.id);
   const sel = selectedOrderIds.has(o.id);
   const cp = o.counterpartyId ? counterpartyById(o.counterpartyId) : null;
-  const sub = [arch ? '🗄 В архіві' : '', o.phone || '', o.items.length + ' поз.', cp ? '🏢 ' + cp.name : '', (o.notes && !o.notes.startsWith(AUTO_IMPORT_NOTE_PREFIX)) ? '💬 ' + o.notes : ''].filter(Boolean).join(' · ');
+  const sub = [arch ? '🗄 В архіві' : '', o.fromSite ? '🌐 сайт' : '✍ вручну', o.phone || '', o.items.length + ' поз.', cp ? '🏢 ' + cp.name : '', (o.notes && !o.notes.startsWith(AUTO_IMPORT_NOTE_PREFIX)) ? '💬 ' + o.notes : ''].filter(Boolean).join(' · ');
   return `<div class="ot-row${cur ? ' ot-cur' : ''}${sel ? ' ot-sel' : ''}" role="row" id="otr-${o.id}" data-order="${o.id}" tabindex="${cur ? 0 : -1}" aria-selected="${cur}">
     <span class="ot-mono" style="color:var(--text-faint);text-align:right;">${num}</span>
     <input type="checkbox" aria-label="Вибрати замовлення" ${sel ? 'checked' : ''} onchange="ordToggleSel(${o.id}, this.checked)" style="width:auto;accent-color:var(--saffron);margin:0;">
@@ -15869,7 +15869,11 @@ function renderOrdersSummary(){
     if(toTs !== null && ts > toTs) return false;
     return true;
   };
-  const list = orders.filter(inPeriod);
+  const allInPeriod = orders.filter(inPeriod);
+  const isRet = o => !!(o.npReturned || o.status === 'Повернено');
+  const list = allInPeriod.filter(o => !isRet(o));
+  const retList = allInPeriod.filter(isRet);
+  const retSum = retList.reduce((x, o) => x + calcOrder(o).total, 0);
 
   const total = list.reduce((s,o) => s + calcOrder(o).total, 0);
   const paid = list.filter(o => o.paid).reduce((s,o) => s + calcOrder(o).total, 0);
@@ -15877,11 +15881,13 @@ function renderOrdersSummary(){
   const active = list.filter(o => o.status!=='Скасовано').length;
   const periodLabel = (fromTs || toTs) ? ` (за період${fromVal?' з '+fromVal:''}${toVal?' по '+toVal:''})` : '';
   document.getElementById('ordersSummary').innerHTML = `
-    <div class="card"><div class="label">Всього замовлень${periodLabel ? ' <span class="hint">'+periodLabel+'</span>' : ''}</div><div class="value">${list.length}</div></div>
+    <div class="card"><div class="label">Всього замовлень (без повернень)${periodLabel ? ' <span class="hint">'+periodLabel+'</span>' : ''}</div><div class="value">${list.length}</div></div>
     <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
     <div class="card"><div class="label">Відправлено</div><div class="value">${shippedCount}</div></div>
     <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
     <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(false)">Неоплачені</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(true)">Неоплачені юрособи</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showDupOrders()">🔍 Дублі</button></div>
+  
+    <div class="card"><div class="label">Повернення (окремо)</div><div class="value">${retList.length} · ${fmt(retSum)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showSection('returns')">Відкрити реєстр</button></div>
   `;
 }
 // список неоплачених замовлень за вибраний період: ТТН, клієнт, сума
@@ -16002,6 +16008,7 @@ function showUnpaidOrders(legal){
   const fromTs = fromVal ? dateSortValue(fromVal) : null, toTs = toVal ? dateSortValue(toVal) : null;
   const list = orders.filter(o => {
     if(o.paid || o.status === 'Скасовано' || isArchived(o)) return false;
+    if(o.npReturned || o.status === 'Повернено') return false; // відмови/повернення — окремо, в розділі «Повернення»
     if(!!o.counterpartyId !== !!legal) return false; // фізособи й юрособи — окремі списки
     const ts = dateSortValue(o.date || '');
     if(fromTs !== null && ts < fromTs) return false;
