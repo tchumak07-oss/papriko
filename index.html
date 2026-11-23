@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.120 · 23.11.2026 15:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.121 · 23.11.2026 15:35</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86120; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86121; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -10429,7 +10429,7 @@ async function searchNpCity(orderId){
       const full = a.Present && a.Present.length > base.length
         ? a.Present
         : base + (a.Area ? `, ${a.Area} обл.` : '') + (a.Region ? `, ${a.Region} р-н` : '');
-      return { ref: a.DeliveryCity || a.Ref, name: base, fullName: full };
+      return { ref: a.DeliveryCity || a.Ref, settlementRef: a.Ref || '', name: base, fullName: full };
     });
     if(npCitySuggestions[orderId].length === 0){
       box.innerHTML = '<div class="np-suggestion">Нічого не знайдено</div>';
@@ -10449,6 +10449,8 @@ function selectNpCity(orderId, index){
   const o = orderById(orderId);
   o.city = c.fullName || c.name;
   o.cityRef = c.ref;
+  o.settlementRef = c.settlementRef || ''; // для пошуку вулиць (searchSettlementStreets хоче Ref населеного пункту, а не DeliveryCity)
+  o.npStreet = ''; o.npStreetRef = ''; o.npRecipientAddressRef = '';
   o.warehouseRef = '';
   o.warehouseDesc = '';
   delete npWarehousesCache[orderId]; // місто змінилось — старий список відділень більше не актуальний
@@ -10521,7 +10523,14 @@ async function searchNpStreet(orderId){
   box.innerHTML = '<div class="np-suggestion">Шукаю...</div>';
   box.style.display = 'block';
   try{
-    const data = await npApiCall('Address', 'searchSettlementStreets', {StreetName: query, SettlementRef: o.cityRef, Limit: 8});
+    if(!o.settlementRef){
+      // місто обране раніше (є лише DeliveryCity) — знаходимо Ref населеного пункту за назвою
+      const cityName = String(o.city || '').split(',')[0].replace(/^(м\.|с\.|смт|с-ще)\s*/i, '').trim();
+      const sd = await npApiCall('Address', 'searchSettlements', {CityName: cityName, Limit: 20, Page: 1});
+      const hit = ((sd && sd[0] && sd[0].Addresses) || []).find(a => a.DeliveryCity === o.cityRef) || ((sd && sd[0] && sd[0].Addresses) || [])[0];
+      if(hit && hit.Ref){ o.settlementRef = hit.Ref; scheduleSave(); }
+    }
+    const data = await npApiCall('Address', 'searchSettlementStreets', {StreetName: query, SettlementRef: o.settlementRef || o.cityRef, Limit: 8});
     const addresses = (data && data[0] && data[0].Addresses) || [];
     npStreetSuggestions[orderId] = addresses.map(a => ({ref: a.SettlementStreetRef || a.Ref, name: a.Present || a.SettlementStreetDescription}));
     if(npStreetSuggestions[orderId].length === 0){
