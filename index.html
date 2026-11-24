@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.126 · 24.11.2026 00:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.127 · 24.11.2026 15:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86126; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86127; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -15918,7 +15918,7 @@ function renderOrdersSummary(){
     <div class="card"><div class="label">Активні (без скасованих)</div><div class="value">${active}</div></div>
     <div class="card"><div class="label">Відправлено</div><div class="value">${shippedCount}</div></div>
     <div class="card profit"><div class="label">Сума всіх замовлень</div><div class="value">${fmt(total)} грн</div></div>
-    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(false)">Неоплачені</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(true)">Неоплачені юрособи</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showDupOrders()">🔍 Дублі</button></div>
+    <div class="card profit"><div class="label">Сплачено</div><div class="value">${fmt(paid)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(false)">Неоплачені</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showUnpaidOrders(true)">Неоплачені юрособи</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showDupOrders()">🔍 Дублі</button> <button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showPhotoReport()">📷 Звіт по фото</button></div>
   
     <div class="card"><div class="label">Повернення (окремо)</div><div class="value">${retList.length} · ${fmt(retSum)} грн</div><button class="btn btn-sm" type="button" style="margin-top:8px;font-size:12px;padding:3px 8px;" onclick="showSection('returns')">Відкрити реєстр</button></div>
   `;
@@ -16018,6 +16018,56 @@ function presenceBeat(){
     const o = {}; o['s_' + mySessionId.slice(-5)] = {t: Date.now(), v: APP_VER_NUM, d: actDeviceTag(), vis: document.visibilityState, lock: !!sessionLocked};
     ref.set(o, {merge: true}).catch(() => {});
   }catch(e){}
+}
+/* ---------- звіт по фото наборщика ---------- */
+function photoReportRows(from, to, flt){
+  const day = o => { const d = new Date(o.packedTs || ''); if(isNaN(d)) return ''; const z = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); };
+  return orders.filter(o => o.packed && o.packedTs).filter(o => { const d = day(o); return d && (!from || d >= from) && (!to || d <= to); })
+    .map(o => {
+      const has = (Number(o.packPhotoN) || 0) > 0, purged = !!o.packPhotoPurged;
+      const state = (has || purged) ? 'photo' : (o.packNoPhoto ? 'refused' : 'none');
+      return {o, state, day: day(o)};
+    })
+    .filter(r => flt === 'all' ? true : (flt === 'photo' ? r.state === 'photo' : r.state !== 'photo'))
+    .sort((a, b) => String(b.o.packedTs).localeCompare(String(a.o.packedTs)));
+}
+function showPhotoReport(){
+  const old = document.getElementById('phRep'); if(old) old.remove();
+  const z = n => String(n).padStart(2, '0'), d0 = new Date(Date.now() - 6 * 86400000);
+  const from0 = d0.getFullYear() + '-' + z(d0.getMonth() + 1) + '-' + z(d0.getDate());
+  const box = document.createElement('div'); box.id = 'phRep';
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:20px;';
+  box.onclick = e => { if(e.target === box) box.remove(); };
+  box.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;max-width:1000px;width:100%;margin:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><strong>📷 Звіт по фото наборщика</strong><button class="btn btn-sm" type="button" onclick="document.getElementById('phRep').remove()">✕</button></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0;">
+      <label class="hint">З <input type="date" id="phFrom" value="${from0}" onchange="photoReportRender()"></label>
+      <label class="hint">По <input type="date" id="phTo" value="${todayStr()}" onchange="photoReportRender()"></label>
+      <select id="phFlt" onchange="photoReportRender()" style="max-width:200px;"><option value="all">Усі набрані</option><option value="photo">З фото</option><option value="nophoto">Без фото</option></select>
+      <button class="btn btn-sm" type="button" onclick="photoReportExcel()">⬇ Excel</button>
+    </div>
+    <div id="phSum" class="hint" style="margin-bottom:8px;"></div>
+    <div id="phBody"></div></div>`;
+  document.body.appendChild(box);
+  photoReportRender();
+}
+function photoReportRender(){
+  const from = document.getElementById('phFrom').value, to = document.getElementById('phTo').value, flt = document.getElementById('phFlt').value;
+  const all = photoReportRows(from, to, 'all'), rows = photoReportRows(from, to, flt);
+  const nPhoto = all.filter(r => r.state === 'photo').length, nRef = all.filter(r => r.state === 'refused').length, nNone = all.filter(r => r.state === 'none').length;
+  document.getElementById('phSum').innerHTML = `Набрано: <b>${all.length}</b> · з фото: <b style="color:#2dd4bf;">${nPhoto}</b> · відмова від фото: <b style="color:var(--saffron);">${nRef}</b> · без фото (не знімали): <b>${nNone}</b>` + (all.length ? ` · покриття фото: <b>${Math.round(nPhoto / all.length * 100)}%</b>` : '');
+  const lab = {photo: '<span style="color:#2dd4bf;">✓ з фото</span>', refused: '<span style="color:var(--saffron);">⚠ відмова</span>', none: '<span class="hint">— немає</span>'};
+  document.getElementById('phBody').innerHTML = rows.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:var(--text-muted);"><th style="padding:6px;">Набрано</th><th>№</th><th>Клієнт</th><th>ТТН</th><th>Фото</th><th></th></tr></thead><tbody>` +
+    rows.map(r => { const o = r.o; return `<tr style="border-top:1px solid var(--border);"><td style="padding:7px 6px;white-space:nowrap;">${escapeAttr(o.packedAt || r.day)}</td><td class="hint">№${o.id}</td><td><strong>${escapeAttr(o.customer || 'Без імені')}</strong></td><td style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber || o.ukrTtnNumber || '')}</td><td>${lab[r.state]}${o.packPhotoN ? ' · ' + o.packPhotoN : ''}${o.packPhotoPurged ? ' <span class="hint">(видалено за терміном)</span>' : ''}</td><td style="text-align:right;">${o.packPhotoN ? `<button class="btn btn-sm" type="button" onclick="showPackPhotos(${o.id})">📷 Переглянути</button>` : ''}</td></tr>`; }).join('') + '</tbody></table>' : '<div class="hint">За цей період немає записів.</div>';
+}
+function photoReportExcel(){
+  const from = document.getElementById('phFrom').value, to = document.getElementById('phTo').value, flt = document.getElementById('phFlt').value;
+  const lab = {photo: 'з фото', refused: 'відмова від фото', none: 'немає фото'};
+  exportStyledExcel({
+    downloadName: `foto_naboru_${from}_${to}.xlsx`, sheetName: 'Фото набору',
+    headers: [{header:'Набрано', width:16}, {header:'№', width:8}, {header:'Клієнт', width:30}, {header:'Телефон', width:16}, {header:'ТТН', width:20}, {header:'Фото', width:18}, {header:'К-сть фото', width:11}],
+    rows: photoReportRows(from, to, flt).map(r => [r.o.packedAt || r.day, r.o.id, r.o.customer || '', r.o.phone || '', r.o.ttnNumber || r.o.ukrTtnNumber || '', lab[r.state] + (r.o.packPhotoPurged ? ' (видалено за терміном)' : ''), Number(r.o.packPhotoN) || 0])
+  });
 }
 /* ---------- фото вмісту ящика (знімає наборщик у packer.html) ---------- */
 async function showPackPhotos(id){
