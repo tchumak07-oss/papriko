@@ -77,7 +77,7 @@
 
 <div id="app" style="display:none;">
   <header>
-    <h1>📦 Наборщик <small id="packerVer" style="font-size:11px;font-weight:400;opacity:.6;margin-left:6px;">v1.1 · 22.11.2026 18:00</small></h1>
+    <h1>📦 Наборщик <small id="packerVer" style="font-size:11px;font-weight:400;opacity:.6;margin-left:6px;">v1.2 · 23.11.2026 23:50</small></h1>
     <button class="chip" id="soundBtn" onclick="toggleSound()">🔕 Звук вимкнено</button>
     <button class="chip" id="refreshBtn" onclick="refreshStatuses(true)">🔄 Оновити</button>
     <span class="sync" id="syncLbl">Підключення…</span>
@@ -732,8 +732,8 @@ function renderOrders(){
       ${stickerBtn(o)}
       ${shipBtn(o)}
       ${isPending(o) ? '' : o.packed
-        ? `<div class="muted" style="color:var(--teal);margin-top:6px;">✓ Зібрано ${esc(o.packedAt || '')}</div><button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', false)">Зняти позначку</button>`
-        : `<button class="btn pack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', true)">✓ Набрано</button>`}
+        ? `<div class="muted" style="color:var(--teal);margin-top:6px;">✓ Зібрано ${esc(o.packedAt || '')}${o.packPhotoN ? ' · 📷 ' + o.packPhotoN : (o.packNoPhoto ? ' · без фото' : '')}</div><button class="btn unpack" ${busyUid === uid ? 'disabled' : ''} onclick="setPacked('${esc(uid)}', false)">Зняти позначку</button>`
+        : `<button class="btn pack" ${busyUid === uid ? 'disabled' : ''} onclick="packWithPhoto('${esc(uid)}')">✓ Набрано · 📷 фото</button>`}
     </div>`;
   }).join('');
 }
@@ -956,7 +956,7 @@ function askPrinted(uids){
 }
 
 /* ---------- позначка «набрано» (атомарно, чіпаємо лише замовлення й updatedAt) ---------- */
-function setPacked(uid, checked){
+function setPacked(uid, checked, extra){
   if(busyUid) return;
   busyUid = uid; renderOrders();
   db.runTransaction(t => t.get(docRef).then(snap => {
@@ -972,12 +972,100 @@ function setPacked(uid, checked){
       o.packedAt = `${z2(d.getDate())}.${z2(d.getMonth()+1)} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
       o.packedTs = d.toISOString();
       o.packedBy = 'наборщик';
-    } else { o.packedAt = ''; o.packedTs = ''; o.packedBy = ''; }
+      Object.assign(o, extra || {});
+    } else { o.packedAt = ''; o.packedTs = ''; o.packedBy = ''; o.packNoPhoto = false; }
     arr[i] = o;
     t.update(docRef, {orders: arr, updatedAt: new Date().toISOString()});
   })).then(() => toast(checked ? 'Позначено: набрано' : 'Позначку знято'))
     .catch(err => { toast('Помилка: ' + (err && err.message ? err.message : err)); })
     .finally(() => { busyUid = null; renderOrders(); });
+}
+
+/* ---------- фото вмісту ящика перед «набрано» ---------- */
+// Тап по «Набрано» → одразу відкривається камера телефону (input capture), фото стискається й
+// зберігається окремим документом Firestore (pp_<uid>); у замовленні лишається лише лічильник.
+const PHOTO_MAX = 3;
+let ppState = null;
+function ppDocId(uid){ return 'pp_' + String(uid).replace(/[^\w-]/g, '_'); }
+function ppCompress(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      try{
+        let side = 1100, q = 0.6, out = '';
+        for(let k = 0; k < 4; k++){
+          const sc = Math.min(1, side / Math.max(img.width, img.height));
+          const c = document.createElement('canvas');
+          c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL('image/jpeg', q);
+          if(out.length < 260000) break;
+          side = Math.round(side * 0.8); q = Math.max(0.4, q - 0.08);
+        }
+        URL.revokeObjectURL(url); resolve(out);
+      }catch(e){ reject(e); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Не вдалося прочитати фото')); };
+    img.src = url;
+  });
+}
+function ppOpenCamera(){
+  const inp = $('ppFile'); if(!inp) return;
+  inp.value = ''; inp.click();
+}
+function packWithPhoto(uid){
+  if(busyUid) return;
+  const o = orders.find(x => uidOf(x) === uid); if(!o) return;
+  ppState = {uid, photos: [], saving: false, err: ''};
+  let m = $('ppModal'); if(m) m.remove();
+  m = document.createElement('div'); m.id = 'ppModal';
+  m.style.cssText = 'position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.88);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px;';
+  m.innerHTML = '<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;max-width:520px;width:100%;margin:auto;"><input type="file" id="ppFile" accept="image/*" capture="environment" style="display:none"><div id="ppBody"></div></div>';
+  document.body.appendChild(m);
+  $('ppFile').addEventListener('change', async ev => {
+    const f = ev.target.files && ev.target.files[0]; if(!f || !ppState) return;
+    try{ ppState.photos.push(await ppCompress(f)); ppState.err = ''; }catch(e){ ppState.err = 'Помилка фото: ' + e.message; }
+    ppRender();
+  });
+  ppRender();
+  ppOpenCamera(); // усередині тапу користувача — тому браузер дозволяє відкрити камеру одразу
+}
+function ppRender(){
+  const b = $('ppBody'); if(!b || !ppState) return;
+  const o = orders.find(x => uidOf(x) === ppState.uid) || {};
+  const n = ppState.photos.length;
+  b.innerHTML = `<div style="font-size:18px;font-weight:800;margin-bottom:4px;">📷 Фото вмісту ящика</div>
+    <div class="muted" style="margin-bottom:10px;">${esc(o.customer || '')} — сфотографуйте все, що лежить у ящику.</div>
+    ${n ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">${ppState.photos.map((p, i) => `<div style="position:relative;"><img src="${p}" style="width:100%;border-radius:8px;display:block;"><button class="btn sm ghost" style="position:absolute;top:4px;right:4px;padding:2px 8px;" onclick="ppDel(${i})">✕</button></div>`).join('')}</div>` : '<div class="empty">Фото ще немає</div>'}
+    ${ppState.err ? `<div style="color:var(--danger);margin-bottom:8px;">${esc(ppState.err)}</div>` : ''}
+    ${n < PHOTO_MAX ? `<button class="btn" style="width:100%;margin-bottom:8px;" ${ppState.saving ? 'disabled' : ''} onclick="ppOpenCamera()">📷 ${n ? 'Ще фото' : 'Зробити фото'}</button>` : ''}
+    <button class="btn pack" style="margin-top:0;" ${(!n || ppState.saving) ? 'disabled' : ''} onclick="ppConfirm()">${ppState.saving ? 'Зберігаю…' : '✓ Підтвердити — набрано'}</button>
+    <div class="row" style="justify-content:space-between;margin-top:12px;">
+      <button class="btn sm ghost" ${ppState.saving ? 'disabled' : ''} onclick="ppClose()">Скасувати</button>
+      <button class="btn sm ghost" ${ppState.saving ? 'disabled' : ''} onclick="ppSkip()">Без фото…</button>
+    </div>`;
+}
+function ppDel(i){ if(!ppState) return; ppState.photos.splice(i, 1); ppRender(); }
+function ppClose(){ const m = $('ppModal'); if(m) m.remove(); ppState = null; }
+function ppSkip(){
+  if(!ppState) return;
+  if(!confirm('Позначити набраним БЕЗ фото?\nУ програмі власника це буде видно як «без фото».')) return;
+  const uid = ppState.uid; ppClose();
+  setPacked(uid, true, {packNoPhoto: true, packPhotoN: 0});
+}
+async function ppConfirm(){
+  if(!ppState || ppState.saving || !ppState.photos.length) return;
+  ppState.saving = true; ppState.err = ''; ppRender();
+  const uid = ppState.uid, photos = ppState.photos.slice(), id = ppDocId(uid);
+  try{
+    await db.collection('spice-app').doc(id).set({uid, photos, n: photos.length, ts: new Date().toISOString(), by: 'наборщик'});
+  }catch(e){
+    ppState.saving = false;
+    ppState.err = 'Не вдалося зберегти фото: ' + (e && e.message ? e.message : e) + '. Спробуйте ще раз або оберіть «Без фото».';
+    ppRender(); return;
+  }
+  ppClose();
+  setPacked(uid, true, {packPhotoId: id, packPhotoN: photos.length, packNoPhoto: false});
 }
 
 /* ---------- звіти ---------- */
