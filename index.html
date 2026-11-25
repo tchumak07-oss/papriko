@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.129 · 25.11.2026 14:55</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.130 · 25.11.2026 15:30</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86129; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86130; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -18743,6 +18743,109 @@ function receiptRefreshAll(){
   renderCatalog(); renderKits(); renderSummary(); renderChart(); renderOrders(); scheduleSave();
 }
 
+/* ---------- акт звірки з постачальником ---------- */
+function rcSupplierNames(){
+  const set = new Set();
+  receipts.forEach(r => { const n = String(r.supplier || '').trim(); if(n) set.add(n); });
+  return [...set].sort((a, b) => a.localeCompare(b, 'uk'));
+}
+// рух по постачальнику: нарахування (проведені приходи) і оплати (витрати каси, прив'язані до приходу цього постачальника
+// або записані на нього як на контрагента)
+function reconcileData(supplier, from, to){
+  const nm = s => String(s || '').trim().toLowerCase();
+  const sup = nm(supplier);
+  const myReceipts = receipts.filter(r => nm(r.supplier) === sup && r.status === 'posted');
+  const rIds = new Set(myReceipts.map(r => r.id));
+  const cpIds = new Set(counterparties.filter(c => nm(c.name) === sup).map(c => String(c.id)));
+  const events = [];
+  myReceipts.forEach(r => events.push({date: String(r.date || '').slice(0, 10), kind: 'receipt', doc: `Прихід ${r.number}`, debit: receiptSum(r), credit: 0, ord: r.id}));
+  cashTransactions.forEach(t => {
+    if(t.type !== 'Витрата') return;
+    const byReceipt = t.receiptId && rIds.has(t.receiptId);
+    const byCp = t.counterpartyId && cpIds.has(String(t.counterpartyId)) && !(t.receiptId && !rIds.has(t.receiptId) && receiptById(t.receiptId));
+    if(byReceipt || byCp) events.push({date: String(t.date || '').slice(0, 10), kind: 'pay', doc: 'Оплата' + (t.receiptId && receiptById(t.receiptId) ? ' (' + receiptById(t.receiptId).number + ')' : '') + (t.note ? ' — ' + t.note : ''), debit: 0, credit: Number(t.amount) || 0, ord: t.id});
+  });
+  events.sort((a, b) => a.date.localeCompare(b.date) || (a.kind === b.kind ? a.ord - b.ord : (a.kind === 'receipt' ? -1 : 1)));
+  let opening = 0;
+  events.filter(e => from && e.date < from).forEach(e => { opening += e.debit - e.credit; });
+  const inPeriod = events.filter(e => (!from || e.date >= from) && (!to || e.date <= to));
+  let bal = opening;
+  inPeriod.forEach(e => { bal += e.debit - e.credit; e.bal = bal; });
+  const tDebit = inPeriod.reduce((n, e) => n + e.debit, 0), tCredit = inPeriod.reduce((n, e) => n + e.credit, 0);
+  const cp = counterparties.find(c => nm(c.name) === sup) || null;
+  return {supplier, from, to, opening, events: inPeriod, tDebit, tCredit, closing: opening + tDebit - tCredit, cp, drafts: receipts.filter(r => nm(r.supplier) === sup && r.status !== 'posted').length};
+}
+function showReconcile(){
+  const old = document.getElementById('rcnModal'); if(old) old.remove();
+  const names = rcSupplierNames();
+  const z = n => String(n).padStart(2, '0'), d = new Date(), from0 = d.getFullYear() + '-01-01';
+  const box = document.createElement('div'); box.id = 'rcnModal';
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:20px;';
+  box.onclick = e => { if(e.target === box) box.remove(); };
+  box.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;max-width:900px;width:100%;margin:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;"><strong>📑 Акт звірки з постачальником</strong><button class="btn btn-sm" type="button" onclick="document.getElementById('rcnModal').remove()">✕</button></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0;">
+      <select id="rcnSup" onchange="reconcileRender()" style="max-width:260px;">${names.length ? names.map(n => `<option>${escapeAttr(n)}</option>`).join('') : '<option value="">— немає постачальників у приходах —</option>'}</select>
+      <label class="hint">З <input type="date" id="rcnFrom" value="${from0}" onchange="reconcileRender()"></label>
+      <label class="hint">По <input type="date" id="rcnTo" value="${todayStr()}" onchange="reconcileRender()"></label>
+      <button class="btn btn-sm" type="button" onclick="reconcilePrint()">🖨 Друк / PDF</button>
+      <button class="btn btn-sm" type="button" onclick="reconcileExcel()">⬇ Excel</button>
+    </div>
+    <div id="rcnBody"></div></div>`;
+  document.body.appendChild(box);
+  reconcileRender();
+}
+function reconcileCur(){
+  const sup = (document.getElementById('rcnSup') || {}).value || '';
+  return reconcileData(sup, document.getElementById('rcnFrom').value, document.getElementById('rcnTo').value);
+}
+function reconcileDateUa(d){ return d ? d.split('-').reverse().join('.') : ''; }
+function reconcileTableHtml(r){
+  const th = 'padding:6px 8px;border:1px solid #bbb;background:#f0f0f0;text-align:';
+  const td = 'padding:6px 8px;border:1px solid #ccc;';
+  const money = n => n ? fmt(n) : '';
+  return `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr><th style="${th}left;">Дата</th><th style="${th}left;">Документ</th><th style="${th}right;">Нараховано (отримано товар), грн</th><th style="${th}right;">Оплачено, грн</th><th style="${th}right;">Сальдо, грн</th></tr></thead><tbody>
+    <tr><td style="${td}" colspan="4"><b>Сальдо на ${escapeAttr(reconcileDateUa(r.from))}</b></td><td style="${td}text-align:right;"><b>${fmt(r.opening)}</b></td></tr>
+    ${r.events.map(e => `<tr><td style="${td}white-space:nowrap;">${escapeAttr(reconcileDateUa(e.date))}</td><td style="${td}">${escapeAttr(e.doc)}</td><td style="${td}text-align:right;">${money(e.debit)}</td><td style="${td}text-align:right;">${money(e.credit)}</td><td style="${td}text-align:right;">${fmt(e.bal)}</td></tr>`).join('')}
+    <tr><td style="${td}" colspan="2"><b>Обороти за період</b></td><td style="${td}text-align:right;"><b>${fmt(r.tDebit)}</b></td><td style="${td}text-align:right;"><b>${fmt(r.tCredit)}</b></td><td style="${td}"></td></tr>
+    <tr><td style="${td}" colspan="4"><b>Сальдо на ${escapeAttr(reconcileDateUa(r.to))}</b></td><td style="${td}text-align:right;"><b>${fmt(r.closing)}</b></td></tr></tbody></table>
+    <p style="margin:10px 0 0;font-size:13px;">${r.closing > 0.5 ? `Станом на ${escapeAttr(reconcileDateUa(r.to))} заборгованість <b>${escapeAttr(sellerName || 'нашої сторони')}</b> перед <b>${escapeAttr(r.supplier)}</b> становить <b>${fmt(r.closing)} грн</b>.` : (r.closing < -0.5 ? `Станом на ${escapeAttr(reconcileDateUa(r.to))} є переплата постачальнику: <b>${fmt(-r.closing)} грн</b>.` : `Станом на ${escapeAttr(reconcileDateUa(r.to))} розрахунки завершені, заборгованості немає.`)}</p>
+    ${r.drafts ? `<p style="margin:6px 0 0;font-size:12px;color:#a60;">Не враховано ${r.drafts} непроведених приходів (чернетки).</p>` : ''}`;
+}
+function reconcileRender(){
+  const b = document.getElementById('rcnBody'); if(!b) return;
+  const r = reconcileCur();
+  b.innerHTML = r.supplier ? `<div style="background:#fff;color:#111;border-radius:8px;padding:14px;">${reconcileTableHtml(r)}</div>` : '<div class="hint">Додайте постачальника в прихід, щоб сформувати акт.</div>';
+}
+function reconcilePrint(){
+  const r = reconcileCur(); if(!r.supplier){ alert('Оберіть постачальника.'); return; }
+  const w = window.open('', '_blank');
+  if(!w){ alert('Браузер заблокував спливаюче вікно — дозвольте спливаючі вікна для цього сайту й спробуйте ще раз.'); return; }
+  const cpLine = r.cp ? [r.cp.edrpou ? 'ЄДРПОУ/ІПН ' + r.cp.edrpou : '', r.cp.address || ''].filter(Boolean).join(', ') : '';
+  w.document.write(`<!doctype html><html lang="uk"><head><meta charset="utf-8"><title>Акт звірки — ${escapeAttr(r.supplier)}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:28px;} h2{text-align:center;margin:0 0 4px;} .c{text-align:center;color:#444;margin-bottom:18px;font-size:13px;} .sg{display:flex;justify-content:space-between;margin-top:48px;font-size:13px;gap:30px;} .sg div{flex:1;border-top:1px solid #111;padding-top:6px;} @media print{button{display:none}}</style></head><body>
+    <button onclick="window.print()" style="float:right;padding:8px 14px;">🖨 Друк / PDF</button>
+    <h2>АКТ ЗВІРКИ ВЗАЄМНИХ РОЗРАХУНКІВ</h2>
+    <div class="c">за період з ${escapeAttr(reconcileDateUa(r.from))} по ${escapeAttr(reconcileDateUa(r.to))}</div>
+    <p style="font-size:13px;margin:0 0 4px;"><b>Сторона 1:</b> ${escapeAttr(sellerName || '—')}${sellerEdrpou ? ', ЄДРПОУ/ІПН ' + escapeAttr(sellerEdrpou) : ''}</p>
+    <p style="font-size:13px;margin:0 0 14px;"><b>Сторона 2 (постачальник):</b> ${escapeAttr(r.supplier)}${cpLine ? ', ' + escapeAttr(cpLine) : ''}</p>
+    ${reconcileTableHtml(r)}
+    <div class="sg"><div>Від ${escapeAttr(sellerName || 'Сторони 1')}<br><br>_____________ / _____________</div><div>Від ${escapeAttr(r.supplier)}<br><br>_____________ / _____________</div></div>
+    </body></html>`);
+  w.document.close();
+}
+function reconcileExcel(){
+  const r = reconcileCur(); if(!r.supplier){ alert('Оберіть постачальника.'); return; }
+  const rows = [['', 'Сальдо на ' + reconcileDateUa(r.from), '', '', Math.round(r.opening * 100) / 100]].concat(
+    r.events.map(e => [reconcileDateUa(e.date), e.doc, e.debit || '', e.credit || '', Math.round(e.bal * 100) / 100]),
+    [['', 'Обороти за період', Math.round(r.tDebit * 100) / 100, Math.round(r.tCredit * 100) / 100, ''], ['', 'Сальдо на ' + reconcileDateUa(r.to), '', '', Math.round(r.closing * 100) / 100]]);
+  exportStyledExcel({
+    downloadName: `akt_zvirky_${r.supplier.replace(/[^\wа-яіїєґ]+/gi, '_')}_${r.from}_${r.to}.xlsx`, sheetName: 'Акт звірки',
+    preamble: [[`Акт звірки: ${sellerName || ''} ↔ ${r.supplier}`], [`Період: ${reconcileDateUa(r.from)} — ${reconcileDateUa(r.to)}`]],
+    headers: [{header:'Дата', width:12}, {header:'Документ', width:50}, {header:'Нараховано, грн', width:18}, {header:'Оплачено, грн', width:16}, {header:'Сальдо, грн', width:14}],
+    rows
+  });
+}
 var rcSortKey = 'date', rcSortDir = -1;
 function rcRow(x){
   const sum = receiptSum(x), paid = receiptPaid(x), left = Math.max(0, sum - paid);
@@ -18786,7 +18889,7 @@ function renderReceipts(){
   const r = receiptEditId ? receiptById(receiptEditId) : null;
   if(!r){
     el.innerHTML = `
-      <div class="fb-row" style="margin-bottom:12px;"><button class="btn btn-primary btn-sm" onclick="receiptNew()">+ Новий прихідний документ</button></div>
+      <div class="fb-row" style="margin-bottom:12px;gap:8px;"><button class="btn btn-primary btn-sm" onclick="receiptNew()">+ Новий прихідний документ</button><button class="btn btn-sm" onclick="showReconcile()">📑 Акт звірки з постачальником</button></div>
       <div class="catalog-panel"><div style="padding:8px 12px;overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;" id="rcTable"><thead>
           <tr id="rcHead" style="text-align:left;color:var(--text-muted);"></tr>
