@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.127 · 24.11.2026 15:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.128 · 25.11.2026 13:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86127; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86128; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -18614,6 +18614,16 @@ function receiptNewCost(c, baseQty, basePrice, method){
   return basePrice;                                          // «за останньою ціною»
 }
 const r4 = n => Math.round((Number(n)||0) * 10000) / 10000;
+// Якщо для цієї позиції вже проведено прихід із ПІЗНІШОЮ датою — старий документ не повинен перебивати собівартість
+function receiptHasLaterPosted(r, catalogId){
+  const d = String(r.date || '').slice(0, 10);
+  return receipts.some(x => x.id !== r.id && x.status === 'posted' && String(x.date || '').slice(0, 10) > d && (x.lines || []).some(l => l.catalogId === catalogId));
+}
+function receiptCostFor(r, l, k){
+  if(!(k.basePrice > 0)) return {cost: k.c.cost, stale: false};
+  if(receiptHasLaterPosted(r, k.c.id)) return {cost: k.c.cost, stale: true};
+  return {cost: receiptNewCost(k.c, k.baseQty, k.basePrice, r.costMethod), stale: false};
+}
 
 function receiptNew(){
   const id = nextReceiptId++;
@@ -18695,11 +18705,11 @@ function receiptPost(id){
     else if(!(Number(l.qty) > 0)) bad.push(`рядок ${i+1}: не вказано кількість`);
   });
   if(bad.length){ alert('Неможливо провести:\n' + bad.join('\n')); return; }
-  const changes = r.lines.map(l => { const k = receiptLineCalc(l); return `• ${k.c.name}: +${fmt1(k.baseQty)} ${k.c.unit}` + (k.basePrice > 0 ? `, собівартість ${r4(k.c.cost)} → ${r4(receiptNewCost(k.c, k.baseQty, k.basePrice, r.costMethod))} грн/${k.c.unit}` : ', ціна не вказана — собівартість без змін'); });
+  const changes = r.lines.map(l => { const k = receiptLineCalc(l); return `• ${k.c.name}: +${fmt1(k.baseQty)} ${k.c.unit}` + (k.basePrice > 0 ? (receiptCostFor(r, l, k).stale ? `, собівартість ${r4(k.c.cost)} БЕЗ ЗМІН (вже є пізніший прихід цієї позиції)` : `, собівартість ${r4(k.c.cost)} → ${r4(receiptNewCost(k.c, k.baseQty, k.basePrice, r.costMethod))} грн/${k.c.unit}`) : ', ціна не вказана — собівартість без змін'); });
   if(!confirm(`Провести ${r.number}?\n\n` + changes.join('\n'))) return;
   r.lines.forEach(l => {
     const k = receiptLineCalc(l);
-    const newCost = r4(receiptNewCost(k.c, k.baseQty, k.basePrice, r.costMethod));
+    const newCost = r4(receiptCostFor(r, l, k).cost);
     l.prevCost = k.c.cost; l.newCost = newCost; l.baseQty = k.baseQty;
     const mvId = nextMovementId++;
     stockMovements.push({id: mvId, itemType:'catalog', itemId: k.c.id, qty: k.baseQty, type:'Надходження',
@@ -18761,7 +18771,7 @@ function renderReceipts(){
     const sum = (Number(l.qty)||0) * (Number(l.price)||0);
     let hint = '';
     if(posted && l.newCost !== undefined) hint = `собівартість ${r4(l.prevCost)} → <b>${r4(l.newCost)}</b> грн/${k ? escapeHtml(k.c.unit) : ''}`;
-    else if(k && k.baseQty > 0) hint = (k.basePrice > 0 ? `собівартість ${r4(k.c.cost)} → <b>${r4(receiptNewCost(k.c, k.baseQty, k.basePrice, r.costMethod))}</b> грн/${escapeHtml(k.c.unit)}` : 'ціни немає — собівартість не зміниться') + ` · на склад +${fmt1(k.baseQty)} ${escapeHtml(k.c.unit)}`;
+    else if(k && k.baseQty > 0) hint = (k.basePrice > 0 ? (receiptCostFor(r, l, k).stale ? `собівартість ${r4(k.c.cost)} <b>без змін</b> — вже є пізніший прихід цієї позиції` : `собівартість ${r4(k.c.cost)} → <b>${r4(receiptNewCost(k.c, k.baseQty, k.basePrice, r.costMethod))}</b> грн/${escapeHtml(k.c.unit)}`) : 'ціни немає — собівартість не зміниться') + ` · на склад +${fmt1(k.baseQty)} ${escapeHtml(k.c.unit)}`;
     else if(k) hint = `поточна собівартість ${r4(k.c.cost)} грн/${escapeHtml(k.c.unit)} · на складі ${fmt1(computeBalance('catalog', k.c.id))} ${escapeHtml(k.c.unit)}`;
     const unmatched = !l.catalogId && l.name;
     return `<div class="rc-row">
