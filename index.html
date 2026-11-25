@@ -425,9 +425,28 @@
 
   footer{margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border-soft);}
   footer p{color:var(--text-faint);font-size:12px;line-height:1.7;margin:0 0 6px;}
+
+  /* --- різдвяний декор (вимикається кнопкою 🎄 внизу ліворуч) --- */
+  #xmasLayer{position:fixed;left:0;right:0;top:0;height:0;z-index:150;pointer-events:none;}
+  #xmasLayer .xm-garland{position:absolute;left:0;right:0;top:0;height:22px;display:flex;justify-content:space-around;overflow:hidden;}
+  #xmasLayer .xm-garland::before{content:"";position:absolute;left:-2%;right:-2%;top:-14px;height:26px;border-bottom:2px solid #2e6b3a;border-radius:50%;}
+  #xmasLayer .xm-bulb{width:9px;height:12px;border-radius:50% 50% 55% 55%;margin-top:8px;animation:xmBlink 1.6s infinite ease-in-out;box-shadow:0 0 8px currentColor;background:currentColor;}
+  @keyframes xmBlink{0%,100%{opacity:1}50%{opacity:.35}}
+  #xmasLayer .xm-pepper{position:absolute;top:20px;left:-60px;font-size:26px;animation:xmRun 16s linear infinite;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));}
+  #xmasLayer .xm-pepper span{display:inline-block;animation:xmHop .45s infinite ease-in-out;}
+  @keyframes xmRun{from{left:-60px}to{left:100vw}}
+  @keyframes xmHop{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-6px) rotate(8deg)}}
+  #xmasSnow{position:fixed;inset:0;z-index:149;pointer-events:none;}
+  #xmasBtn{position:fixed;left:10px;bottom:10px;z-index:151;width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:16px;opacity:.8;}
+  body.xmas-off #xmasLayer,body.xmas-off #xmasSnow{display:none;}
+  @media print{#xmasLayer,#xmasSnow,#xmasBtn{display:none !important;}}
+  @media (prefers-reduced-motion:reduce){#xmasLayer .xm-pepper,#xmasLayer .xm-bulb{animation:none;}#xmasSnow{display:none;}}
 </style>
 </head>
 <body>
+<div id="xmasLayer" aria-hidden="true"><div class="xm-garland" id="xmGarland"></div><div class="xm-pepper"><span>🌶️</span></div></div>
+<canvas id="xmasSnow" aria-hidden="true"></canvas>
+<button id="xmasBtn" type="button" title="Різдвяний декор: увімк./вимк." onclick="xmasToggle()">🎄</button>
 <div class="wrap">
 
   <header>
@@ -435,7 +454,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.131 · 25.11.2026 20:50</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.133 · 25.11.2026 22:25</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -721,7 +740,7 @@
   </div>
 
   <div class="fb-row" style="margin-bottom:10px;"><button class="btn btn-sm btn-primary" onclick="wizOpen()" title="Створити товари: спеція × фасування × тара">🪄 Згенерувати товари</button> <button class="btn btn-sm btn-primary" onclick="lnkOpen()" title="Заповнити склад існуючих товарів за назвою">🔗 Підв'язати склад існуючих</button> <button class="btn btn-sm" onclick="zcMode='zero';zeroCostReport()" title="Товари та позиції довідника без собівартості">🧮 Звіт: нульова собівартість</button> <button class="btn btn-sm" onclick="zcMode='filled';zeroCostReport()" title="Товари та позиції довідника із собівартістю, маржа">📊 Звіт: заповнена собівартість</button></div>
-  <input type="text" id="kitSearch" placeholder="🔍 Пошук товару за назвою або SKU…" oninput="renderKits()" style="margin:0 0 12px;">
+  <div style="display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap;"><input type="text" id="kitSearch" placeholder="🔍 Пошук товару за назвою або SKU…" oninput="renderKits()" style="margin:0;flex:1 1 260px;"><button class="btn btn-sm" id="kitViewBtn" type="button" onclick="toggleKitsView()" title="Перемкнути вигляд: картки / таблиця">☰ Таблиця</button></div>
   <div id="kitList"></div>
 
   <!-- ===== CHART ===== -->
@@ -2695,7 +2714,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86131; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86133; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -4979,6 +4998,11 @@ function _renderKitsImpl(){
   if(shownKits.length === 0){
     list.innerHTML = kq && allKits.length ? '<div class="comp-empty">Нічого не знайдено за запитом.</div>' : '<div class="comp-empty">Ще немає жодного набору. Натисніть «+ Новий набір / товар».</div>';
   } else {
+    if(kitsView === 'table'){
+      const open = shownKits.filter(k => !k.collapsed);
+      list.innerHTML = open.map(k => kitExpandedHtml(k)).join('') + kitsTableHtml(shownKits.filter(k => k.collapsed));
+      open.forEach(k => { renderKitComponents(k.id); renderKitStats(k.id); });
+    } else {
     const anyTare = shownKits.some(k => tareName(k));
     let prevLabel = null;
     list.innerHTML = shownKits.map(k => {
@@ -4997,10 +5021,82 @@ function _renderKitsImpl(){
       return head + (k.collapsed ? kitCollapsedHtml(k) : kitExpandedHtml(k));
     }).join('');
     shownKits.forEach(k => { if(!k.collapsed) renderKitComponents(k.id); renderKitStats(k.id); });
+    }
   }
+  const kvb = document.getElementById('kitViewBtn'); if(kvb) kvb.textContent = kitsView === 'table' ? '▦ Картки' : '☰ Таблиця';
   document.getElementById('kitCount').textContent = kq ? `${shownKits.length} з ${allKits.length}` : shownKits.length;
   if(typeof renderKitArchiveBadge === 'function') renderKitArchiveBadge();
   renderQuickOrderKitSelect();
+}
+
+
+/* ---------- різдвяний декор ---------- */
+(function(){
+  var off = false; try{ off = localStorage.getItem('xmasOff') === '1'; }catch(e){}
+  if(off) document.body.classList.add('xmas-off');
+  var g = document.getElementById('xmGarland');
+  if(g){ var cols = ['#e53935','#fbc02d','#43a047','#1e88e5','#ff7043'], h = '';
+    for(var i = 0; i < 28; i++) h += '<i class="xm-bulb" style="color:' + cols[i % 5] + ';animation-delay:' + ((i % 5) * .3) + 's"></i>';
+    g.innerHTML = h; }
+  var cv = document.getElementById('xmasSnow'); if(!cv || !cv.getContext) return;
+  var ctx = cv.getContext('2d'), W = 0, H = 0, fl = [];
+  function size(){ W = cv.width = window.innerWidth; H = cv.height = window.innerHeight; }
+  size(); window.addEventListener('resize', size);
+  for(var n = 0; n < 45; n++) fl.push({x: Math.random() * 2000, y: Math.random() * 1000, r: 1 + Math.random() * 2.5, v: .4 + Math.random() * .9, d: Math.random() * 6.28});
+  function tick(){
+    if(!document.body.classList.contains('xmas-off') && !document.hidden){
+      ctx.clearRect(0, 0, W, H); ctx.fillStyle = 'rgba(255,255,255,.75)';
+      fl.forEach(function(f){ f.y += f.v; f.d += .01; f.x += Math.sin(f.d) * .4; if(f.y > H){ f.y = -5; f.x = Math.random() * W; } if(f.x > W) f.x = 0; ctx.beginPath(); ctx.arc(f.x % W, f.y, f.r, 0, 6.28); ctx.fill(); });
+    }
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
+function xmasToggle(){
+  var off = document.body.classList.toggle('xmas-off');
+  try{ localStorage.setItem('xmasOff', off ? '1' : '0'); }catch(e){}
+}
+var kitsView = 'cards';
+try{ if(localStorage.getItem('kitsView') === 'table') kitsView = 'table'; }catch(e){}
+var kitsSort = {key: 'tare', dir: 1};
+function toggleKitsView(){
+  kitsView = kitsView === 'table' ? 'cards' : 'table';
+  try{ localStorage.setItem('kitsView', kitsView); }catch(e){}
+  renderKits();
+}
+function kitsSortBy(key){
+  if(kitsSort.key === key) kitsSort.dir = -kitsSort.dir; else kitsSort = {key, dir: 1};
+  renderKits();
+}
+function kitsTableHtml(list){
+  const row = k => {
+    const c = calcKit(k), price = Number(k.price) || 0, pu = price - c.unitCost, mu = price > 0 ? pu / price * 100 : 0;
+    return {k, sku: k.sku || '', name: k.name || '', tare: tareName(k) || 'Без тари', cost: c.unitCost, price, profit: pu, margin: mu, qty: Number(k.qty) || 0};
+  };
+  const rows = list.map(row);
+  const key = kitsSort.key, dir = kitsSort.dir;
+  const txt = key === 'sku' || key === 'name' || key === 'tare';
+  rows.sort((a, b) => {
+    let r = txt ? String(a[key]).localeCompare(String(b[key]), 'uk', {numeric: true}) : (a[key] - b[key]);
+    if(key === 'tare' && !r) r = String(a.name).localeCompare(String(b.name), 'uk');
+    return r * dir;
+  });
+  const th = (k, t, right) => `<th style="padding:6px 8px;cursor:pointer;white-space:nowrap;text-align:${right ? 'right' : 'left'};" onclick="kitsSortBy('${k}')">${t}${kitsSort.key === k ? (kitsSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+  const inp = 'background:transparent;border:1px solid transparent;color:inherit;font:inherit;padding:3px 6px;border-radius:6px;';
+  return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">${th('sku','SKU')}${th('name','Назва')}${th('tare','Тара')}${th('cost','Собівартість',1)}${th('price','Ціна',1)}${th('profit','Прибуток/од',1)}${th('margin','Маржа',1)}${th('qty','К-сть',1)}<th></th></tr>
+    ${rows.map(r => `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace;color:var(--text-faint);">${escapeAttr(r.sku)}</td>
+      <td style="padding:4px 8px;"><input type="text" value="${escapeAttr(r.name)}" style="${inp}width:100%;min-width:200px;" onchange="quickKitEdit(${r.k.id},'name',this.value)"></td>
+      <td style="padding:4px 8px;white-space:nowrap;">${escapeAttr(r.tare)}</td>
+      <td style="padding:4px 8px;text-align:right;">${fmt1(r.cost)}</td>
+      <td style="padding:4px 8px;text-align:right;"><input type="number" step="0.1" value="${r.price || ''}" style="${inp}width:80px;text-align:right;" onchange="quickKitEdit(${r.k.id},'price',this.value)"></td>
+      <td style="padding:4px 8px;text-align:right;" class="${r.profit >= 0 ? 'profit-pos' : 'profit-neg'}">${r.profit >= 0 ? '' : '−'}${fmt1(Math.abs(r.profit))}</td>
+      <td style="padding:4px 8px;text-align:right;" class="${r.margin >= 0 ? 'profit-pos' : 'profit-neg'}">${fmt1(r.margin)}%</td>
+      <td style="padding:4px 8px;text-align:right;">${r.qty || ''}</td>
+      <td style="padding:4px 8px;white-space:nowrap;"><button class="btn btn-sm" onclick="editKit(${r.k.id})">Редагувати</button> <button class="btn-ghost" onclick="removeKit(${r.k.id})" aria-label="Видалити набір">×</button></td>
+    </tr>`).join('')}
+  </table></div>`;
 }
 
 function kitCollapsedHtml(k){
