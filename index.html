@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.128 · 25.11.2026 13:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.129 · 25.11.2026 14:55</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2694,7 +2694,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86128; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86129; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -18743,21 +18743,64 @@ function receiptRefreshAll(){
   renderCatalog(); renderKits(); renderSummary(); renderChart(); renderOrders(); scheduleSave();
 }
 
+var rcSortKey = 'date', rcSortDir = -1;
+function rcRow(x){
+  const sum = receiptSum(x), paid = receiptPaid(x), left = Math.max(0, sum - paid);
+  const pay = !paid ? 'unpaid' : (left <= 0.5 ? 'paid' : 'part');
+  return {x, num: x.number || '', date: x.date || '', sup: x.supplier || '', cnt: x.lines.length, sum, paid, left, pay, st: x.status === 'posted' ? 'posted' : 'draft'};
+}
+function rcSort(key){ if(rcSortKey === key) rcSortDir = -rcSortDir; else { rcSortKey = key; rcSortDir = (key === 'num' || key === 'sup' || key === 'date') ? 1 : -1; if(key === 'date') rcSortDir = -1; } rcRenderTable(); }
+function rcFilterChanged(){ rcRenderTable(); }
+function rcRenderTable(){
+  const body = document.getElementById('rcBody'); if(!body) return;
+  const g = id => { const e = document.getElementById(id); return e ? e.value.trim().toLowerCase() : ''; };
+  const fNum = g('rcfNum'), fDate = g('rcfDate'), fSup = g('rcfSup'), fPay = g('rcfPay'), fSt = g('rcfSt');
+  let rows = receipts.map(rcRow).filter(r =>
+    (!fNum || r.num.toLowerCase().includes(fNum)) && (!fDate || r.date.toLowerCase().includes(fDate)) && (!fSup || r.sup.toLowerCase().includes(fSup)) &&
+    (!fPay || r.pay === fPay) && (!fSt || r.st === fSt));
+  const k = rcSortKey, d = rcSortDir;
+  rows.sort((a, b) => {
+    let c;
+    if(k === 'date') c = dateSortValue(a.date) - dateSortValue(b.date);
+    else if(k === 'num' || k === 'sup' || k === 'st' || k === 'pay') c = String(a[k]).localeCompare(String(b[k]), 'uk', {numeric: true});
+    else c = (a[k] || 0) - (b[k] || 0);
+    return (c || (a.x.id - b.x.id)) * d;
+  });
+  const cols = [['num','Номер'],['date','Дата'],['sup','Постачальник'],['cnt','Поз.'],['sum','Сума, грн'],['paid','Оплачено, грн'],['pay','Оплата'],['st','Статус']];
+  const head = document.getElementById('rcHead');
+  head.innerHTML = cols.map(([key, label]) => `<th style="padding:6px;cursor:pointer;white-space:nowrap;${['cnt','sum','paid'].includes(key) ? 'text-align:right;' : ''}" onclick="rcSort('${key}')">${label}${rcSortKey === key ? (rcSortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '<th></th>';
+  const payLab = {paid: '<span style="color:var(--cardamom);">оплачено ✓</span>', part: '<span style="color:var(--saffron);">частково</span>', unpaid: '<span style="color:var(--danger);">не оплачено</span>'};
+  body.innerHTML = rows.length ? rows.map(r => `<tr style="border-top:1px solid var(--border);cursor:pointer;" onclick="receiptOpen(${r.x.id})">
+      <td style="padding:8px 6px;"><strong>${escapeAttr(r.num)}</strong></td><td style="white-space:nowrap;">${escapeHtml(r.date)}</td><td>${escapeHtml(r.sup)}</td>
+      <td style="text-align:right;">${r.cnt}</td><td style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.sum)}</td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(r.paid)}${r.pay === 'part' ? ' <span class="hint">(ост. ' + fmt(r.left) + ')</span>' : ''}</td>
+      <td>${payLab[r.pay]}</td>
+      <td><span class="status-badge" style="${r.st==='posted' ? 'background:var(--cardamom);color:#fff;' : 'background:var(--saffron);color:var(--saffron-text);'}">${r.st==='posted' ? 'проведено' : 'чернетка'}</span></td>
+      <td style="text-align:right;"><button class="btn btn-sm" onclick="event.stopPropagation();receiptOpen(${r.x.id})">Відкрити</button></td></tr>`).join('')
+    : `<tr><td colspan="9" class="comp-empty" style="padding:16px;">${receipts.length ? 'Нічого не знайдено за фільтрами.' : 'Прихідних документів ще немає. Натисніть «+ Новий прихідний документ» — після проведення кількість додасться на склад.'}</td></tr>`;
+  const tSum = rows.reduce((n, r) => n + r.sum, 0), tPaid = rows.reduce((n, r) => n + r.paid, 0);
+  document.getElementById('rcFoot').innerHTML = rows.length ? `<tr style="border-top:2px solid var(--border);font-weight:700;"><td style="padding:8px 6px;" colspan="3">Разом: ${rows.length} док.</td><td></td><td style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(tSum)}</td><td style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmt(tPaid)}</td><td colspan="3" class="hint">${tSum - tPaid > 0.5 ? 'не оплачено: ' + fmt(tSum - tPaid) + ' грн' : ''}</td></tr>` : '';
+}
 function renderReceipts(){
   const el = document.getElementById('receiptsBody'); if(!el) return;
   const r = receiptEditId ? receiptById(receiptEditId) : null;
   if(!r){
-    const list = [...receipts].sort((a,b) => dateSortValue(b.date) - dateSortValue(a.date) || b.id - a.id);
     el.innerHTML = `
       <div class="fb-row" style="margin-bottom:12px;"><button class="btn btn-primary btn-sm" onclick="receiptNew()">+ Новий прихідний документ</button></div>
-      <div class="catalog-panel"><div style="padding:14px 16px;">` + (list.length ? list.map(x => `
-        <div class="edit-list-row">
-          <div class="edit-list-info" style="flex:1;">
-            <strong>${escapeAttr(x.number)}</strong> <span class="hint">· ${escapeHtml(x.date||'')}${x.supplier ? ' · ' + escapeHtml(x.supplier) : ''} · ${x.lines.length} поз. · ${fmt(receiptSum(x))} грн · ${receiptPayText(x)}</span>
-            <span class="status-badge" style="${x.status==='posted' ? 'background:var(--cardamom);color:#fff;' : 'background:var(--saffron);color:var(--saffron-text);'}">${x.status==='posted' ? 'проведено' : 'чернетка'}</span>
-          </div>
-          <button class="btn btn-sm" onclick="receiptOpen(${x.id})">Відкрити</button>
-        </div>`).join('') : '<div class="comp-empty">Прихідних документів ще немає. Натисніть «+ Новий прихідний документ» — після проведення кількість піде на склад, а собівартість оновиться за вхідною ціною.</div>') + `</div></div>`;
+      <div class="catalog-panel"><div style="padding:8px 12px;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;" id="rcTable"><thead>
+          <tr id="rcHead" style="text-align:left;color:var(--text-muted);"></tr>
+          <tr>
+            <th><input type="text" id="rcfNum" placeholder="номер" oninput="rcFilterChanged()" style="width:100%;min-width:70px;"></th>
+            <th><input type="text" id="rcfDate" placeholder="дата" oninput="rcFilterChanged()" style="width:100%;min-width:80px;"></th>
+            <th><input type="text" id="rcfSup" placeholder="постачальник" oninput="rcFilterChanged()" style="width:100%;min-width:110px;"></th>
+            <th></th><th></th><th></th>
+            <th><select id="rcfPay" onchange="rcFilterChanged()"><option value="">Усі</option><option value="paid">Оплачені</option><option value="part">Частково</option><option value="unpaid">Не оплачені</option></select></th>
+            <th><select id="rcfSt" onchange="rcFilterChanged()"><option value="">Усі</option><option value="posted">Проведені</option><option value="draft">Чернетки</option></select></th>
+            <th></th>
+          </tr></thead><tbody id="rcBody"></tbody><tfoot id="rcFoot"></tfoot></table>
+      </div></div>`;
+    rcRenderTable();
     return;
   }
   const posted = r.status === 'posted', dis = posted ? 'disabled' : '';
