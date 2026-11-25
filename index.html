@@ -435,7 +435,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.130 · 25.11.2026 15:30</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.131 · 25.11.2026 20:50</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1813,6 +1813,7 @@
       <div class="fb-row" style="margin-top:8px;">
         <button class="btn btn-sm btn-primary" onclick="saveSiteSyncSettings()">Зберегти</button>
         <button class="btn btn-sm" onclick="runSiteImport(true)">Завантажити зараз</button>
+        <button class="btn btn-sm" onclick="showSitePriceSync()">🔄 Порівняти ціни з сайтом</button>
       </div>
       <div class="hint" id="siteSyncStatus" style="margin-top:6px;"></div>
     </div></div>
@@ -2694,7 +2695,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86130; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86131; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -19354,6 +19355,106 @@ async function siteApiGet(path){
     const err = new Error(msg); err.status = res.status; err.code = data && data.error; throw err;
   }
   return data;
+}
+
+// ===== Порівняння каталогу сайту з програмою (ціни сайту — еталон; змінюємо лише програму, лише після підтвердження) =====
+async function siteFetchCatalog(){
+  const all = []; let cursor = '', guard = 0;
+  do{
+    const q = 'limit=200&fields=' + encodeURIComponent('name,article,hidden,discountPercent,variants') + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+    const d = await siteApiGet('/products?' + q);
+    (d.data || []).forEach(p => all.push(p));
+    cursor = d.page && d.page.hasMore ? d.page.nextCursor : '';
+  }while(cursor && ++guard < 30);
+  return all;
+}
+function siteCatalogRows(products){
+  const rows = [];
+  products.forEach(p => (p.variants || []).forEach(v => {
+    const price = Number(v.price) || 0;
+    const sale = (v.salePrice != null && v.salePrice !== '') ? Number(v.salePrice) : price;
+    const it = {productId: p.id, variantId: v.id, name: p.name, variantLabel: v.label || '', variantMeta: v.meta || ''};
+    rows.push({it, key: siteItemKey(it), title: siteItemTitle(it), price, sale, hidden: !!(p.hidden || v.hidden)});
+  }));
+  return rows;
+}
+async function showSitePriceSync(){
+  const old = document.getElementById('spsView'); if(old) old.remove();
+  const box = document.createElement('div'); box.id = 'spsView';
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.85);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:20px;';
+  box.onclick = e => { if(e.target === box) box.remove(); };
+  box.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;max-width:1000px;width:100%;margin:auto;"><div style="display:flex;justify-content:space-between;align-items:center;"><strong>🔄 Порівняння цін: сайт ↔ програма</strong><button class="btn btn-sm" type="button" onclick="document.getElementById(\'spsView\').remove()">✕</button></div><div id="spsBody" class="hint" style="margin-top:10px;">Завантажую каталог сайту…</div></div>';
+  document.body.appendChild(box);
+  const body = document.getElementById('spsBody');
+  let products;
+  try{ products = await siteFetchCatalog(); }
+  catch(e){
+    const m = (e && e.code === 'resource_not_allowed') ? 'Ключу сайту не дозволено читати «Товари». Власниця сайту має ввімкнути розділ «Товари» для цього ключа в адмінці (розділ «API»).' : (e && e.message || e);
+    body.textContent = 'Не вдалося завантажити каталог: ' + m; return;
+  }
+  const rows = siteCatalogRows(products);
+  const used = new Map(); // kitId -> [row]
+  const diff = [], same = [], nomatch = [];
+  rows.forEach(r => {
+    const k = findKitForSiteItem(r.it);
+    if(k === 'skip') return;
+    if(!k){ nomatch.push(r); return; }
+    r.kit = k;
+    if(!used.has(k.id)) used.set(k.id, []);
+    used.get(k.id).push(r);
+    if(Math.abs((Number(k.price) || 0) - r.sale) > 0.005) diff.push(r); else same.push(r);
+  });
+  const conflict = [...used.values()].filter(a => a.length > 1);
+  const conflictKits = new Set(conflict.map(a => a[0].kit.id));
+  const notOnSite = kits.filter(k => !k.archived && !used.has(k.id) && !Object.values(appSettings.siteKitMap || {}).includes(k.id));
+  const m = n => (Math.round(n * 100) / 100).toLocaleString('uk-UA');
+  const tr = (cells, extra) => '<tr' + (extra || '') + '>' + cells.map(c => '<td style="padding:5px 8px;border-bottom:1px solid var(--border);">' + c + '</td>').join('') + '</tr>';
+  let h = '<div style="margin-bottom:10px;">Позицій на сайті: <b>' + rows.length + '</b> · ціна збігається: <b>' + same.length + '</b> · відрізняється: <b>' + diff.length + '</b> · немає в програмі: <b>' + nomatch.length + '</b> · є в програмі, але не знайдено на сайті: <b>' + notOnSite.length + '</b>. Еталон — ціна, яку платить покупець на сайті (зі знижкою, якщо є).</div>';
+  h += '<div style="font-weight:600;margin:10px 0 4px;">1. Ціни відрізняються — виправити в програмі</div>';
+  if(!diff.length) h += '<div class="hint">Розбіжностей немає ✅</div>';
+  else{
+    h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><tr style="text-align:left;color:var(--text-muted);"><th style="padding:5px 8px;"><input type="checkbox" id="spsAll" checked onchange="document.querySelectorAll(\'.spsChk\').forEach(c=>c.checked=this.checked)"></th><th style="padding:5px 8px;">Товар на сайті</th><th style="padding:5px 8px;">Набір у програмі</th><th style="padding:5px 8px;text-align:right;">Зараз у програмі</th><th style="padding:5px 8px;text-align:right;">На сайті</th></tr>';
+    diff.forEach((r, i) => {
+      const warn = conflictKits.has(r.kit.id) ? ' ⚠️' : '';
+      h += tr(['<input type="checkbox" class="spsChk" data-i="' + i + '"' + (conflictKits.has(r.kit.id) ? '' : ' checked') + '>', escapeAttr(r.title) + (r.hidden ? ' <span class="hint">(прихований на сайті)</span>' : ''), escapeAttr(r.kit.name || '') + warn, m(Number(r.kit.price) || 0) + ' ₴', '<b>' + m(r.sale) + ' ₴</b>' + (r.sale !== r.price ? ' <span class="hint">(без знижки ' + m(r.price) + ')</span>' : '')]);
+    });
+    h += '</table></div>';
+    if(conflict.length) h += '<div class="hint" style="margin-top:6px;">⚠️ Один набір програми відповідає кільком позиціям сайту з різними цінами — такі не відмічено, перевірте вручну.</div>';
+    h += '<div style="margin-top:10px;"><button class="btn btn-primary" type="button" onclick="applySitePrices()">Виправити відмічені в програмі</button> <span class="hint">Ціни вже оформлених замовлень не змінюються.</span></div>';
+  }
+  h += '<div style="font-weight:600;margin:18px 0 4px;">2. Є на сайті, немає в програмі (' + nomatch.length + ')</div>';
+  if(!nomatch.length) h += '<div class="hint">Усе знайдено ✅</div>';
+  else{
+    h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><tr style="text-align:left;color:var(--text-muted);"><th style="padding:5px 8px;"><input type="checkbox" onchange="document.querySelectorAll(\'.spsNew\').forEach(c=>c.checked=this.checked)"></th><th style="padding:5px 8px;">Товар на сайті</th><th style="padding:5px 8px;text-align:right;">Ціна</th></tr>';
+    nomatch.forEach((r, i) => { h += tr(['<input type="checkbox" class="spsNew" data-i="' + i + '">', escapeAttr(r.title) + (r.hidden ? ' <span class="hint">(прихований)</span>' : ''), m(r.sale) + ' ₴']); });
+    h += '</table></div><div style="margin-top:10px;"><button class="btn" type="button" onclick="createSiteKits()">Створити відмічені в програмі</button> <span class="hint">Створюється порожній набір з назвою й ціною сайту; склад і собівартість додасте самі.</span></div>';
+  }
+  h += '<div style="font-weight:600;margin:18px 0 4px;">3. Є в програмі, але не знайдено на сайті (' + notOnSite.length + ')</div>';
+  h += notOnSite.length ? '<div class="hint" style="column-width:260px;">' + notOnSite.map(k => escapeAttr(k.name || '')).join('<br>') + '</div><div class="hint" style="margin-top:4px;">Лише для перегляду, нічого не змінюється. Це можуть бути товари не для сайту.</div>' : '<div class="hint">Усе є на сайті ✅</div>';
+  body.className = ''; body.innerHTML = h;
+  window._spsState = {diff, nomatch};
+}
+function applySitePrices(){
+  const st = window._spsState; if(!st) return;
+  const sel = [...document.querySelectorAll('.spsChk')].filter(c => c.checked).map(c => st.diff[+c.dataset.i]).filter(Boolean);
+  if(!sel.length){ alert('Нічого не відмічено.'); return; }
+  if(!confirm('Змінити ціни в програмі для ' + sel.length + ' поз. за цінами сайту?')) return;
+  if(!appSettings.siteKitMap) appSettings.siteKitMap = {};
+  sel.forEach(r => { r.kit.price = r.sale; appSettings.siteKitMap[r.key] = r.kit.id; });
+  scheduleSave(); try{ renderKits(); }catch(e){}
+  const el = document.getElementById('spsView'); if(el) el.remove();
+  alert('Готово: оновлено цін — ' + sel.length + '.');
+}
+function createSiteKits(){
+  const st = window._spsState; if(!st) return;
+  const sel = [...document.querySelectorAll('.spsNew')].filter(c => c.checked).map(c => st.nomatch[+c.dataset.i]).filter(Boolean);
+  if(!sel.length){ alert('Нічого не відмічено.'); return; }
+  if(!confirm('Створити в програмі ' + sel.length + ' нових наборів?')) return;
+  if(!appSettings.siteKitMap) appSettings.siteKitMap = {};
+  sel.forEach(r => { const k = createNewKitFromName(r.title.replace(/ · /g, ' ')); k.price = r.sale; appSettings.siteKitMap[r.key] = k.id; });
+  scheduleSave(); try{ renderKits(); }catch(e){}
+  const el = document.getElementById('spsView'); if(el) el.remove();
+  alert('Створено наборів: ' + sel.length + '.');
 }
 
 function siteLocalDate(iso){
