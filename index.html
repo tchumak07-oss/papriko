@@ -461,7 +461,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.135 · 27.11.2026 16:10</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.136 · 27.11.2026 16:25</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2722,7 +2722,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86135; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86136; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -18577,12 +18577,22 @@ function renderActLog(){
   box.innerHTML = list.length ? `<div class="hint" style="margin-bottom:6px;">Показано ${list.length} з ${total}</div>` + list.map(e => `<div style="display:grid;grid-template-columns:105px 62px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:13px;">
       <span class="hint" style="font-family:'JetBrains Mono',monospace;">${fmtT(e.t)}</span>
       <span style="color:${e.w === 'авто' ? 'var(--saffron)' : 'var(--text-muted)'};">${escapeHtml(e.w)}<br><span class="hint" style="font-size:10px;">${e.v ? 'v0.' + Math.floor(e.v / 1000) + '.' + (e.v % 1000) : 'стара вер.'}${e.d ? '<br>' + escapeHtml(e.d) : ''}</span></span>
-      <span>${e.o ? `<a href="#" onclick="goToOrder(${Number(e.o) || 0});return false;" style="color:inherit;">№${escapeHtml(String(e.o))} ${escapeHtml(e.n)}</a> — ` : ''}${escapeHtml(e.m)}</span></div>`).join('')
+      <span>${e.o ? `<a href="#" onclick="goToOrder(${Number(e.o) || 0});return false;" style="color:inherit;">№${escapeHtml(String(e.o))} ${escapeHtml(e.n)}</a> — ` : ''}${escapeHtml(e.m)}${(() => { const pi = actPayInfo(e); return pi ? `<br><span class="hint ${pi.cls}" style="font-size:12px;"><b>${fmt(pi.sum)} грн</b> · ${pi.label}</span>` : ''; })()}</span></div>`).join('')
       + (total > list.length ? `<div style="margin-top:10px;"><button class="btn btn-sm" onclick="actLogLimit+=500;renderActLog()">Показати ще</button></div>` : '')
     : '<div class="comp-empty">Записів немає.</div>';
 }
+function actPayInfo(e){
+  if(!e || !e.o) return null;
+  const o = (typeof orderById === 'function') ? orderById(Number(e.o)) : null;
+  if(!o || !Array.isArray(o.items)) return null;
+  const total = calcOrder(o).total;
+  const cod = Number(o.codAmount) || 0;
+  if(o.paid) return {sum: total, label: '✅ оплачено наперед', cls: 'profit-pos'};
+  if(cod > 0) return {sum: cod, label: '💵 на відділенні', cls: ''};
+  return {sum: total, label: '⏳ не оплачено', cls: 'profit-neg'};
+}
 function exportActLog(){
-  const rows = [['Час','Хто','№','Клієнт','Подія']].concat(actLog.slice().reverse().map(e => [e.t, e.w, e.o, e.n, e.m]));
+  const rows = [['Час','Хто','№','Клієнт','Подія','Сума','Оплата']].concat(actLog.slice().reverse().map(e => { const pi = actPayInfo(e); return [e.t, e.w, e.o, e.n, e.m, pi ? pi.sum : '', pi ? pi.label.replace(/^\S+\s/, '') : '']; }));
   const csv = '﻿' + rows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
   a.download = 'zhurnal_' + todayStr() + '.csv'; document.body.appendChild(a); a.click(); a.remove();
