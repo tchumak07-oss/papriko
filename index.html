@@ -461,7 +461,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.134 · 25.11.2026 22:50</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.135 · 27.11.2026 16:10</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1650,6 +1650,7 @@
       <div><label>Пошук</label><input type="text" id="actLogQ" placeholder="ім'я, №, ТТН, подія…" oninput="renderActLog()"></div>
       <div><label>Хто</label><select id="actLogWho" onchange="renderActLog()"><option value="">Усі</option><option value="авто">авто</option><option value="вручну">вручну</option></select></div>
       <div><label>Період</label><select id="actLogPer" onchange="renderActLog()"><option value="today">Сьогодні</option><option value="7">7 днів</option><option value="">Увесь час</option></select></div>
+      <div><label>Подія / статус</label><select id="actLogCat" onchange="renderActLog()"><option value="">Усі</option></select></div>
       <div style="display:flex;align-items:flex-end;"><button class="btn btn-sm" onclick="exportActLog()">⬇ CSV</button></div>
     </div>
     <div id="actLogStatus" class="hint" style="margin-bottom:10px;"></div>
@@ -2721,7 +2722,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86134; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86135; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -18523,6 +18524,33 @@ function actLoad(){
     if(document.getElementById('section-log') && document.getElementById('section-log').classList.contains('active')) renderActLog();
   }).catch(e => { actStatus = 'НЕ вдалось прочитати з бази: ' + (e && e.message || e) + ' — перевірте правила Firestore для документа spice-app/log'; console.warn('Журнал: не вдалось прочитати', e && e.message); if(document.getElementById('actLogStatus')) renderActLog(); });
 }
+const ACT_CATS = {
+  recv: /отримано|вручено|отримав|одержан/i,
+  arrived: /прибуло|очікує.*відділенн|у відділенні/i,
+  transit: /виїхало|в дорозі|прямує|відправлено з|прийнято.*відправ/i,
+  ret: /поверн/i,
+  ttn: /ттн/i,
+  pay: /оплат|monobank|мобанк|передоплат/i,
+  sms: /sms/i,
+  tg: /telegram|телеграм/i,
+  del: /🗑|видалено/i,
+  err: /помилк|не вдал/i,
+  cash: /^(каса|рахунки|рух по складу|приходи|клієнти|інгредієнти|товари\/набори)/i,
+  site: /сайт|🌐/i
+};
+const ACT_CAT_LABELS = {recv:'✅ Отримано клієнтом', arrived:'📬 Прибуло у відділення', transit:'🚚 В дорозі / відправлено', ret:'↩️ Повернення', ttn:'🏷 ТТН', pay:'💰 Оплата', sms:'✉ SMS', tg:'📨 Telegram', del:'🗑 Видалені', err:'⚠️ Помилки', cash:'📒 Каса / склад / довідники', site:'🌐 Сайт'};
+function actLogFillCats(from, who){
+  const sel = document.getElementById('actLogCat'); if(!sel) return;
+  const st = new Map();
+  actLog.forEach(e => { if((!who || e.w === who) && (!from || e.t.slice(0, 10) >= from) && /^(Нова Пошта|Укрпошта)\s*:/.test(e.m)) st.set(e.m, (st.get(e.m) || 0) + 1); });
+  const sig = JSON.stringify([...st.entries()]);
+  if(sel.dataset.sig === sig) return;
+  const cur = sel.value;
+  sel.dataset.sig = sig;
+  sel.innerHTML = '<option value="">Усі</option><optgroup label="Типи подій">' + Object.keys(ACT_CAT_LABELS).map(k => `<option value="cat:${k}">${ACT_CAT_LABELS[k]}</option>`).join('') + '</optgroup>'
+    + (st.size ? '<optgroup label="Статуси перевізників">' + [...st.entries()].sort((a, b) => b[1] - a[1]).map(([m, n]) => `<option value="st:${escapeAttr(m)}">${escapeHtml(m)} (${n})</option>`).join('') + '</optgroup>' : '');
+  if([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
 let actLogLimit = 300;
 function renderActLog(){
   const box = document.getElementById('actLogTable'); if(!box) return;
@@ -18537,8 +18565,12 @@ function renderActLog(){
   let from = '';
   if(per === 'today') from = todayStr();
   else if(per === '7'){ const d = new Date(); d.setDate(d.getDate() - 7); from = d.toISOString().slice(0, 10); }
+  actLogFillCats(from, who);
+  const cat = (document.getElementById('actLogCat') || {}).value || '';
+  const catRe = ACT_CATS[cat.slice(4)];
+  const catOk = e => !cat ? true : cat.startsWith('st:') ? e.m === cat.slice(3) : (catRe ? catRe.test(e.m) : true);
   let list = actLog.slice().reverse().filter(e => (!who || e.w === who) && (!from || e.t.slice(0, 10) >= from)
-    && (!q || (e.n + ' ' + e.m + ' ' + e.o).toLowerCase().includes(q)));
+    && catOk(e) && (!q || (e.n + ' ' + e.m + ' ' + e.o).toLowerCase().includes(q)));
   const total = list.length;
   list = list.slice(0, actLogLimit);
   const fmtT = iso => { const d = new Date(iso); const z = n => String(n).padStart(2, '0'); return `${z(d.getDate())}.${z(d.getMonth()+1)} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`; };
