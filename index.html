@@ -445,6 +445,10 @@
   @keyframes xmHop{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-6px) rotate(8deg)}}
   #xmasSnow{position:fixed;inset:0;z-index:149;pointer-events:none;}
   #xmasBtn{position:fixed;left:10px;bottom:10px;z-index:151;width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:16px;opacity:.8;}
+  #xmasMusicBtn{position:fixed;left:50px;bottom:10px;z-index:151;width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:16px;opacity:.8;}
+  #xmasMusicBtn.on{border-color:var(--saffron);opacity:1;box-shadow:0 0 8px var(--saffron);}
+  body.xmas-off #xmasMusicBtn{display:none;}
+  @media print{#xmasMusicBtn{display:none !important;}}
   body.xmas-off #xmasLayer,body.xmas-off #xmasSnow{display:none;}
   @media print{#xmasLayer,#xmasSnow,#xmasBtn{display:none !important;}}
   @media (prefers-reduced-motion:reduce){#xmasLayer .xm-pepper,#xmasLayer .xm-bulb{animation:none;}#xmasSnow{display:none;}}
@@ -454,6 +458,8 @@
 <div id="xmasLayer" aria-hidden="true"><div class="xm-garland" id="xmGarland"></div><div class="xm-pepper"><span id="xmSeal">🦭</span><span>🦌</span><span>🦌</span><span class="xm-sl">🛷</span><span class="xm-pp"><i class="xm-hat"></i>🌶️</span></div></div>
 <canvas id="xmasSnow" aria-hidden="true"></canvas>
 <button id="xmasBtn" type="button" title="Різдвяний декор: увімк./вимк." onclick="xmasToggle()">🎄</button>
+<button id="xmasMusicBtn" type="button" title="Різдвяна музика: увімк./вимк." onclick="xmasMusicToggle(event)">🎵</button>
+<audio id="xmasAudio" src="last_christmas.mp3" loop preload="none"></audio>
 <div class="wrap">
 
   <header>
@@ -461,7 +467,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.136 · 27.11.2026 16:25</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.138 · 28.11.2026 00:35</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2722,7 +2728,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86136; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86138; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -5061,8 +5067,42 @@ function _renderKitsImpl(){
   }
   tick();
 })();
+function xmasYtId(u){
+  var m = String(u || '').match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/)([\w-]{11})/); return m ? m[1] : '';
+}
+function xmasMusicStop(){
+  var au = document.getElementById('xmasAudio'), b = document.getElementById('xmasMusicBtn'), fr = document.getElementById('xmasYt');
+  if(au) au.pause(); if(fr) fr.remove(); if(b) b.classList.remove('on');
+}
+function xmasMusicToggle(ev){
+  var au = document.getElementById('xmasAudio'), b = document.getElementById('xmasMusicBtn'); if(!au || !b) return;
+  var playing = b.classList.contains('on');
+  var saved = ''; try{ saved = localStorage.getItem('xmasYt') || ''; }catch(e){}
+  if(ev && ev.shiftKey){ xmasMusicStop(); saved = ''; try{ localStorage.removeItem('xmasYt'); }catch(e){} playing = false; }
+  if(playing){ xmasMusicStop(); return; }
+  function playYt(id){
+    xmasMusicStop();
+    var fr = document.createElement('iframe'); fr.id = 'xmasYt';
+    fr.allow = 'autoplay; encrypted-media';
+    fr.style.cssText = 'position:fixed;left:-9999px;bottom:0;width:200px;height:120px;border:0;opacity:0;pointer-events:none;';
+    fr.src = 'https://www.youtube.com/embed/' + id + '?autoplay=1&loop=1&playlist=' + id + '&controls=0';
+    document.body.appendChild(fr); b.classList.add('on');
+  }
+  var ytId = xmasYtId(saved);
+  if(ytId){ playYt(ytId); return; }
+  au.volume = .5;
+  var pr = au.play();
+  function askLink(){
+    var u = prompt('Файлу last_christmas.mp3 не знайдено.\nВставте посилання на пісню з YouTube (воно запам\'ятається; щоб змінити — Shift+клік по 🎵):', '');
+    var id = xmasYtId(u); if(!id){ if(u) alert('Не вдалося розпізнати посилання YouTube.'); return; }
+    try{ localStorage.setItem('xmasYt', u); }catch(e){}
+    playYt(id);
+  }
+  if(pr && pr.then) pr.then(function(){ b.classList.add('on'); }).catch(askLink); else b.classList.add('on');
+}
 function xmasToggle(){
   var off = document.body.classList.toggle('xmas-off');
+  if(off) xmasMusicStop();
   try{ localStorage.setItem('xmasOff', off ? '1' : '0'); }catch(e){}
 }
 var kitsView = 'cards';
