@@ -432,16 +432,16 @@
   #xmasLayer .xm-garland::before{content:"";position:absolute;left:-2%;right:-2%;top:-14px;height:26px;border-bottom:2px solid #2e6b3a;border-radius:50%;}
   #xmasLayer .xm-bulb{width:9px;height:12px;border-radius:50% 50% 55% 55%;margin-top:8px;animation:xmBlink 1.6s infinite ease-in-out;box-shadow:0 0 8px currentColor;background:currentColor;}
   @keyframes xmBlink{0%,100%{opacity:1}50%{opacity:.35}}
-  #xmasLayer .xm-pepper{position:absolute;top:20px;left:-220px;font-size:24px;white-space:nowrap;animation:xmRun 18s linear infinite;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));}
-  #xmasLayer .xm-pp{position:relative;margin-left:-30px;top:-6px;z-index:2;}
-  #xmasLayer .xm-hat{position:absolute;left:3px;top:-9px;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:13px solid #e53935;transform:rotate(-12deg);}
-  #xmasLayer .xm-hat::after{content:'';position:absolute;left:-3px;top:-4px;width:6px;height:6px;border-radius:50%;background:#fff;}
-  #xmasLayer .xm-hat::before{content:'';position:absolute;left:-10px;top:11px;width:20px;height:4px;border-radius:2px;background:#fff;}
+  #xmasLayer .xm-pepper{position:absolute;top:16px;left:-440px;font-size:46px;white-space:nowrap;animation:xmRun 18s linear infinite;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));}
+  #xmasLayer .xm-pp{position:relative;margin-left:-1.25em;top:-.25em;z-index:2;}
+  #xmasLayer .xm-hat{position:absolute;left:.125em;top:-.375em;width:0;height:0;border-left:.33em solid transparent;border-right:.33em solid transparent;border-bottom:.54em solid #e53935;transform:rotate(-12deg);}
+  #xmasLayer .xm-hat::after{content:'';position:absolute;left:-.125em;top:-.17em;width:.25em;height:.25em;border-radius:50%;background:#fff;}
+  #xmasLayer .xm-hat::before{content:'';position:absolute;left:-.42em;top:.46em;width:.83em;height:.17em;border-radius:2px;background:#fff;}
   #xmasLayer .xm-pepper>span{display:inline-block;animation:xmHop .45s infinite ease-in-out;}
   #xmasLayer .xm-pepper>span:nth-child(odd){animation-delay:.2s;}
   #xmasLayer .xm-pepper>.xm-sl,#xmasLayer .xm-pepper>.xm-pp{animation-name:none;}
   #xmasLayer .xm-pepper>.xm-sl,#xmasLayer .xm-pepper>span:nth-child(3),#xmasLayer .xm-pepper>span:nth-child(4),#xmasLayer .xm-pepper>#xmSeal{}
-  @keyframes xmRun{from{left:100vw}to{left:-220px}}
+  @keyframes xmRun{from{left:100vw}to{left:-440px}}
   @keyframes xmHop{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-6px) rotate(8deg)}}
   #xmasSnow{position:fixed;inset:0;z-index:149;pointer-events:none;}
   #xmasBtn{position:fixed;left:10px;bottom:10px;z-index:151;width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:16px;opacity:.8;}
@@ -467,7 +467,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.141 · 28.11.2026 17:55</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.142 · 28.11.2026 20:15</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2740,7 +2740,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86141; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86142; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
