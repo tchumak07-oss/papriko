@@ -467,7 +467,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.140 · 28.11.2026 14:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.141 · 28.11.2026 17:55</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -2740,7 +2740,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86140; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86141; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -9338,6 +9338,15 @@ function freeShipApplyAll(){
   renderOrders(); scheduleSave();
   if(st) st.textContent = `Змінено замовлень: ${n}.`;
 }
+function copyTtn(el, t){
+  const done = () => { const old = el.textContent; el.textContent = '✓'; setTimeout(() => { el.textContent = old; }, 1200); };
+  const fb = () => {
+    try{ const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0;'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); if(ok){ done(); return; } }catch(e){}
+    prompt('Скопіюйте номер:', t);
+  };
+  try{ if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(t).then(done, fb); return; } }catch(e){}
+  fb();
+}
 function clearCodFlag(id){
   const o = orderById(id); if(!o) return;
   const amount = Number(o.codAmount) || 0; if(amount <= 0) return;
@@ -9930,7 +9939,7 @@ async function updateUkrCodAmount(orderId){
 
 function ukrResultHtml(o){
   if(o.ukrTtnNumber){
-    return `<div class="hint" style="color:var(--cardamom);">✓ Декларацію ${o.ukrShipmentUuid ? 'створено' : 'прив\'язано'}: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ukrTtnNumber)}</strong>
+    return `<div class="hint" style="color:var(--cardamom);">✓ Декларацію ${o.ukrShipmentUuid ? 'створено' : 'прив\'язано'}: <strong style="font-family:'JetBrains Mono',monospace;user-select:all;-webkit-user-select:all;">${escapeAttr(o.ukrTtnNumber)}</strong> <a href="#" class="ttn-copy" onclick="copyTtn(this,'${escapeAttr(o.ukrTtnNumber)}');return false;" title="Скопіювати номер ТТН" style="text-decoration:none;">📋</a>
       — <a href="https://track.ukrposhta.ua/tracking_UA.html?barcode=${encodeURIComponent(o.ukrTtnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncUkrStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з Укрпошти</a>
       ${o.ukrShipmentUuid ? `· <a href="#" onclick="enableCheckOnDeliveryUkr(${o.id});return false;" style="color:var(--saffron);">увімкнути огляд при врученні</a>` : ''}
@@ -10879,7 +10888,7 @@ function linkExistingTtn(orderId){
 function ttnResultHtml(o){
   if(o.ttnNumber){
     const isLinked = !o.ttnRef;
-    return `<div class="hint" style="color:var(--cardamom);">✓ ТТН ${isLinked ? 'прив\'язано' : 'створено'}: <strong style="font-family:'JetBrains Mono',monospace;">${escapeAttr(o.ttnNumber)}</strong>
+    return `<div class="hint" style="color:var(--cardamom);">✓ ТТН ${isLinked ? 'прив\'язано' : 'створено'}: <strong style="font-family:'JetBrains Mono',monospace;user-select:all;-webkit-user-select:all;">${escapeAttr(o.ttnNumber)}</strong> <a href="#" class="ttn-copy" onclick="copyTtn(this,'${escapeAttr(o.ttnNumber)}');return false;" title="Скопіювати номер ТТН" style="text-decoration:none;">📋</a>
       — <a href="https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(o.ttnNumber)}" target="_blank" style="color:var(--saffron);">відстежити</a>
       · <a href="#" onclick="syncNpStatus(${o.id});return false;" style="color:var(--saffron);">оновити статус з НП</a>
       ${!isLinked ? `· <a href="#" onclick="unlinkTtn(${o.id});return false;" style="color:var(--saffron);">відкріпити (лишити в НП)</a>` : ''}
