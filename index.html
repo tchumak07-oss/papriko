@@ -467,7 +467,7 @@
       <div class="hdr-title">
         <p class="eyebrow">Товари · замовлення · доставка · фінанси</p>
         <h1>Адміністрування Папріко</h1>
-        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.138 · 28.11.2026 00:35</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
+        <span class="hint" style="font-family:'JetBrains Mono',monospace;color:var(--text-faint);">v0.86.140 · 28.11.2026 14:20</span> <button class="btn btn-sm" type="button" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="showPresence()">📡 Пристрої</button>
       </div>
       <div id="quickOrderBar">
         <button class="btn btn-primary btn-sm" onclick="createOrderFromAnywhere()">+ Нове замовлення</button>
@@ -1862,6 +1862,18 @@
         <span><strong>Автоматично надсилати SMS, коли посилка виїхала (відправлена)</strong><br>
         <span class="hint">Коли оновлення статусу НП чи Укрпошти вперше показало, що посилка вже відправлена, клієнт отримає SMS за шаблоном «відправлено» — один раз. Не надсилається, якщо SMS про відправку вже йшла (у т.ч. через галочку в замовленні), немає телефону чи ТТН, замовлення старше 3 днів, або посилка вже у відділенні.</span></span>
       </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;cursor:pointer;margin-top:14px;">
+        <input type="checkbox" id="setAutoSmsDeadline" onchange="saveDeadlineSettings()" style="width:auto;margin-top:3px;accent-color:var(--saffron);">
+        <span><strong>Автоматично надсилати SMS за день до кінця безкоштовного зберігання у відділенні</strong><br>
+        <span class="hint">Щогодини (поки програма відкрита) перевіряються посилки у відділеннях: якщо завтра закінчується безкоштовне зберігання, клієнт отримає SMS з датою. Одному клієнту — один раз.</span></span>
+      </label>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 0 26px;align-items:center;font-size:14px;">
+        <label>Нова Пошта, днів: <input type="number" id="setStoreDaysNp" min="1" max="30" style="width:64px;" onchange="saveDeadlineSettings()"></label>
+        <label>Укрпошта, днів: <input type="number" id="setStoreDaysUp" min="1" max="30" style="width:64px;" onchange="saveDeadlineSettings()"></label>
+        <button class="btn btn-sm" type="button" onclick="runDeadlineSmsSweep(true)">Перевірити зараз</button>
+      </div>
+      <div style="margin:8px 0 0 26px;"><textarea class="order-notes" id="setTplDeadline" rows="3" onchange="saveDeadlineSettings()" placeholder="Текст SMS"></textarea>
+        <div class="hint">Підстановки: <code>{date}</code> — остання безкоштовна дата, <code>{ttn}</code>, <code>{name}</code>. НП: 5 днів (з 01.10.2026), Укрпошта: 7 днів у місті / 14 у селі.</div></div>
       <div class="hint" id="setSaved" style="margin-top:8px;"></div>
       <div class="catalog-group-title" style="margin-top:20px;">Тексти SMS</div>
       <p class="hint" style="margin:0 0 10px;">Підстановки: <code>{ttn}</code> — номер ТТН, <code>{name}</code> — ім'я клієнта, <code>{sum}</code> — сума замовлення, <code>{days}</code> — скільки днів посилка на відділенні (лише в третьому). Латиниця й цифри — 160 символів на SMS, кирилиця — лише 70, тож латиницею дешевше.</p>
@@ -2728,7 +2740,7 @@ function applyRemoteAuxData(data){
   populateMovementItemSelect();
 }
 
-var APP_VER_NUM = 86138; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
+var APP_VER_NUM = 86140; // 0.86.86 → 86086; зростає з кожною версією: застарілі вкладки/пристрої не мають права перезаписувати базу
 var staleClient = false;
 function scheduleSave(){
   try{ actDiffSoon(); }catch(e){}
@@ -7034,6 +7046,9 @@ function renderAppSettings(){
   [['setTplShipped'], ['setTplArrived'], ['setTplReminder']].forEach(([id]) => { const e = document.getElementById(id); if(e && document.activeElement !== e){ e.value = smsTplVar(id); smsTplPreview(id); } });
   const c = document.getElementById('setAutoSmsArrived'); if(c) c.checked = !!appSettings.autoSmsArrived;
   const c2 = document.getElementById('setAutoSmsShipped'); if(c2) c2.checked = !!appSettings.autoSmsShipped;
+  const cd = document.getElementById('setAutoSmsDeadline'); if(cd) cd.checked = !!appSettings.autoSmsDeadline;
+  [['setStoreDaysNp', appSettings.storeDaysNp || 5], ['setStoreDaysUp', appSettings.storeDaysUp || 7]].forEach(([id, v]) => { const e = document.getElementById(id); if(e && document.activeElement !== e) e.value = v; });
+  const td = document.getElementById('setTplDeadline'); if(td && document.activeElement !== td) td.value = appSettings.smsDeadlineTpl || DEADLINE_TPL_DEFAULT;
   const tr = document.getElementById('setTgReplace'); if(tr) tr.checked = appSettings.tgReplacePrev !== false;
   const fs = document.getElementById('setFreeShip'); if(fs && document.activeElement !== fs) fs.value = Number(appSettings.freeShipThreshold) > 0 ? appSettings.freeShipThreshold : '';
   if(typeof renderSiteSyncSettings === 'function') renderSiteSyncSettings();
@@ -7069,6 +7084,59 @@ function maybeAutoArrivedSms(o){
     if(typeof renderOrders === 'function') renderOrders();
   }).catch(e => console.warn('[auto SMS]', e)).finally(() => autoSmsInFlight.delete(o.id));
 }
+
+/* ---------- SMS за день до кінця безкоштовного зберігання ---------- */
+const DEADLINE_TPL_DEFAULT = 'Bezkoshtovne zberigannya vashoi posylki zakinchuetsya {date}. Zaberit, bud laska, abo posylka povernetsya vidpravnyku. TTN: {ttn}';
+function addDaysStr(dateStr, n){
+  const d = new Date((dateStr || '').slice(0, 10) + 'T00:00:00'); if(isNaN(d)) return '';
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function storeLimitDays(o){
+  const up = !!o.ukrStatusText || o.deliveryMethod === 'Укрпошта';
+  return up ? (Number(appSettings.storeDaysUp) || 7) : (Number(appSettings.storeDaysNp) || 5);
+}
+function deadlineSmsText(o, lim){
+  const dt = addDaysStr(o.atBranchSince, lim); const m = dt.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const nice = m ? m[3] + '.' + m[2] : dt;
+  return (appSettings.smsDeadlineTpl || DEADLINE_TPL_DEFAULT).replace(/\{date\}/g, nice).replace(/\{ttn\}/g, o.ttnNumber || o.ukrTtnNumber || '').replace(/\{name\}/g, o.customer || '');
+}
+let deadlineSweepBusy = false;
+async function runDeadlineSmsSweep(manual){
+  if(deadlineSweepBusy) return;
+  if(!appSettings.autoSmsDeadline){ if(manual) alert('Автоматичні SMS про кінець зберігання вимкнено — увімкніть галочку вище.'); return; }
+  if(!smsToken){ if(manual) alert('SMS не налаштовано (вкажіть ключ).'); return; }
+  if(sessionLocked) return;
+  deadlineSweepBusy = true;
+  let sent = 0, failed = 0;
+  try{
+    const today = todayStr();
+    const due = orders.filter(o => !isArchived(o) && isAtBranchAwaitingPickup(o) && o.atBranchSince && o.phone && toIntlPhone(o.phone).length === 12
+      && !(o.smsLog || []).some(l => l.ok && l.kind === 'deadline')
+      && (() => { const d = daysBetween(o.atBranchSince, today), lim = storeLimitDays(o); return d >= lim - 1 && d <= lim; })());
+    for(const o of due){
+      const res = await sendSms(o.phone, deadlineSmsText(o, storeLimitDays(o)));
+      const d = new Date(), z = n => String(n).padStart(2, '0');
+      if(!Array.isArray(o.smsLog)) o.smsLog = [];
+      o.smsLog.push({date: today, time: z(d.getHours()) + ':' + z(d.getMinutes()), kind: 'deadline', ok: !!res.ok, error: res.ok ? '' : String(res.error || '').slice(0, 160)});
+      if(o.smsLog.length > 40) o.smsLog = o.smsLog.slice(-40);
+      if(res.ok) sent++; else failed++;
+    }
+    if(sent || failed){ scheduleSave(); try{ renderOrders(); }catch(e){} }
+    if(manual) alert(due.length ? `SMS про кінець зберігання: надіслано ${sent}, помилок ${failed}.` : 'Зараз немає посилок, у яких завтра закінчується безкоштовне зберігання.');
+  }catch(e){ console.warn('[deadline SMS]', e); if(manual) alert('Помилка: ' + (e && e.message || e)); }
+  finally{ deadlineSweepBusy = false; }
+}
+function saveDeadlineSettings(){
+  appSettings.autoSmsDeadline = !!document.getElementById('setAutoSmsDeadline').checked;
+  appSettings.storeDaysNp = Math.min(30, Math.max(1, Number(document.getElementById('setStoreDaysNp').value) || 5));
+  appSettings.storeDaysUp = Math.min(30, Math.max(1, Number(document.getElementById('setStoreDaysUp').value) || 7));
+  const t = document.getElementById('setTplDeadline').value.trim();
+  appSettings.smsDeadlineTpl = t && t !== DEADLINE_TPL_DEFAULT ? t : '';
+  scheduleSave();
+}
+setInterval(() => { try{ runDeadlineSmsSweep(false); }catch(e){} }, 60 * 60 * 1000);
+setTimeout(() => { try{ runDeadlineSmsSweep(false); }catch(e){} }, 45000);
 
 // посилку вже отримано (або повертається) — SMS «відправлено» / «прибула» слати не треба
 function smsParcelAlreadyDone(o){
@@ -7419,7 +7487,7 @@ function renderPickupStats(){
 }
 
 function smsLogDateUa(d){ const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d||'—'); }
-function smsKindLabel(k){ return k === 'arrived' ? 'прибула у відділення' : (k === 'reminder' ? 'нагадування про відділення' : (k === 'custom' ? 'своє повідомлення' : 'відправлено')); }
+function smsKindLabel(k){ return k === 'arrived' ? 'прибула у відділення' : (k === 'reminder' ? 'нагадування про відділення' : (k === 'custom' ? 'своє повідомлення' : (k === 'deadline' ? 'кінець безкоштовного зберігання' : 'відправлено'))); }
 // короткий текст: «2 SMS: 20.10.2026 12:30 відправлено; 21.10.2026 09:10 прибула у відділення»
 function smsHistoryText(o){
   const log = (o.smsLog || []);
@@ -9270,6 +9338,14 @@ function freeShipApplyAll(){
   renderOrders(); scheduleSave();
   if(st) st.textContent = `Змінено замовлень: ${n}.`;
 }
+function clearCodFlag(id){
+  const o = orderById(id); if(!o) return;
+  const amount = Number(o.codAmount) || 0; if(amount <= 0) return;
+  if(!confirm(`У програмі для №${o.id} записано контроль оплати ${amount} грн. Ви перевірили в кабінеті перевізника, що в цій ТТН його вже немає? Позначку буде прибрано, і пакувальник зможе друкувати наклейку.`)) return;
+  o.codAmountWas = amount; o.codAmount = 0;
+  try{ logOrderError && errOk(o, 'Контроль оплати'); }catch(e){}
+  renderOrders(); scheduleSave();
+}
 function toggleOrderPaid(id, checked){
   const o = orderById(id);
   if(!o) return;
@@ -9865,6 +9941,7 @@ function ukrResultHtml(o){
       · <a href="#" onclick="redirectOpen(${o.id});return false;" style="color:var(--saffron);">↪ переадресація</a>
       <span id="ukr-phone-status-${o.id}"></span>
       <span id="ukr-check-delivery-status-${o.id}"></span>
+      ${(o.paid && Number(o.codAmount) > 0) ? `· <a href="#" onclick="clearCodFlag(${o.id});return false;" style="color:var(--danger);font-weight:600;" title="Якщо в самій ТТН контролю оплати вже немає (знято в кабінеті перевізника) — прибрати застарілу позначку, щоб пакувальника не блокувало">✓ контролю оплати в ТТН немає — прибрати позначку</a>` : ''}
       <span id="ukr-cod-status-${o.id}"></span>
       ${cbReceiptHtml(o)}
       ${redirectHistoryHtml(o)}
@@ -10811,6 +10888,7 @@ function ttnResultHtml(o){
       · <a href="#" onclick="redirectOpen(${o.id});return false;" style="color:var(--saffron);">↪ переадресація</a>
       ${o.npStatusText ? `<br>Статус НП: <strong>${escapeAttr(o.npStatusText)}</strong>` : ''}
       <span id="ttn-recipient-status-${o.id}"></span>
+      ${(o.paid && Number(o.codAmount) > 0) ? `· <a href="#" onclick="clearCodFlag(${o.id});return false;" style="color:var(--danger);font-weight:600;" title="Якщо в самій ТТН контролю оплати вже немає (знято в кабінеті перевізника) — прибрати застарілу позначку, щоб пакувальника не блокувало">✓ контролю оплати в ТТН немає — прибрати позначку</a>` : ''}
       <span id="ttn-cod-status-${o.id}"></span>
       ${cbReceiptHtml(o)}
       ${redirectHistoryHtml(o)}

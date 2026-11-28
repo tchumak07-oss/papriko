@@ -77,7 +77,7 @@
 
 <div id="app" style="display:none;">
   <header>
-    <h1>📦 Наборщик <small id="packerVer" style="font-size:11px;font-weight:400;opacity:.6;margin-left:6px;">v1.4 · 27.11.2026 17:40</small></h1>
+    <h1>📦 Наборщик <small id="packerVer" style="font-size:11px;font-weight:400;opacity:.6;margin-left:6px;">v1.5 · 28.11.2026 14:20</small></h1>
     <button class="chip" id="soundBtn" onclick="toggleSound()">🔕 Звук вимкнено</button>
     <button class="chip" id="refreshBtn" onclick="refreshStatuses(true)">🔄 Оновити</button>
     <span class="sync" id="syncLbl">Підключення…</span>
@@ -553,7 +553,7 @@ async function printSticker(uid){
   const o = orders.find(x => uidOf(x) === uid); if(!o) return;
   const k = stickerKind(o); if(!k) return;
   if(codBlocked(o)){
-    showErr('Замовлення оплачене, але в ТТН ще є контроль оплати (' + o.codAmount + ' грн). Після друку НП його вже не змінити. Поки не друкуй наклейку і скажи адміну, щоб виправив ТТН.');
+    showErr('Замовлення оплачене, але в ТТН ще є контроль оплати (' + o.codAmount + ' грн). Після друку НП його вже не змінити. Поки не друкуй наклейку і скажи адміну: якщо в ТТН контролю оплати вже немає, він прибере застарілу позначку в програмі.');
     return;
   }
   if(k === 'np'){
