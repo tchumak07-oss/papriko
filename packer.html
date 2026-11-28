@@ -77,7 +77,7 @@
 
 <div id="app" style="display:none;">
   <header>
-    <h1>📦 Наборщик <small id="packerVer" style="font-size:11px;font-weight:400;opacity:.6;margin-left:6px;">v1.3 · 25.11.2026 15:55</small></h1>
+    <h1>📦 Наборщик <small id="packerVer" style="font-size:11px;font-weight:400;opacity:.6;margin-left:6px;">v1.4 · 27.11.2026 17:40</small></h1>
     <button class="chip" id="soundBtn" onclick="toggleSound()">🔕 Звук вимкнено</button>
     <button class="chip" id="refreshBtn" onclick="refreshStatuses(true)">🔄 Оновити</button>
     <span class="sync" id="syncLbl">Підключення…</span>
@@ -602,8 +602,12 @@ async function printPdfBox(){
     let uids = []; try{ uids = JSON.parse(box.dataset.uids || '[]'); }catch(e){}
     setTimeout(() => {
       try{
-        fr.contentWindow.addEventListener('afterprint', () => { if(uids.length) autoPrinted(uids); });
+        let marked = false;
+        const done = () => { if(marked) return; marked = true; if(uids.length) autoPrinted(uids); const pb = document.getElementById('pdfBox'); if(pb) pb.remove(); };
+        fr.contentWindow.addEventListener('afterprint', done);
         fr.contentWindow.focus(); fr.contentWindow.print();
+        // як і для НП: після друку позначаємо «роздруковано» й закриваємо вікно (на телефонах afterprint часто не спрацьовує, а вікно перекривало весь екран)
+        setTimeout(done, 1200);
       }catch(e){ showErr('Друк: ' + e.message); }
       setTimeout(() => fr.remove(), 300000);
     }, 400);
